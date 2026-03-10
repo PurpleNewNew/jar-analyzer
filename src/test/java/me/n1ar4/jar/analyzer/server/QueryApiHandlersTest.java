@@ -68,6 +68,11 @@ class QueryApiHandlersTest {
         assertTrue(cypherJson.getJSONObject("data").containsKey("columns"));
         assertTrue(cypherJson.getJSONObject("data").containsKey("rows"));
         assertTrue(cypherJson.containsKey("meta"));
+        JSONObject firstNode = cypherJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getJSONObject(0);
+        assertEquals("[\"Method\"]", firstNode.getJSONArray("labels").toJSONString());
+        JSONObject firstEdge = cypherJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getJSONObject(1);
+        assertEquals("CALL", firstEdge.getJSONObject("properties").getString("display_rel_type"));
+        assertEquals("direct", firstEdge.getJSONObject("properties").getString("rel_subtype"));
     }
 
     @Test
@@ -100,6 +105,19 @@ class QueryApiHandlersTest {
         assertTrue(data.getJSONArray("apocWhitelist").contains("apoc.text.join"));
         assertFalse(data.containsKey("legacyCompatibility"));
         assertTrue(data.containsKey("ruleValidation"));
+        assertTrue(data.containsKey("graphModel"));
+        JSONObject graphModel = data.getJSONObject("graphModel");
+        assertTrue(graphModel.getJSONArray("publicNodeLabels").contains("Method"));
+        assertTrue(graphModel.getJSONArray("publicNodeLabels").contains("Class"));
+        assertTrue(graphModel.getJSONArray("publicRelationGroups").contains("CALL"));
+        assertTrue(graphModel.getJSONArray("publicRelationGroups").contains("ALIAS"));
+        assertEquals("call-only", graphModel.getString("defaultTraversalMode"));
+        assertEquals("dynamic-ja-functions", graphModel.getString("semanticMode"));
+        assertEquals(true, graphModel.getBoolean("logicalCypherPatternRewrite"));
+        assertEquals(true, graphModel.getBoolean("logicalCypherTypePredicateRewrite"));
+        assertEquals(true, graphModel.getBoolean("logicalCypherParameterizedTypePredicateRewrite"));
+        assertTrue(graphModel.getJSONArray("logicalCypherRelationshipTypes").contains("CALL"));
+        assertTrue(graphModel.getJSONArray("logicalCypherRelationshipTypes").contains("ALIAS"));
         JSONObject ruleValidation = data.getJSONObject("ruleValidation");
         assertEquals(true, ruleValidation.getBoolean("ok"));
         assertTrue(ruleValidation.containsKey("modelSource"));
@@ -267,6 +285,131 @@ class QueryApiHandlersTest {
         JSONObject explainJson = JSON.parseObject(explainOut);
         assertEquals(true, explainJson.getBoolean("ok"));
         assertEquals("neo4j", explainJson.getJSONObject("data").getString("engine"));
+    }
+
+    @Test
+    void cypherNodeProjectionShouldExposeDynamicSemanticProperties() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:Method) RETURN m ORDER BY m.node_id");
+        JSONObject json = JSON.parseObject(api.postJson("/api/query/cypher", body.toJSONString()));
+        assertEquals(true, json.getBoolean("ok"));
+        JSONObject source = json.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getJSONObject(0);
+        JSONObject middle = json.getJSONObject("data").getJSONArray("rows").getJSONArray(1).getJSONObject(0);
+        JSONObject sink = json.getJSONObject("data").getJSONArray("rows").getJSONArray(2).getJSONObject(0);
+        assertEquals("[\"Method\"]", source.getJSONArray("labels").toJSONString());
+        assertEquals(Boolean.TRUE, source.getJSONObject("properties").getBoolean("is_source"));
+        assertEquals("[\"Rpc\"]", source.getJSONObject("properties").getJSONArray("source_badges").toJSONString());
+        assertEquals(Boolean.FALSE, middle.getJSONObject("properties").getBoolean("is_source"));
+        assertEquals(3, middle.getJSONObject("properties").getIntValue("source_flags"));
+        assertEquals(Boolean.TRUE, sink.getJSONObject("properties").getBoolean("is_sink"));
+        assertEquals("rce", sink.getJSONObject("properties").getString("sink_kind"));
+    }
+
+    @Test
+    void cypherShouldSupportLogicalCallRelationshipTypeInPatterns() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m, r, n ORDER BY m.node_id");
+        JSONObject json = JSON.parseObject(api.postJson("/api/query/cypher", body.toJSONString()));
+        assertEquals(true, json.getBoolean("ok"));
+        assertEquals(2, json.getJSONObject("data").getJSONArray("rows").size());
+        JSONObject firstEdge = json.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getJSONObject(1);
+        assertEquals("CALL", firstEdge.getJSONObject("properties").getString("display_rel_type"));
+        assertEquals("CALLS_DIRECT", firstEdge.getString("type"));
+
+        JSONObject explainBody = new JSONObject();
+        explainBody.put("query", "MATCH (m:Method)-[:CALL]->(n:Method) RETURN m, n LIMIT 1");
+        JSONObject explainJson = JSON.parseObject(api.postJson("/api/query/cypher/explain", explainBody.toJSONString()));
+        assertEquals(true, explainJson.getBoolean("ok"));
+    }
+
+    @Test
+    void cypherShouldSupportLogicalTypePredicates() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        JSONObject equalsBody = new JSONObject();
+        equalsBody.put("query", "MATCH ()-[r]->() WHERE type(r) = 'CALL' RETURN count(r)");
+        JSONObject equalsJson = JSON.parseObject(api.postJson("/api/query/cypher", equalsBody.toJSONString()));
+        assertEquals(true, equalsJson.getBoolean("ok"));
+        assertEquals(2, ((Number) equalsJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject inBody = new JSONObject();
+        inBody.put("query", "MATCH ()-[r]->() WHERE type(r) IN ['CALL'] RETURN count(r)");
+        JSONObject inJson = JSON.parseObject(api.postJson("/api/query/cypher", inBody.toJSONString()));
+        assertEquals(true, inJson.getBoolean("ok"));
+        assertEquals(2, ((Number) inJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject neqBody = new JSONObject();
+        neqBody.put("query", "MATCH ()-[r]->() WHERE type(r) <> 'CALL' RETURN count(r)");
+        JSONObject neqJson = JSON.parseObject(api.postJson("/api/query/cypher", neqBody.toJSONString()));
+        assertEquals(true, neqJson.getBoolean("ok"));
+        assertEquals(0, ((Number) neqJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject reverseEqualsBody = new JSONObject();
+        reverseEqualsBody.put("query", "MATCH ()-[r]->() WHERE 'CALL' = type(r) RETURN count(r)");
+        JSONObject reverseEqualsJson = JSON.parseObject(api.postJson("/api/query/cypher", reverseEqualsBody.toJSONString()));
+        assertEquals(true, reverseEqualsJson.getBoolean("ok"));
+        assertEquals(2, ((Number) reverseEqualsJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject reverseNeqBody = new JSONObject();
+        reverseNeqBody.put("query", "MATCH ()-[r]->() WHERE 'CALL' <> type(r) RETURN count(r)");
+        JSONObject reverseNeqJson = JSON.parseObject(api.postJson("/api/query/cypher", reverseNeqBody.toJSONString()));
+        assertEquals(true, reverseNeqJson.getBoolean("ok"));
+        assertEquals(0, ((Number) reverseNeqJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject physicalBody = new JSONObject();
+        physicalBody.put("query", "MATCH ()-[r]->() RETURN type(r) AS relType ORDER BY relType LIMIT 1");
+        JSONObject physicalJson = JSON.parseObject(api.postJson("/api/query/cypher", physicalBody.toJSONString()));
+        assertEquals(true, physicalJson.getBoolean("ok"));
+        assertEquals("CALLS_DIRECT", physicalJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(0));
+    }
+
+    @Test
+    void cypherShouldSupportParameterizedLogicalTypePredicates() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        JSONObject equalsBody = new JSONObject();
+        equalsBody.put("query", "MATCH ()-[r]->() WHERE type(r) = $relType RETURN count(r)");
+        JSONObject equalsParams = new JSONObject();
+        equalsParams.put("relType", "CALL");
+        equalsBody.put("params", equalsParams);
+        JSONObject equalsJson = JSON.parseObject(api.postJson("/api/query/cypher", equalsBody.toJSONString()));
+        assertEquals(true, equalsJson.getBoolean("ok"));
+        assertEquals(2, ((Number) equalsJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject reverseBody = new JSONObject();
+        reverseBody.put("query", "MATCH ()-[r]->() WHERE $relType = type(r) RETURN count(r)");
+        JSONObject reverseParams = new JSONObject();
+        reverseParams.put("relType", "CALL");
+        reverseBody.put("params", reverseParams);
+        JSONObject reverseJson = JSON.parseObject(api.postJson("/api/query/cypher", reverseBody.toJSONString()));
+        assertEquals(true, reverseJson.getBoolean("ok"));
+        assertEquals(2, ((Number) reverseJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject listBody = new JSONObject();
+        listBody.put("query", "MATCH ()-[r]->() WHERE type(r) IN $relTypes RETURN count(r)");
+        JSONObject listParams = new JSONObject();
+        listParams.put("relTypes", List.of("CALL"));
+        listBody.put("params", listParams);
+        JSONObject listJson = JSON.parseObject(api.postJson("/api/query/cypher", listBody.toJSONString()));
+        assertEquals(true, listJson.getBoolean("ok"));
+        assertEquals(2, ((Number) listJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
+
+        JSONObject physicalBody = new JSONObject();
+        physicalBody.put("query", "MATCH ()-[r]->() WHERE type(r) = $relType RETURN count(r)");
+        JSONObject physicalParams = new JSONObject();
+        physicalParams.put("relType", "CALLS_DIRECT");
+        physicalBody.put("params", physicalParams);
+        JSONObject physicalJson = JSON.parseObject(api.postJson("/api/query/cypher", physicalBody.toJSONString()));
+        assertEquals(true, physicalJson.getBoolean("ok"));
+        assertEquals(2, ((Number) physicalJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(0)).intValue());
     }
 
     @Test

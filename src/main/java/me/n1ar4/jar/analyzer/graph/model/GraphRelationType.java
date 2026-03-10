@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.graph.model;
 
+import java.util.List;
+
 public enum GraphRelationType {
     ALIAS,
     HAS,
@@ -24,6 +26,18 @@ public enum GraphRelationType {
     CALLS_METHOD_HANDLE,
     CALLS_FRAMEWORK,
     CALLS_PTA;
+
+    private static final List<String> PHYSICAL_CALL_RELATION_TYPES = List.of(
+            CALLS_DIRECT.name(),
+            CALLS_DISPATCH.name(),
+            CALLS_REFLECTION.name(),
+            CALLS_CALLBACK.name(),
+            CALLS_OVERRIDE.name(),
+            CALLS_INDY.name(),
+            CALLS_METHOD_HANDLE.name(),
+            CALLS_FRAMEWORK.name(),
+            CALLS_PTA.name()
+    );
 
     public static GraphRelationType fromEdgeType(String edgeType) {
         if (edgeType == null) {
@@ -80,6 +94,19 @@ public enum GraphRelationType {
             return "";
         }
         return normalized.toLowerCase();
+    }
+
+    public static List<String> physicalCallRelationTypes() {
+        return PHYSICAL_CALL_RELATION_TYPES;
+    }
+
+    public static List<String> expandLogicalRelationType(String relationType) {
+        String normalized = relationType == null ? "" : relationType.trim().toUpperCase();
+        return switch (normalized) {
+            case "CALL" -> PHYSICAL_CALL_RELATION_TYPES;
+            case "ALIAS", "HAS", "EXTEND", "INTERFACES" -> List.of(normalized);
+            default -> normalized.isBlank() ? List.of() : List.of(relationType);
+        };
     }
 
     public String displayGroup() {

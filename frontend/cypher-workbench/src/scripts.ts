@@ -27,15 +27,15 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     titleEn: 'Browse Calls',
     tagsZh: 'graph,edge',
     tagsEn: 'graph,edge',
-    body: 'MATCH (m:Method)-[r]->(n:Method) RETURN m,r,n LIMIT 50'
+    body: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m,r,n LIMIT 50'
   },
   {
     mode: 'call',
-    titleZh: '按关系类别看调用',
-    titleEn: 'Filter CALL Group',
-    tagsZh: 'graph,call',
-    tagsEn: 'graph,call',
-    body: 'MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "CALL" RETURN m,r,n LIMIT 50'
+    titleZh: '查看调用细分',
+    titleEn: 'Browse Call Subtypes',
+    tagsZh: 'graph,call,subtype',
+    tagsEn: 'graph,call,subtype',
+    body: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m, ja.relSubtype(type(r)) AS relSubtype, r, n LIMIT 50'
   },
   {
     mode: 'call',
@@ -47,11 +47,11 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
   },
   {
     mode: 'call',
-    titleZh: '按关系类别看 Alias',
-    titleEn: 'Filter ALIAS Group',
-    tagsZh: 'graph,alias',
-    tagsEn: 'graph,alias',
-    body: 'MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "ALIAS" RETURN m,r,n LIMIT 50'
+    titleZh: '按 alias_kind 查看',
+    titleEn: 'Browse alias_kind',
+    tagsZh: 'graph,alias,kind',
+    tagsEn: 'graph,alias,kind',
+    body: 'MATCH (m:Method)-[r:ALIAS]->(n:Method) RETURN m, r.alias_kind AS aliasKind, r, n LIMIT 50'
   },
   {
     mode: 'call',

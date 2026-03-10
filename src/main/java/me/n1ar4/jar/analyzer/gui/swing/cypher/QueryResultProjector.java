@@ -7,9 +7,7 @@ package me.n1ar4.jar.analyzer.gui.swing.cypher;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONWriter;
-import me.n1ar4.jar.analyzer.core.reference.ClassReference;
-import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
+import me.n1ar4.jar.analyzer.graph.query.QueryDisplayModel;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
@@ -17,8 +15,6 @@ import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.GraphFramePayload;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ProjectGraphRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFramePayload;
-import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -416,7 +412,7 @@ public final class QueryResultProjector {
             return;
         }
         Map<String, Object> properties = mergeProperties(nodeProperties(node), propertyMap(fallback));
-        List<String> labels = mergeLabels(defaultLabels(node), sanitizeDisplayLabels(stringList(fallback == null ? null : fallback.get("labels"))));
+        List<String> labels = displayLabels(node == null ? null : node.getKind(), fallback == null ? null : stringList(fallback.get("labels")));
         nodes.put(nodeId,
                 new GraphFramePayload.Node(
                         nodeId,
@@ -516,7 +512,7 @@ public final class QueryResultProjector {
                 className,
                 methodName,
                 methodDesc,
-                sanitizeDisplayLabels(stringList(fallback == null ? null : fallback.get("labels"))),
+                displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels"))),
                 mergeProperties(nodeMetadataProperties(nodeId, kind, jarId, className, methodName, methodDesc, "", -1, -1, sourceFlags), properties)
         );
     }
@@ -564,8 +560,7 @@ public final class QueryResultProjector {
         if (!className.isEmpty()) {
             return className;
         }
-        List<String> labels = stringList(fallback == null ? null : fallback.get("labels"));
-        labels = sanitizeDisplayLabels(labels);
+        List<String> labels = displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels")));
         if (!labels.isEmpty()) {
             return String.join(":", labels) + ":" + nodeId;
         }
@@ -576,16 +571,7 @@ public final class QueryResultProjector {
     }
 
     private static List<String> defaultLabels(GraphNode node) {
-        if (node == null) {
-            return List.of();
-        }
-        LinkedHashSet<String> labels = new LinkedHashSet<>();
-        labels.add("JANode");
-        String kind = safe(node.getKind());
-        if (!kind.isEmpty()) {
-            labels.add(displayKindLabel(kind));
-        }
-        return new ArrayList<>(labels);
+        return QueryDisplayModel.displayLabels(node == null ? null : node.getKind(), List.of());
     }
 
     private static Map<String, Object> nodeProperties(GraphNode node) {
@@ -626,10 +612,10 @@ public final class QueryResultProjector {
         putIfPresent(out, "call_site_key", callSiteKey);
         putIfPresent(out, "line_number", lineNumber >= 0 ? lineNumber : null);
         putIfPresent(out, "call_index", callIndex >= 0 ? callIndex : null);
-        putIfPresent(out, "source_flags", sourceFlags > 0 ? sourceFlags : null);
-        Map<String, Object> semantic = nodeSemanticProperties(kind, jarId, className, methodName, methodDesc);
-        out.putAll(semantic);
-        return out;
+        if (sourceFlags >= 0) {
+            out.put("source_flags", sourceFlags);
+        }
+        return QueryDisplayModel.projectNodeProperties(out);
     }
 
     private static Map<String, Object> edgeProperties(String relType,
@@ -646,8 +632,6 @@ public final class QueryResultProjector {
                                                       Map<String, Object> properties) {
         LinkedHashMap<String, Object> out = new LinkedHashMap<>();
         putIfPresent(out, "rel_type", relType);
-        putIfPresent(out, "display_rel_type", GraphRelationType.relationGroup(relType));
-        putIfPresent(out, "rel_subtype", GraphRelationType.relationSubtype(relType));
         putIfPresent(out, "confidence", confidence);
         putIfPresent(out, "evidence", evidence);
         if (edge != null) {
@@ -657,90 +641,7 @@ public final class QueryResultProjector {
             putIfPresent(out, "line_number", edge.getLineNumber() >= 0 ? edge.getLineNumber() : null);
             putIfPresent(out, "call_index", edge.getCallIndex() >= 0 ? edge.getCallIndex() : null);
         }
-        return mergeProperties(out, properties);
-    }
-
-    private static Map<String, Object> nodeSemanticProperties(String kind,
-                                                              int jarId,
-                                                              String className,
-                                                              String methodName,
-                                                              String methodDesc) {
-        if (!"method".equalsIgnoreCase(safe(kind))) {
-            return Map.of();
-        }
-        int effectiveSourceFlags = SourceRuleSupport.resolveCurrentSourceFlags(
-                className,
-                methodName,
-                methodDesc,
-                jarId
-        );
-        List<String> sourceBadges = SourceRuleSupport.describeFlags(effectiveSourceFlags);
-        String sinkKind = resolveSinkKind(jarId, className, methodName, methodDesc);
-        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
-        putIfPresent(out, "source_flags_effective", effectiveSourceFlags > 0 ? effectiveSourceFlags : null);
-        putIfPresent(out, "source_badges", sourceBadges.isEmpty() ? null : sourceBadges);
-        out.put("is_source", effectiveSourceFlags != 0);
-        out.put("is_sink", !sinkKind.isBlank());
-        putIfPresent(out, "sink_kind", sinkKind);
-        return out;
-    }
-
-    private static String resolveSinkKind(int jarId,
-                                          String className,
-                                          String methodName,
-                                          String methodDesc) {
-        String owner = normalizeClassName(className);
-        String name = safe(methodName);
-        String desc = safe(methodDesc);
-        if (owner.isBlank() || name.isBlank() || desc.isBlank()) {
-            return "";
-        }
-        MethodReference.Handle handle = new MethodReference.Handle(
-                new ClassReference.Handle(owner, jarId),
-                name,
-                desc
-        );
-        String sinkKind = ModelRegistry.resolveSinkKind(handle);
-        return sinkKind == null ? "" : sinkKind;
-    }
-
-    private static List<String> sanitizeDisplayLabels(List<String> labels) {
-        if (labels == null || labels.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        for (String raw : labels) {
-            String label = safe(raw);
-            if (label.isEmpty() || isSourceSemanticLabel(label)) {
-                continue;
-            }
-            if ("method".equalsIgnoreCase(label)) {
-                out.add("Method");
-                continue;
-            }
-            out.add(label);
-        }
-        return new ArrayList<>(out);
-    }
-
-    private static boolean isSourceSemanticLabel(String label) {
-        String normalized = safe(label);
-        return "Source".equalsIgnoreCase(normalized)
-                || "SourceWeb".equalsIgnoreCase(normalized)
-                || "SourceModel".equalsIgnoreCase(normalized)
-                || "SourceAnno".equalsIgnoreCase(normalized)
-                || "SourceRpc".equalsIgnoreCase(normalized);
-    }
-
-    private static String displayKindLabel(String kind) {
-        String normalized = safe(kind);
-        if (normalized.isEmpty()) {
-            return "";
-        }
-        if (normalized.length() == 1) {
-            return normalized.toUpperCase(Locale.ROOT);
-        }
-        return normalized.substring(0, 1).toUpperCase(Locale.ROOT) + normalized.substring(1);
+        return QueryDisplayModel.projectRelationshipProperties(relType, mergeProperties(out, properties));
     }
 
     private static void putIfPresent(Map<String, Object> out, String key, Object value) {
@@ -777,6 +678,10 @@ public final class QueryResultProjector {
             out.addAll(secondary);
         }
         return new ArrayList<>(out);
+    }
+
+    private static List<String> displayLabels(String kind, List<String> fallbackLabels) {
+        return QueryDisplayModel.displayLabels(kind, mergeLabels(List.of(), fallbackLabels));
     }
 
     private static GraphFramePayload emptyGraph(List<String> warnings, boolean truncated) {

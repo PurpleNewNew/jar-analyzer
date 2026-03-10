@@ -219,7 +219,7 @@ const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
 let editor = new EditorView({
   state: EditorState.create({
-    doc: 'MATCH (m:Method)-[r]->(n) RETURN m,r,n LIMIT 50',
+    doc: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m,r,n LIMIT 50',
     extensions: [
       history(),
       sql(),
@@ -2553,7 +2553,7 @@ function buildInspectorFragment(key: string, value: unknown): string {
     return `:${String(textValue).trim()}`
   }
   if (safeKey === 'display_rel_type' || safeKey === 'rel_group') {
-    return `ja.relGroup(type(r)) = ${toCypherLiteral(textValue)}`
+    return `type(r) = ${toCypherLiteral(textValue)}`
   }
   if (safeKey === 'rel_subtype') {
     return `ja.relSubtype(type(r)) = ${toCypherLiteral(textValue)}`

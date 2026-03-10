@@ -37,7 +37,7 @@ class QueryResultProjectorTest {
         Assertions.assertEquals("CALLS_DIRECT", graph.edges().get(0).relType());
         Assertions.assertEquals("CALL", graph.edges().get(0).properties().get("display_rel_type"));
         Assertions.assertEquals("direct", graph.edges().get(0).properties().get("rel_subtype"));
-        Assertions.assertTrue(graph.nodes().get(0).labels().contains("JANode"));
+        Assertions.assertEquals(List.of("Method"), graph.nodes().get(0).labels());
         Assertions.assertTrue(graph.edges().get(0).properties().containsKey("confidence"));
     }
 
@@ -206,7 +206,7 @@ class QueryResultProjectorTest {
         QueryFramePayload frame = projector.toFrame("frame-clean-labels", "MATCH (n) RETURN n", result, 4, buildSnapshot());
         GraphFramePayload graph = frame.graph();
         Assertions.assertNotNull(graph);
-        Assertions.assertEquals(List.of("JANode", "Method"), graph.nodes().get(0).labels());
+        Assertions.assertEquals(List.of("Method"), graph.nodes().get(0).labels());
     }
 
     @Test
@@ -266,7 +266,7 @@ class QueryResultProjectorTest {
         Assertions.assertEquals(3, graph.nodes().size());
         Assertions.assertEquals(2, graph.edges().size());
         Assertions.assertTrue(graph.edges().stream().anyMatch(edge -> edge.id() == 101L));
-        Assertions.assertTrue(graph.nodes().stream().allMatch(node -> node.labels().contains("JANode")));
+        Assertions.assertTrue(graph.nodes().stream().allMatch(node -> node.labels().contains("Method")));
     }
 
     @Test

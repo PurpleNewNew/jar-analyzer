@@ -198,7 +198,7 @@
   Body:
   ```json
   {
-    "query": "MATCH (n:JANode) RETURN n LIMIT 10",
+    "query": "MATCH (n:Method) RETURN n LIMIT 10",
     "params": {},
     "options": {
       "maxRows": 500,
@@ -215,6 +215,7 @@
   说明:
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
   - 查询执行固定采用 Neo4j 原生引擎；`CALL ja.*` 不再回退到 ANTLR4/内存 `GraphSnapshot` 兼容过程链
+  - 返回的 `Node/Relationship/Path` 值会统一按公开模型投影：节点 `labels` 只默认暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`
   - 提供一组本地只读 `apoc.*` 兼容函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
   - `jar.analyzer.cypher.apoc.whitelist` 默认为 `default`；可设为 `none|off|disabled` 彻底关闭，或用 `coll,text,map,apoc.text.join` 这类逗号列表精确控制
   - `maxMs/maxRows` 对原生查询生效
@@ -246,7 +247,7 @@
   Body:
   ```json
   {
-    "query": "MATCH (n:JANode) RETURN n LIMIT 10"
+    "query": "MATCH (n:Method) RETURN n LIMIT 10"
   }
   ```
   说明:
@@ -254,19 +255,21 @@
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
-  返回当前 Cypher 能力、过程列表、函数列表、支持的 options/profile，以及当前 `procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。
+  返回当前 Cypher 能力、过程列表、函数列表、支持的 options/profile，以及当前 `procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。`graphModel` 会额外给出物理标签/物理边类型、公开标签/公开关系类别、默认遍历模式、逻辑关系类型重写能力、`type(r)` 逻辑筛选重写能力、参数化 `type(r)` 逻辑筛选重写能力与动态语义边界，方便 Workbench/MCP 统一心智。
 
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
-  - 官方查询口径固定为结构标签 + 动态 `ja.*`：
+  - 官方查询口径固定为结构标签 + 动态 `ja.*`；关系模式支持直接写逻辑类型 `:CALL`，`type(r)` 上的 `= / <> / IN / NOT IN` 对 `CALL/ALIAS/HAS/EXTEND/INTERFACES` 也按逻辑语义生效，左右顺序同样支持，例如 `'CALL' = type(r)`；参数化写法如 `type(r) = $relType`、`type(r) IN $relTypes` 也同样支持；查询入口会自动展开到底层物理关系：
     `MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50`
     `MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50`
-    `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "CALL" RETURN m,r,n LIMIT 50`
-    `MATCH (m:Method)-[r]->(n:Method) WHERE ja.relGroup(type(r)) = "ALIAS" RETURN m,r,n LIMIT 50`
+    `MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m,r,n LIMIT 50`
+    `MATCH (m:Method)-[r:ALIAS]->(n:Method) RETURN m,r,n LIMIT 50`
+    `MATCH (m:Method)-[r]->(n:Method) WHERE type(r) = 'CALL' RETURN m,r,n LIMIT 50`
+    `MATCH (m:Method)-[r]->(n:Method) WHERE type(r) = $relType RETURN m,r,n LIMIT 50`
     `MATCH (c:Class)-[:HAS]->(m:Method) RETURN c,m LIMIT 50`
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
   - Workbench 顶部支持 `调用图 / 结构图` 模式切换：调用图模式默认强调 `Method + CALL/ALIAS`；结构图模式默认强调 `Class + HAS/EXTEND/INTERFACES`，内置模板也会同步切到类结构浏览，不会把结构边直接污染默认调用图视图
-  - 方法节点默认只保留结构标签（`JANode;Method`）；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
+  - 物理层仍保留 `JANode;Method` / `JANode;Class`，但 Workbench 与 API 公开标签默认只展示 `Method/Class`；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
   - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
   - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 默认把调用边聚合显示为 `CALL`，`ALIAS` 作为独立关系类别展示；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别、关系子类与 `alias_kind`
   - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；只有结构图模式或显式结构查询模板会突出这些关系，默认主舞台仍是方法调用图

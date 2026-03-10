@@ -4,6 +4,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphRelationTypeTest {
 
@@ -29,5 +30,13 @@ class GraphRelationTypeTest {
         assertEquals("interfaces", GraphRelationType.relationSubtype("INTERFACES"));
         assertEquals("PATH", GraphRelationType.relationGroup("PATH"));
         assertEquals("path", GraphRelationType.relationSubtype("PATH"));
+    }
+
+    @Test
+    void shouldExpandLogicalCallRelationType() {
+        assertEquals(GraphRelationType.physicalCallRelationTypes(), GraphRelationType.expandLogicalRelationType("CALL"));
+        assertEquals(9, GraphRelationType.physicalCallRelationTypes().size());
+        assertTrue(GraphRelationType.physicalCallRelationTypes().contains("CALLS_DIRECT"));
+        assertEquals("ALIAS", GraphRelationType.expandLogicalRelationType("ALIAS").get(0));
     }
 }

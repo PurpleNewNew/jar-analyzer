@@ -58,7 +58,7 @@ public final class Neo4jQueryService {
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
-        return executeNative(cypher, safeParams, safeOptions, projectKey);
+        return executeNative(CypherLogicalModelRewriter.rewrite(cypher), safeParams, safeOptions, projectKey);
     }
 
     public Map<String, Object> explain(String query) {
@@ -73,7 +73,7 @@ public final class Neo4jQueryService {
         if (containsWriteClause(cypher)) {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
-        return explainNative(cypher, projectKey);
+        return explainNative(CypherLogicalModelRewriter.rewrite(cypher), projectKey);
     }
 
     public Map<String, Object> capabilities() {
@@ -107,6 +107,7 @@ public final class Neo4jQueryService {
         out.put("apocWhitelistProperty", ApocWhitelist.APOC_WHITELIST_PROP);
         out.put("apocWhitelist", ApocWhitelist.effectiveWhitelist());
         out.put("ruleValidation", RuleValidationViews.combinedValidationMap());
+        out.put("graphModel", QueryDisplayModel.capabilitiesView());
         out.put("unsupportedErrorCode", "cypher_feature_not_supported");
         return out;
     }
@@ -410,8 +411,9 @@ public final class Neo4jQueryService {
             for (var label : node.getLabels()) {
                 labels.add(label.name());
             }
-            out.put("labels", labels);
-            out.put("properties", new LinkedHashMap<>(node.getAllProperties()));
+            Map<String, Object> properties = QueryDisplayModel.projectNodeProperties(new LinkedHashMap<>(node.getAllProperties()));
+            out.put("labels", QueryDisplayModel.displayLabels(stringValue(properties.get("kind")), labels));
+            out.put("properties", properties);
             return out;
         }
         if (value instanceof Relationship relationship) {
@@ -421,7 +423,10 @@ public final class Neo4jQueryService {
             out.put("type", relationship.getType().name());
             out.put("startNodeId", relationship.getStartNode().getProperty("node_id", relationship.getStartNodeId()));
             out.put("endNodeId", relationship.getEndNode().getProperty("node_id", relationship.getEndNodeId()));
-            out.put("properties", new LinkedHashMap<>(relationship.getAllProperties()));
+            out.put("properties", QueryDisplayModel.projectRelationshipProperties(
+                    relationship.getType().name(),
+                    new LinkedHashMap<>(relationship.getAllProperties())
+            ));
             return out;
         }
         if (value instanceof Path path) {
@@ -477,5 +482,9 @@ public final class Neo4jQueryService {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }
