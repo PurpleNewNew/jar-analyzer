@@ -48,6 +48,8 @@ const TABLE_ROW_HEIGHT = 26
 const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
+type GraphViewport = { x: number; y: number; k: number }
+type GraphNodePosition = { x: number; y: number }
 
 interface FrameState {
   frameId: string
@@ -65,6 +67,9 @@ interface FrameState {
   tableFocus: { rowIndex: number; colIndex: number } | null
   graphFocus: { nodeIds: number[]; edgeIds: number[] } | null
   graphFilter: GraphFilter
+  graphViewport: GraphViewport | null
+  graphPinnedNodeIds: number[]
+  graphNodePositions: Record<number, GraphNodePosition>
   errorCode?: string
   errorMessage?: string
 }
@@ -76,6 +81,15 @@ interface SimRef {
 type GraphNodeSim = GraphNodePayload & d3.SimulationNodeDatum
 
 type GraphEdgeSim = d3.SimulationLinkDatum<GraphNodeSim> & GraphEdgePayload
+type EdgeRouteMeta = {
+  lane: number
+  isLoop: boolean
+  loopIndex: number
+}
+
+const GRAPH_LABEL_FONT = '600 11px "SF Mono", "JetBrains Mono", "Consolas", monospace'
+const textWidthCache = new Map<string, number>()
+let textMeasureContext: CanvasRenderingContext2D | null = null
 
 const state = {
   ui: {
@@ -491,7 +505,10 @@ async function runExplain(): Promise<void> {
       selection: null,
       tableFocus: null,
       graphFocus: null,
-      graphFilter: null
+      graphFilter: null,
+      graphViewport: null,
+      graphPinnedNodeIds: [],
+      graphNodePositions: {}
     })
   } catch (error) {
     const bridgeError = extractBridgeError(error, 'cypher_explain_error')
@@ -526,7 +543,10 @@ function toFrameState(frame: QueryFramePayload): FrameState {
     selection: null,
     tableFocus: null,
     graphFocus: null,
-    graphFilter: null
+    graphFilter: null,
+    graphViewport: null,
+    graphPinnedNodeIds: [],
+    graphNodePositions: {}
   }
 }
 
@@ -607,6 +627,9 @@ function buildErrorFrame(query: string, code: string, message: string): FrameSta
     tableFocus: null,
     graphFocus: null,
     graphFilter: null,
+    graphViewport: null,
+    graphPinnedNodeIds: [],
+    graphNodePositions: {},
     errorCode: code,
     errorMessage: message
   }
@@ -811,6 +834,9 @@ function buildFrameBody(frame: FrameState): HTMLElement {
     activateInspectorLink: (key, value, selected) => {
       activateInspectorLink(frame, key, value, selected)
     },
+    activateNeighborhoodFocus: (node) => {
+      activateNeighborhoodFocus(frame, node)
+    },
     clearGraphFilter: () => {
       frame.graphFilter = null
       renderFrames()
@@ -838,27 +864,100 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     return
   }
   container.innerHTML = ''
-  const width = Math.max(360, container.clientWidth || 720)
-  const height = Math.max(260, container.clientHeight || 420)
+  const stage = document.createElement('div')
+  stage.className = 'graph-stage'
+  container.appendChild(stage)
+  const width = Math.max(360, stage.clientWidth || container.clientWidth || 720)
+  const height = Math.max(260, stage.clientHeight || container.clientHeight || 420)
+  const controls = document.createElement('div')
+  controls.className = 'graph-zoom-controls'
+  const zoomReadout = document.createElement('div')
+  zoomReadout.className = 'graph-zoom-readout'
+  const zoomInButton = document.createElement('button')
+  zoomInButton.className = 'graph-zoom-btn'
+  zoomInButton.type = 'button'
+  zoomInButton.textContent = '+'
+  zoomInButton.title = tr('放大', 'Zoom in')
+  const zoomOutButton = document.createElement('button')
+  zoomOutButton.className = 'graph-zoom-btn'
+  zoomOutButton.type = 'button'
+  zoomOutButton.textContent = '−'
+  zoomOutButton.title = tr('缩小', 'Zoom out')
+  const fitButton = document.createElement('button')
+  fitButton.className = 'graph-zoom-btn graph-zoom-fit'
+  fitButton.type = 'button'
+  fitButton.textContent = tr('适配', 'Fit')
+  fitButton.title = tr('重置视图', 'Reset view')
+  controls.append(zoomReadout, zoomInButton, zoomOutButton, fitButton)
+  stage.appendChild(controls)
+
+  const hint = document.createElement('div')
+  hint.className = 'graph-zoom-hint'
+  hint.textContent = tr('按 Ctrl / Cmd / Shift + 滚轮缩放', 'Use Ctrl / Cmd / Shift + scroll to zoom')
+  stage.appendChild(hint)
 
   const svg = d3
-    .select(container)
+    .select(stage)
     .append('svg')
+    .attr('class', 'graph-canvas')
     .attr('viewBox', `0 0 ${width} ${height}`)
 
-  const edgeLayer = svg.append('g')
-  const haloLayer = svg.append('g')
-  const nodeLayer = svg.append('g')
-  const textLayer = svg.append('g')
+  const scene = svg.append('g').attr('class', 'graph-scene')
+  const edgeLayer = scene.append('g')
+  const haloLayer = scene.append('g')
+  const nodeLayer = scene.append('g')
+  const textLayer = scene.append('g')
+  const defs = svg.append('defs')
+  const markerBase = `graph-arrow-${frame.frameId}`
+  defs
+    .append('marker')
+    .attr('id', `${markerBase}-base`)
+    .attr('viewBox', '0 0 10 10')
+    .attr('refX', 9)
+    .attr('refY', 5)
+    .attr('markerWidth', 7)
+    .attr('markerHeight', 7)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+    .attr('fill', '#8e98a6')
+  defs
+    .append('marker')
+    .attr('id', `${markerBase}-active`)
+    .attr('viewBox', '0 0 10 10')
+    .attr('refX', 9)
+    .attr('refY', 5)
+    .attr('markerWidth', 7)
+    .attr('markerHeight', 7)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+    .attr('fill', '#2f81f7')
 
   const simNodes: GraphNodeSim[] = nodes.map((node) => ({ ...node }))
   const simEdges: GraphEdgeSim[] = edges.map((edge) => ({ ...edge }))
+  const nodeOnlyLayout = simEdges.length === 0
+  const edgeRouteMeta = buildEdgeRouteMeta(simEdges)
+  const pinnedNodeIds = new Set<number>(frame.graphPinnedNodeIds)
+  let currentTransform = frame.graphViewport
+    ? d3.zoomIdentity.translate(frame.graphViewport.x, frame.graphViewport.y).scale(frame.graphViewport.k)
+    : d3.zoomIdentity
+  let lastPanSample: { x: number; y: number; at: number } | null = null
+  let panVelocity = { x: 0, y: 0 }
+  seedGraphLayout(simNodes, width, height, nodeOnlyLayout)
+  restoreGraphNodePositions(frame, simNodes)
+  for (const node of simNodes) {
+    if (pinnedNodeIds.has(node.id)) {
+      node.fx = Number.isFinite(node.x) ? Number(node.x) : width / 2
+      node.fy = Number.isFinite(node.y) ? Number(node.y) : height / 2
+    }
+  }
 
   const simulation = d3
     .forceSimulation<GraphNodeSim>(simNodes)
-    .force('charge', d3.forceManyBody().strength(-220))
+    .force('charge', d3.forceManyBody().strength(graphChargeStrength(simNodes.length, nodeOnlyLayout)))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide<GraphNodeSim>().radius((item) => nodeRadius(item) + 6))
+    .force('collision', d3.forceCollide<GraphNodeSim>().radius((item) => nodeRadius(item) + 18))
 
   if (simEdges.length > 0) {
     simulation.force(
@@ -866,31 +965,38 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
       d3
         .forceLink<GraphNodeSim, GraphEdgeSim>(simEdges)
         .id((item) => item.id)
-        .distance(96)
-        .strength(0.45)
+        .distance(Math.max(112, 76 + Math.min(56, simNodes.length)))
+        .strength(0.52)
     )
+  }
+  const warmupTicks = nodeOnlyLayout ? Math.min(180, 54 + simNodes.length * 3) : Math.min(120, 36 + simEdges.length)
+  for (let i = 0; i < warmupTicks; i++) {
+    simulation.tick()
   }
 
   const links = edgeLayer
-    .selectAll('line')
+    .selectAll('path')
     .data(simEdges)
     .enter()
-    .append('line')
+    .append('path')
     .attr('stroke', '#8e98a6')
     .attr('stroke-width', 1.4)
+    .attr('stroke-linecap', 'round')
+    .attr('fill', 'none')
+    .attr('marker-end', `url(#${markerBase}-base)`)
     .attr('opacity', 0.9)
 
   const focus = graphHighlightState(frame)
-  const halos = haloLayer
+  let hoveredNodeId = -1
+  let hoveredEdgeId = -1
+
+  const rings = haloLayer
     .selectAll('circle')
-    .data(simNodes.filter((item) => focus.nodeIds.has(item.id)))
+    .data(simNodes)
     .enter()
     .append('circle')
-    .attr('r', (item) => nodeRadius(item) + 8)
-    .attr('fill', 'rgba(47, 129, 247, 0.16)')
-    .attr('stroke', 'rgba(47, 129, 247, 0.45)')
-    .attr('stroke-width', 1.4)
-    .attr('class', 'graph-halo')
+    .attr('r', (item) => nodeRadius(item) + 10)
+    .attr('class', 'graph-ring')
     .attr('pointer-events', 'none')
 
   const nodesSel = nodeLayer
@@ -902,24 +1008,46 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .attr('fill', (item) => nodeColor(item.kind))
     .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#2f81f7' : '#2f3640'))
     .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.4 : 1.1))
+    .attr('stroke-dasharray', (item) => (pinnedNodeIds.has(item.id) ? '4 2' : null))
     .attr('opacity', (item) => (focus.active && !focus.nodeIds.has(item.id) && !focus.edgeNodeIds.has(item.id) ? 0.42 : 1))
     .style('cursor', 'pointer')
+    .on('mouseenter', (_, item) => {
+      hoveredNodeId = item.id
+      stage.classList.add('graph-hovering')
+      updateGraphVisualState()
+    })
+    .on('mouseleave', () => {
+      hoveredNodeId = -1
+      stage.classList.remove('graph-hovering')
+      updateGraphVisualState()
+    })
     .on('click', (_, item) => {
+      persistGraphNodePositions(frame, simNodes)
       frame.selection = { type: 'node', data: item }
       frame.graphFocus = { nodeIds: [item.id], edgeIds: [] }
       renderFrames()
     })
-    .call(drag(simulation))
+    .on('dblclick', (_, item) => {
+      persistGraphNodePositions(frame, simNodes)
+      togglePinnedNode(frame, item.id)
+      renderFrames()
+    })
+    .call(drag(simulation, pinnedNodeIds, () => persistGraphNodePositions(frame, simNodes)))
+
+  nodesSel.append('title').text((item) => item.label)
 
   const labels = textLayer
     .selectAll('text')
     .data(simNodes)
     .enter()
     .append('text')
-    .text((item) => item.label)
-    .attr('font-size', 10)
+    .text((item) => graphNodeDisplayLabel(item, false))
+    .attr('font-size', 11)
+    .attr('font-weight', 600)
     .attr('fill', '#1f2933')
-    .attr('opacity', (item) => (focus.active && (focus.nodeIds.has(item.id) || focus.edgeNodeIds.has(item.id)) ? 1 : 0.72))
+    .attr('stroke', 'rgba(248, 250, 252, 0.94)')
+    .attr('stroke-width', 4)
+    .attr('paint-order', 'stroke')
     .attr('text-anchor', 'middle')
     .attr('pointer-events', 'none')
 
@@ -928,13 +1056,30 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .data(simEdges)
     .enter()
     .append('text')
-    .text((item) => item.relType || '')
+    .text((item) => truncateTextByWidth(item.relType || '', 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
     .attr('font-size', 9)
+    .attr('font-weight', 700)
     .attr('fill', '#5f6b78')
-    .attr('opacity', (item) => (focus.edgeIds.has(item.id) ? 1 : 0.75))
+    .attr('stroke', 'rgba(248, 250, 252, 0.94)')
+    .attr('stroke-width', 4)
+    .attr('paint-order', 'stroke')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'central')
     .attr('pointer-events', 'none')
 
+  links
+    .on('mouseenter', (_, item) => {
+      hoveredEdgeId = item.id
+      stage.classList.add('graph-hovering')
+      updateGraphVisualState()
+    })
+    .on('mouseleave', () => {
+      hoveredEdgeId = -1
+      stage.classList.remove('graph-hovering')
+      updateGraphVisualState()
+    })
   links.on('click', (_, item) => {
+    persistGraphNodePositions(frame, simNodes)
     frame.selection = {
       type: 'edge',
       data: {
@@ -954,28 +1099,185 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     renderFrames()
   })
 
-  simulation.on('tick', () => {
+  const zoom = d3
+    .zoom<SVGSVGElement, unknown>()
+    .scaleExtent([0.42, 3.2])
+    .filter((event) => {
+      if (event.type === 'wheel') {
+        return !!(event.ctrlKey || event.metaKey || event.shiftKey)
+      }
+      return event.type !== 'dblclick'
+    })
+    .on('start', () => {
+      stage.classList.add('graph-interacting')
+      lastPanSample = null
+      panVelocity = { x: 0, y: 0 }
+    })
+    .on('end', (event) => {
+      stage.classList.remove('graph-interacting')
+      if (Math.abs(panVelocity.x) > 0.18 || Math.abs(panVelocity.y) > 0.18) {
+        const momentumX = clampFloat(panVelocity.x * 180, -140, 140)
+        const momentumY = clampFloat(panVelocity.y * 180, -120, 120)
+        currentTransform = d3.zoomIdentity
+          .translate(currentTransform.x + momentumX, currentTransform.y + momentumY)
+          .scale(currentTransform.k)
+        svg
+          .transition()
+          .duration(220)
+          .ease(d3.easeCubicOut)
+          .call(zoom.transform, currentTransform)
+      }
+      lastPanSample = null
+      panVelocity = { x: 0, y: 0 }
+    })
+    .on('zoom', (event) => {
+      const transform = event.transform
+      currentTransform = transform
+      const sourceEvent = event.sourceEvent as MouseEvent | WheelEvent | undefined
+      if (sourceEvent?.type === 'mousemove') {
+        const now = performance.now()
+        if (lastPanSample) {
+          const dt = Math.max(1, now - lastPanSample.at)
+          panVelocity = {
+            x: (transform.x - lastPanSample.x) / dt,
+            y: (transform.y - lastPanSample.y) / dt
+          }
+        }
+        lastPanSample = { x: transform.x, y: transform.y, at: now }
+      }
+      scene.attr('transform', transform.toString())
+      frame.graphViewport = { x: transform.x, y: transform.y, k: transform.k }
+      zoomReadout.textContent = `${Math.round(transform.k * 100)}%`
+      hint.classList.toggle('hidden', transform.k !== 1)
+      updateGraphVisualState()
+    })
+
+  svg.call(zoom)
+  svg.on('dblclick.zoom', null)
+
+  const fitGraph = (animate: boolean): void => {
+    const transform = fitGraphTransform(simNodes, width, height)
+    if (animate) {
+      svg.transition().duration(180).call(zoom.transform, transform)
+      return
+    }
+    svg.call(zoom.transform, transform)
+  }
+
+  zoomInButton.addEventListener('click', () => {
+    hint.classList.add('hidden')
+    svg.transition().duration(140).call(zoom.scaleBy, 1.18)
+  })
+  zoomOutButton.addEventListener('click', () => {
+    hint.classList.add('hidden')
+    svg.transition().duration(140).call(zoom.scaleBy, 1 / 1.18)
+  })
+  fitButton.addEventListener('click', () => {
+    hint.classList.add('hidden')
+    fitGraph(true)
+  })
+
+  const applyGraphGeometry = (): void => {
+    persistGraphNodePositions(frame, simNodes)
+    const edgeGeometry = new Map<number, ReturnType<typeof computeEdgeGeometry>>()
+    for (const edge of simEdges) {
+      edgeGeometry.set(edge.id, computeEdgeGeometry(edge, edgeRouteMeta.get(edge.id) || { lane: 0, isLoop: false, loopIndex: 0 }))
+    }
     links
-      .attr('x1', (item) => (item.source as GraphNodeSim).x ?? 0)
-      .attr('y1', (item) => (item.source as GraphNodeSim).y ?? 0)
-      .attr('x2', (item) => (item.target as GraphNodeSim).x ?? 0)
-      .attr('y2', (item) => (item.target as GraphNodeSim).y ?? 0)
+      .attr('d', (item) => edgeGeometry.get(item.id)?.path || '')
       .attr('stroke', (item) => (focus.edgeIds.has(item.id) ? '#2f81f7' : '#8e98a6'))
       .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) ? 2.8 : 1.4))
       .attr('opacity', (item) => (focus.active && !focus.edgeIds.has(item.id) ? 0.32 : 0.9))
+      .attr('marker-end', (item) => {
+        return focus.edgeIds.has(item.id) || hoveredEdgeId === item.id
+          ? `url(#${markerBase}-active)`
+          : `url(#${markerBase}-base)`
+      })
 
-    halos.attr('cx', (item) => item.x ?? 0).attr('cy', (item) => item.y ?? 0)
+    rings.attr('cx', (item) => item.x ?? 0).attr('cy', (item) => item.y ?? 0)
 
     nodesSel.attr('cx', (item) => item.x ?? 0).attr('cy', (item) => item.y ?? 0)
 
-    labels.attr('x', (item) => item.x ?? 0).attr('y', (item) => (item.y ?? 0) + 3)
+    labels.attr('x', (item) => item.x ?? 0).attr('y', (item) => (item.y ?? 0) - nodeRadius(item) - 11)
 
     edgeLabels
-      .attr('x', (item) => (((item.source as GraphNodeSim).x ?? 0) + ((item.target as GraphNodeSim).x ?? 0)) / 2)
-      .attr('y', (item) => (((item.source as GraphNodeSim).y ?? 0) + ((item.target as GraphNodeSim).y ?? 0)) / 2)
-  })
+      .attr('x', (item) => edgeGeometry.get(item.id)?.labelX ?? 0)
+      .attr('y', (item) => edgeGeometry.get(item.id)?.labelY ?? 0)
+      .attr('transform', (item) => {
+        const geometry = edgeGeometry.get(item.id)
+        if (!geometry) {
+          return ''
+        }
+        return `rotate(${geometry.labelAngle} ${geometry.labelX} ${geometry.labelY})`
+      })
 
+    updateGraphVisualState(edgeGeometry)
+  }
+
+  simulation.on('tick', applyGraphGeometry)
+
+  if (frame.graphViewport) {
+    svg.call(
+      zoom.transform,
+      d3.zoomIdentity.translate(frame.graphViewport.x, frame.graphViewport.y).scale(frame.graphViewport.k)
+    )
+  } else {
+    fitGraph(false)
+  }
+  applyGraphGeometry()
   graphSimulations.set(frame.frameId, { simulation })
+
+  function updateGraphVisualState(
+    edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>> = new Map()
+  ): void {
+    const visibleNodeLabelIds = computeVisibleNodeLabelIds(simNodes, focus, hoveredNodeId, currentTransform.k)
+    const visibleEdgeLabelIds = computeVisibleEdgeLabelIds(simEdges, edgeGeometry, focus, hoveredEdgeId, currentTransform.k)
+    links
+      .attr('stroke', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? '#2f81f7' : '#8e98a6'))
+      .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? 2.8 : 1.4))
+      .attr('opacity', (item) => {
+        if (!focus.active && hoveredEdgeId < 0 && hoveredNodeId < 0) {
+          return 0.84
+        }
+        return focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? 1 : 0.26
+      })
+    rings
+      .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#fdcc59' : hoveredNodeId === item.id ? '#6ac6ff' : '#6ac6ff'))
+      .attr('opacity', (item) => (focus.nodeIds.has(item.id) ? 0.34 : hoveredNodeId === item.id ? 0.26 : 0))
+    nodesSel
+      .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#fdcc59' : hoveredNodeId === item.id ? '#2f81f7' : '#2f3640'))
+      .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.6 : hoveredNodeId === item.id ? 2 : 1.1))
+      .attr('stroke-dasharray', (item) => (pinnedNodeIds.has(item.id) ? '4 2' : null))
+      .attr('opacity', (item) => {
+        if (!focus.active && hoveredNodeId < 0 && hoveredEdgeId < 0) {
+          return 0.98
+        }
+        if (focus.nodeIds.has(item.id) || focus.edgeNodeIds.has(item.id) || hoveredNodeId === item.id) {
+          return 1
+        }
+        return 0.4
+      })
+    labels
+      .text((item) => graphNodeDisplayLabel(item, focus.nodeIds.has(item.id) || hoveredNodeId === item.id))
+      .attr('opacity', (item) => {
+        if (
+          focus.nodeIds.has(item.id) ||
+          focus.edgeNodeIds.has(item.id) ||
+          hoveredNodeId === item.id ||
+          visibleNodeLabelIds.has(item.id)
+        ) {
+          return 1
+        }
+        return 0
+      })
+    edgeLabels
+      .attr('opacity', (item) => {
+        if (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id) {
+          return 0.96
+        }
+        return visibleEdgeLabelIds.has(item.id) ? 0.7 : 0
+      })
+  }
 }
 
 function renderVirtualTable(container: HTMLElement, frame: FrameState): void {
@@ -1084,6 +1386,22 @@ function applyGraphFilter(
   if (!filter) {
     return graph
   }
+  if (filter.kind === 'neighbors') {
+    const nodeIds = new Set<number>([filter.nodeId])
+    const edges = graph.edges.filter((edge) => {
+      const include = edge.source === filter.nodeId || edge.target === filter.nodeId
+      if (include) {
+        nodeIds.add(edge.source)
+        nodeIds.add(edge.target)
+      }
+      return include
+    })
+    return {
+      ...graph,
+      nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
+      edges
+    }
+  }
   if (filter.kind === 'label') {
     const matchedIds = new Set(
       graph.nodes.filter((node) => node.labels.includes(filter.value) || node.kind === filter.value).map((node) => node.id)
@@ -1191,6 +1509,38 @@ function activateLegend(frame: FrameState, kind: 'label' | 'relType', value: str
   if (fragment) {
     insertQueryFragment(fragment)
   }
+  renderFrames()
+}
+
+function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): void {
+  const safeLabel = String(node.label || `${node.kind}:${node.id}`).trim()
+  if (frame.graphFilter?.kind === 'neighbors' && frame.graphFilter.nodeId === node.id) {
+    frame.graphFilter = null
+    frame.graphFocus = { nodeIds: [node.id], edgeIds: [] }
+    frame.view = 'graph'
+    renderFrames()
+    return
+  }
+  const nextNodeIds = new Set<number>([node.id])
+  const nextEdgeIds = new Set<number>()
+  for (const edge of frame.graph?.edges || []) {
+    if (edge.source === node.id || edge.target === node.id) {
+      nextEdgeIds.add(edge.id)
+      nextNodeIds.add(edge.source)
+      nextNodeIds.add(edge.target)
+    }
+  }
+  frame.graphFilter = {
+    kind: 'neighbors',
+    nodeId: node.id,
+    label: safeLabel,
+    hops: 1
+  }
+  frame.graphFocus = {
+    nodeIds: Array.from(nextNodeIds),
+    edgeIds: Array.from(nextEdgeIds)
+  }
+  frame.view = 'graph'
   renderFrames()
 }
 
@@ -1398,6 +1748,492 @@ function firstNumericField(obj: Record<string, unknown>, ...keys: string[]): num
     }
   }
   return -1
+}
+
+function seedGraphLayout(nodes: GraphNodeSim[], width: number, height: number, nodeOnlyLayout: boolean): void {
+  if (nodes.length === 0) {
+    return
+  }
+  if (nodeOnlyLayout) {
+    const cols = Math.max(3, Math.ceil(Math.sqrt(nodes.length)))
+    const rows = Math.max(1, Math.ceil(nodes.length / cols))
+    const gapX = width / (cols + 1)
+    const gapY = height / (rows + 1)
+    nodes.forEach((node, index) => {
+      const col = index % cols
+      const row = Math.floor(index / cols)
+      node.x = gapX * (col + 1) + ((row % 2) * gapX) / 8
+      node.y = gapY * (row + 1)
+      node.vx = 0
+      node.vy = 0
+    })
+    return
+  }
+  const radius = Math.max(90, Math.min(width, height) * 0.28)
+  nodes.forEach((node, index) => {
+    const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2
+    node.x = width / 2 + Math.cos(angle) * radius
+    node.y = height / 2 + Math.sin(angle) * radius
+    node.vx = 0
+    node.vy = 0
+  })
+}
+
+function graphChargeStrength(nodeCount: number, nodeOnlyLayout: boolean): number {
+  const base = nodeOnlyLayout ? 420 : 260
+  return -Math.min(920, base + nodeCount * 12)
+}
+
+function fitGraphTransform(nodes: GraphNodeSim[], width: number, height: number): d3.ZoomTransform {
+  if (nodes.length === 0) {
+    return d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
+  }
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const node of nodes) {
+    const x = Number.isFinite(node.x) ? Number(node.x) : width / 2
+    const y = Number.isFinite(node.y) ? Number(node.y) : height / 2
+    minX = Math.min(minX, x - nodeRadius(node) - 24)
+    minY = Math.min(minY, y - nodeRadius(node) - 24)
+    maxX = Math.max(maxX, x + nodeRadius(node) + 24)
+    maxY = Math.max(maxY, y + nodeRadius(node) + 24)
+  }
+  const boxWidth = Math.max(1, maxX - minX)
+  const boxHeight = Math.max(1, maxY - minY)
+  const padding = 34
+  const scale = Math.max(0.45, Math.min(2.3, Math.min((width - padding * 2) / boxWidth, (height - padding * 2) / boxHeight)))
+  const centerX = minX + boxWidth / 2
+  const centerY = minY + boxHeight / 2
+  return d3.zoomIdentity
+    .translate(width / 2 - centerX * scale, height / 2 - centerY * scale)
+    .scale(scale)
+}
+
+function buildEdgeRouteMeta(edges: GraphEdgeSim[]): Map<number, EdgeRouteMeta> {
+  const out = new Map<number, EdgeRouteMeta>()
+  const pairGroups = new Map<string, GraphEdgeSim[]>()
+  for (const edge of edges) {
+    const sourceId = Number(edge.source)
+    const targetId = Number(edge.target)
+    const pairKey = sourceId <= targetId ? `${sourceId}:${targetId}` : `${targetId}:${sourceId}`
+    const bucket = pairGroups.get(pairKey) || []
+    bucket.push(edge)
+    pairGroups.set(pairKey, bucket)
+  }
+  for (const group of pairGroups.values()) {
+    if (group.length === 1) {
+      out.set(group[0].id, { lane: 0, isLoop: Number(group[0].source) === Number(group[0].target), loopIndex: 0 })
+      continue
+    }
+    const sample = group[0]
+    const isLoop = Number(sample.source) === Number(sample.target)
+    if (isLoop) {
+      group
+        .sort((left, right) => left.id - right.id)
+        .forEach((edge, index) => {
+          out.set(edge.id, { lane: index, isLoop: true, loopIndex: index })
+        })
+      continue
+    }
+    const forwardSource = Math.min(...group.map((edge) => Number(edge.source)))
+    const forwardTarget = Math.max(...group.map((edge) => Number(edge.target)))
+    const forward = group
+      .filter((edge) => Number(edge.source) === forwardSource && Number(edge.target) === forwardTarget)
+      .sort((left, right) => left.id - right.id)
+    const backward = group
+      .filter((edge) => Number(edge.source) === forwardTarget && Number(edge.target) === forwardSource)
+      .sort((left, right) => left.id - right.id)
+    assignDirectionalLanes(out, forward, backward.length > 0, 1)
+    assignDirectionalLanes(out, backward, forward.length > 0, -1)
+  }
+  return out
+}
+
+function assignDirectionalLanes(
+  out: Map<number, EdgeRouteMeta>,
+  edges: GraphEdgeSim[],
+  hasOppositeDirection: boolean,
+  direction: 1 | -1
+): void {
+  if (edges.length === 0) {
+    return
+  }
+  const center = (edges.length - 1) / 2
+  edges.forEach((edge, index) => {
+    const centered = index - center
+    const lane = edges.length === 1 && !hasOppositeDirection
+      ? 0
+      : direction * (centered + (hasOppositeDirection ? 0.6 : 0))
+    out.set(edge.id, { lane, isLoop: false, loopIndex: 0 })
+  })
+}
+
+function computeEdgeGeometry(
+  edge: GraphEdgeSim,
+  route: EdgeRouteMeta
+): { path: string; labelX: number; labelY: number; labelAngle: number } {
+  const source = edge.source as GraphNodeSim
+  const target = edge.target as GraphNodeSim
+  const sourceX = Number.isFinite(source.x) ? Number(source.x) : 0
+  const sourceY = Number.isFinite(source.y) ? Number(source.y) : 0
+  const targetX = Number.isFinite(target.x) ? Number(target.x) : 0
+  const targetY = Number.isFinite(target.y) ? Number(target.y) : 0
+  if (route.isLoop || edge.source === edge.target) {
+    const radius = nodeRadius(source) + 18 + route.loopIndex * 14
+    const startX = sourceX
+    const startY = sourceY - radius
+    const cp1X = sourceX + radius * 1.18
+    const cp1Y = sourceY - radius * 1.42
+    const cp2X = sourceX + radius * 1.18
+    const cp2Y = sourceY + radius * 0.32
+    const endX = sourceX
+    const endY = sourceY + radius * 0.78
+    const cp3X = sourceX - radius * 1.18
+    const cp3Y = sourceY + radius * 0.32
+    const cp4X = sourceX - radius * 1.18
+    const cp4Y = sourceY - radius * 1.42
+    return {
+      path: `M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY} C ${cp3X} ${cp3Y}, ${cp4X} ${cp4Y}, ${startX} ${startY}`,
+      labelX: sourceX,
+      labelY: sourceY - radius * 1.48,
+      labelAngle: 0
+    }
+  }
+  const dx = targetX - sourceX
+  const dy = targetY - sourceY
+  const distance = Math.max(1, Math.hypot(dx, dy))
+  const unitX = dx / distance
+  const unitY = dy / distance
+  const normalX = -unitY
+  const normalY = unitX
+  const sourceRadius = nodeRadius(source) + 3
+  const targetRadius = nodeRadius(target) + 7
+  const startX = sourceX + unitX * sourceRadius
+  const startY = sourceY + unitY * sourceRadius
+  const endX = targetX - unitX * targetRadius
+  const endY = targetY - unitY * targetRadius
+  const curve = route.lane * 34
+  if (Math.abs(curve) < 0.001) {
+    return {
+      path: `M ${startX} ${startY} L ${endX} ${endY}`,
+      labelX: (startX + endX) / 2 + normalX * 8,
+      labelY: (startY + endY) / 2 + normalY * 8,
+      labelAngle: normalizeReadableAngle(Math.atan2(dy, dx) * 180 / Math.PI)
+    }
+  }
+  const midX = (startX + endX) / 2
+  const midY = (startY + endY) / 2
+  const controlX = midX + normalX * curve
+  const controlY = midY + normalY * curve
+  const labelPoint = quadraticPoint(startX, startY, controlX, controlY, endX, endY, 0.5)
+  const tangent = quadraticTangent(startX, startY, controlX, controlY, endX, endY, 0.5)
+  return {
+    path: `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`,
+    labelX: labelPoint.x + normalX * Math.sign(curve) * 8,
+    labelY: labelPoint.y + normalY * Math.sign(curve) * 8,
+    labelAngle: normalizeReadableAngle(Math.atan2(tangent.y, tangent.x) * 180 / Math.PI)
+  }
+}
+
+function quadraticPoint(
+  startX: number,
+  startY: number,
+  controlX: number,
+  controlY: number,
+  endX: number,
+  endY: number,
+  t: number
+): { x: number; y: number } {
+  const mt = 1 - t
+  return {
+    x: mt * mt * startX + 2 * mt * t * controlX + t * t * endX,
+    y: mt * mt * startY + 2 * mt * t * controlY + t * t * endY
+  }
+}
+
+function quadraticTangent(
+  startX: number,
+  startY: number,
+  controlX: number,
+  controlY: number,
+  endX: number,
+  endY: number,
+  t: number
+): { x: number; y: number } {
+  return {
+    x: 2 * (1 - t) * (controlX - startX) + 2 * t * (endX - controlX),
+    y: 2 * (1 - t) * (controlY - startY) + 2 * t * (endY - controlY)
+  }
+}
+
+function normalizeReadableAngle(angle: number): number {
+  if (angle > 90) {
+    return angle - 180
+  }
+  if (angle < -90) {
+    return angle + 180
+  }
+  return angle
+}
+
+function graphNodeDisplayLabel(node: GraphNodePayload, expanded: boolean): string {
+  const raw = String(node.label || `${node.kind}:${node.id}`)
+  let compact = raw
+  const descIndex = compact.indexOf('(')
+  if (descIndex > 0) {
+    compact = `${compact.slice(0, descIndex)}()`
+  }
+  return truncateTextByWidth(compact, expanded ? 280 : 156, GRAPH_LABEL_FONT)
+}
+
+function computeVisibleNodeLabelIds(
+  nodes: GraphNodeSim[],
+  focus: ReturnType<typeof graphHighlightState>,
+  hoveredNodeId: number,
+  zoomScale: number
+): Set<number> {
+  const sorted = [...nodes].sort((left, right) => {
+    return graphNodeLabelPriority(right, focus, hoveredNodeId) - graphNodeLabelPriority(left, focus, hoveredNodeId)
+  })
+  const accepted: Array<{ left: number; right: number; top: number; bottom: number }> = []
+  const out = new Set<number>()
+  const baseLimit = zoomScale >= 1.4 ? 20 : zoomScale >= 1.05 ? 14 : 10
+  for (const node of sorted) {
+    const priority = graphNodeLabelPriority(node, focus, hoveredNodeId)
+    if (priority <= 0 && out.size >= baseLimit) {
+      continue
+    }
+    const label = graphNodeDisplayLabel(node, priority >= 2)
+    if (!label) {
+      continue
+    }
+    const box = estimateNodeLabelBox(node, label)
+    const overlaps = accepted.some((item) => {
+      return !(box.right < item.left || box.left > item.right || box.bottom < item.top || box.top > item.bottom)
+    })
+    if (overlaps && priority <= 1) {
+      continue
+    }
+    out.add(node.id)
+    accepted.push(box)
+  }
+  return out
+}
+
+function graphNodeLabelPriority(
+  node: GraphNodePayload,
+  focus: ReturnType<typeof graphHighlightState>,
+  hoveredNodeId: number
+): number {
+  if (focus.nodeIds.has(node.id)) {
+    return 4
+  }
+  if (focus.edgeNodeIds.has(node.id)) {
+    return 3
+  }
+  if (hoveredNodeId === node.id) {
+    return 3
+  }
+  return 1
+}
+
+function estimateNodeLabelBox(node: GraphNodePayload, label: string): { left: number; right: number; top: number; bottom: number } {
+  const width = Math.max(24, measureTextWidth(label, GRAPH_LABEL_FONT))
+  const height = 16
+  const x = Number.isFinite(node.x) ? Number(node.x) : 0
+  const y = Number.isFinite(node.y) ? Number(node.y) : 0
+  const baseline = y - nodeRadius(node) - 11
+  return {
+    left: x - width / 2 - 4,
+    right: x + width / 2 + 4,
+    top: baseline - height + 2,
+    bottom: baseline + 4
+  }
+}
+
+function computeVisibleEdgeLabelIds(
+  edges: GraphEdgeSim[],
+  edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>>,
+  focus: ReturnType<typeof graphHighlightState>,
+  hoveredEdgeId: number,
+  zoomScale: number
+): Set<number> {
+  const out = new Set<number>()
+  const accepted: Array<{ left: number; right: number; top: number; bottom: number }> = []
+  const relTypeCounts = new Map<string, number>()
+  for (const edge of edges) {
+    const key = String(edge.relType || '').trim() || '__unknown__'
+    relTypeCounts.set(key, (relTypeCounts.get(key) || 0) + 1)
+  }
+  const baseLimit = zoomScale >= 1.6 ? 28 : zoomScale >= 1.25 ? 18 : zoomScale >= 0.95 ? 12 : 7
+  const sorted = [...edges].sort((left, right) => {
+    return edgeLabelPriority(right, relTypeCounts, focus, hoveredEdgeId)
+      - edgeLabelPriority(left, relTypeCounts, focus, hoveredEdgeId)
+  })
+  for (const edge of sorted) {
+    const priority = edgeLabelPriority(edge, relTypeCounts, focus, hoveredEdgeId)
+    const label = truncateTextByWidth(edge.relType || '', 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace')
+    if (!label) {
+      continue
+    }
+    const geometry = edgeGeometry.get(edge.id)
+    if (!geometry) {
+      continue
+    }
+    const box = estimateEdgeLabelBox(label, geometry.labelX, geometry.labelY, geometry.labelAngle)
+    const overlaps = accepted.some((item) => {
+      return !(box.right < item.left || box.left > item.right || box.bottom < item.top || box.top > item.bottom)
+    })
+    if (overlaps && priority < 3) {
+      continue
+    }
+    if (out.size >= baseLimit && priority < 3) {
+      continue
+    }
+    out.add(edge.id)
+    accepted.push(box)
+  }
+  return out
+}
+
+function edgeLabelPriority(
+  edge: GraphEdgeSim,
+  relTypeCounts: Map<string, number>,
+  focus: ReturnType<typeof graphHighlightState>,
+  hoveredEdgeId: number
+): number {
+  if (focus.edgeIds.has(edge.id)) {
+    return 6
+  }
+  if (hoveredEdgeId === edge.id) {
+    return 5
+  }
+  const relType = String(edge.relType || '').trim() || '__unknown__'
+  const count = relTypeCounts.get(relType) || 1
+  if (count === 1) {
+    return 4
+  }
+  if (relType === 'CALL') {
+    return 3
+  }
+  return 2
+}
+
+function estimateEdgeLabelBox(
+  label: string,
+  centerX: number,
+  centerY: number,
+  angle: number
+): { left: number; right: number; top: number; bottom: number } {
+  const width = Math.max(18, measureTextWidth(label, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
+  const height = 12
+  const radians = Math.abs(angle) * Math.PI / 180
+  const halfWidth = width / 2
+  const halfHeight = height / 2
+  const projectedX = Math.abs(Math.cos(radians) * halfWidth) + Math.abs(Math.sin(radians) * halfHeight)
+  const projectedY = Math.abs(Math.sin(radians) * halfWidth) + Math.abs(Math.cos(radians) * halfHeight)
+  return {
+    left: centerX - projectedX - 4,
+    right: centerX + projectedX + 4,
+    top: centerY - projectedY - 3,
+    bottom: centerY + projectedY + 3
+  }
+}
+
+function clampFloat(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(min, Math.min(max, value))
+}
+
+function togglePinnedNode(frame: FrameState, nodeId: number): void {
+  const next = new Set<number>(frame.graphPinnedNodeIds)
+  if (next.has(nodeId)) {
+    next.delete(nodeId)
+  } else {
+    next.add(nodeId)
+  }
+  frame.graphPinnedNodeIds = Array.from(next)
+}
+
+function restoreGraphNodePositions(frame: FrameState, nodes: GraphNodeSim[]): void {
+  const saved = frame.graphNodePositions
+  if (!saved || nodes.length === 0) {
+    return
+  }
+  for (const node of nodes) {
+    const position = saved[node.id]
+    if (!position) {
+      continue
+    }
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+      continue
+    }
+    node.x = position.x
+    node.y = position.y
+    node.vx = 0
+    node.vy = 0
+  }
+}
+
+function persistGraphNodePositions(frame: FrameState, nodes: GraphNodeSim[]): void {
+  const next: Record<number, GraphNodePosition> = {}
+  for (const node of nodes) {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+      continue
+    }
+    next[node.id] = {
+      x: Number(node.x),
+      y: Number(node.y)
+    }
+  }
+  frame.graphNodePositions = next
+}
+
+function truncateTextByWidth(text: string, maxWidth: number, font: string): string {
+  const raw = String(text || '').trim()
+  if (!raw) {
+    return ''
+  }
+  if (measureTextWidth(raw, font) <= maxWidth) {
+    return raw
+  }
+  let end = raw.length
+  while (end > 1) {
+    const candidate = `${raw.slice(0, end - 1).trimEnd()}…`
+    if (measureTextWidth(candidate, font) <= maxWidth) {
+      return candidate
+    }
+    end--
+  }
+  return '…'
+}
+
+function measureTextWidth(text: string, font: string): number {
+  const safeText = String(text || '')
+  const key = `${font}::${safeText}`
+  const cached = textWidthCache.get(key)
+  if (cached != null) {
+    return cached
+  }
+  if (!textMeasureContext) {
+    const canvas = document.createElement('canvas')
+    textMeasureContext = canvas.getContext('2d')
+  }
+  const context = textMeasureContext
+  if (!context) {
+    return safeText.length * 7
+  }
+  context.font = font
+  const width = context.measureText(safeText).width
+  if (textWidthCache.size > 10000) {
+    textWidthCache.clear()
+  }
+  textWidthCache.set(key, width)
+  return width
 }
 
 function resolveGraphNodeId(
@@ -1667,7 +2503,11 @@ function nodeColor(kind: string): string {
   return '#d6dae0'
 }
 
-function drag(simulation: d3.Simulation<GraphNodeSim, GraphEdgeSim>) {
+function drag(
+  simulation: d3.Simulation<GraphNodeSim, GraphEdgeSim>,
+  pinnedNodeIds: Set<number>,
+  persistPositions: () => void
+) {
   function dragStarted(event: d3.D3DragEvent<SVGCircleElement, GraphNodeSim, GraphNodeSim>, d: GraphNodeSim): void {
     if (!event.active) {
       simulation.alphaTarget(0.3).restart()
@@ -1679,14 +2519,28 @@ function drag(simulation: d3.Simulation<GraphNodeSim, GraphEdgeSim>) {
   function dragged(event: d3.D3DragEvent<SVGCircleElement, GraphNodeSim, GraphNodeSim>, d: GraphNodeSim): void {
     d.fx = event.x
     d.fy = event.y
+    d.x = event.x
+    d.y = event.y
+    persistPositions()
   }
 
   function dragEnded(event: d3.D3DragEvent<SVGCircleElement, GraphNodeSim, GraphNodeSim>, d: GraphNodeSim): void {
     if (!event.active) {
       simulation.alphaTarget(0)
     }
+    if (pinnedNodeIds.has(d.id)) {
+      d.fx = event.x
+      d.fy = event.y
+      d.x = event.x
+      d.y = event.y
+      persistPositions()
+      return
+    }
     d.fx = null
     d.fy = null
+    d.x = event.x
+    d.y = event.y
+    persistPositions()
   }
 
   return d3.drag<SVGCircleElement, GraphNodeSim>().on('start', dragStarted).on('drag', dragged).on('end', dragEnded)

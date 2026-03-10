@@ -6,7 +6,11 @@ export type FrameSelection =
   | { type: 'edge'; data: GraphEdgePayload }
   | null
 
-export type GraphFilter = { kind: 'label' | 'relType'; value: string } | null
+export type GraphFilter =
+  | { kind: 'label'; value: string }
+  | { kind: 'relType'; value: string }
+  | { kind: 'neighbors'; nodeId: number; label: string; hops: 1 }
+  | null
 
 interface InspectorFrame {
   query: string
@@ -24,11 +28,12 @@ interface InspectorCallbacks {
   tr: (zh: string, en: string) => string
   activateLegend: (kind: 'label' | 'relType', value: string) => void
   activateInspectorLink: (key: string, value: unknown, selected: Exclude<FrameSelection, null>) => void
+  activateNeighborhoodFocus: (node: GraphNodePayload) => void
   clearGraphFilter: () => void
 }
 
 export function renderInspector(container: HTMLElement, frame: InspectorFrame, callbacks: InspectorCallbacks): void {
-  const { activateInspectorLink, activateLegend, tr } = callbacks
+  const { activateInspectorLink, activateLegend, activateNeighborhoodFocus, clearGraphFilter, tr } = callbacks
   container.innerHTML = ''
   container.classList.remove('panel-refresh')
   void container.offsetWidth
@@ -72,6 +77,32 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
   if (selected.type === 'node') {
     title.textContent = tr('节点详情', 'Node Details')
     subtitle.textContent = selected.data.label
+    const neighborhood = frame.graph ? graphNeighborhood(frame.graph, selected.data.id) : null
+    appendPropSection(container, tr('局部探索', 'Local Explore'))
+    appendActionRow(
+      container,
+      [
+        {
+          label:
+            frame.graphFilter?.kind === 'neighbors' && frame.graphFilter.nodeId === selected.data.id
+              ? tr('恢复全图', 'Reset Graph')
+              : tr('一跳邻居聚焦', 'Focus 1-Hop'),
+          title: tr('在当前结果图中仅保留该节点及一跳邻居', 'Keep only this node and its 1-hop neighbors in the current result graph'),
+          onClick: () => {
+            if (frame.graphFilter?.kind === 'neighbors' && frame.graphFilter.nodeId === selected.data.id) {
+              clearGraphFilter()
+              return
+            }
+            activateNeighborhoodFocus(selected.data)
+          }
+        }
+      ]
+    )
+    if (neighborhood) {
+      appendProp(container, tr('邻居节点', 'Neighbor Nodes'), String(neighborhood.neighborCount))
+      appendProp(container, tr('出边', 'Outgoing Edges'), String(neighborhood.outgoingCount))
+      appendProp(container, tr('入边', 'Incoming Edges'), String(neighborhood.incomingCount))
+    }
     appendPropSection(container, tr('摘要', 'Summary'))
     appendLinkedProp(container, selected, activateInspectorLink, 'node_id', selected.data.id, tr)
     appendLinkedProp(container, selected, activateInspectorLink, 'label', selected.data.label, tr)
@@ -155,7 +186,31 @@ function formatGraphFilter(filter: GraphFilter, tr: InspectorCallbacks['tr']): s
   if (!filter) {
     return ''
   }
+  if (filter.kind === 'neighbors') {
+    return `${tr('一跳邻居', '1-Hop')}: ${filter.label}`
+  }
   return `${filter.kind === 'label' ? tr('标签', 'Label') : tr('关系', 'Rel Type')}: ${filter.value}`
+}
+
+function appendActionRow(
+  container: HTMLElement,
+  actions: Array<{ label: string; title: string; onClick: () => void }>
+): void {
+  if (actions.length === 0) {
+    return
+  }
+  const row = document.createElement('div')
+  row.className = 'prop-action-row'
+  for (const action of actions) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'prop-action-btn'
+    button.textContent = action.label
+    button.title = action.title
+    button.addEventListener('click', action.onClick)
+    row.appendChild(button)
+  }
+  container.appendChild(row)
 }
 
 function appendProp(container: HTMLElement, key: string, value: string): void {
@@ -344,5 +399,37 @@ function graphOverviewStats(graph: GraphFramePayload): {
   return {
     labelCounts: sortCountEntries(labelCounter),
     relTypeCounts: sortCountEntries(relCounter)
+  }
+}
+
+function graphNeighborhood(
+  graph: GraphFramePayload,
+  nodeId: number
+): {
+  neighborCount: number
+  incomingCount: number
+  outgoingCount: number
+} {
+  const neighbors = new Set<number>()
+  let incomingCount = 0
+  let outgoingCount = 0
+  for (const edge of graph.edges || []) {
+    if (edge.source === nodeId) {
+      outgoingCount++
+      if (edge.target !== nodeId) {
+        neighbors.add(edge.target)
+      }
+    }
+    if (edge.target === nodeId) {
+      incomingCount++
+      if (edge.source !== nodeId) {
+        neighbors.add(edge.source)
+      }
+    }
+  }
+  return {
+    neighborCount: neighbors.size,
+    incomingCount,
+    outgoingCount
   }
 }
