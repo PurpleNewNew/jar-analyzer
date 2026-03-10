@@ -348,7 +348,9 @@ final class GraphTaintSemantics {
         if (!kindMatches(rule.getKind(), sinkKind)) {
             return false;
         }
-        if (!safe(rule.getClassName()).equals(safe(method.getClassReference().getName()))) {
+        String ruleClassName = safe(rule.getClassName()).replace('.', '/');
+        String methodClassName = safe(method.getClassReference().getName()).replace('.', '/');
+        if (!ruleClassName.equals(methodClassName)) {
             return false;
         }
         if (!safe(rule.getMethodName()).equals(safe(method.getName()))) {

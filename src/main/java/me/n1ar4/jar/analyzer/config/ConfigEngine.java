@@ -10,8 +10,6 @@
 
 package me.n1ar4.jar.analyzer.config;
 
-import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
-import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -90,15 +88,6 @@ public class ConfigEngine {
             if (new String(data, StandardCharsets.UTF_8).contains("!!me.n1ar4.")) {
                 String msg = "config file changed in 2.5-beta+; the old config file will be deleted";
                 logger.warn(msg);
-                try {
-                    NotifierContext.get().warn("Jar Analyzer", msg);
-                } catch (Throwable t) {
-                    InterruptUtil.restoreInterruptIfNeeded(t);
-                    if (t instanceof Error) {
-                        throw (Error) t;
-                    }
-                    logger.debug("notifier warn failed: {}", t.toString());
-                }
                 Files.delete(configPath);
                 return null;
             }

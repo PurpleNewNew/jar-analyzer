@@ -4,7 +4,6 @@
 
 package me.n1ar4.jar.analyzer.server.handler.api;
 
-import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -80,7 +79,17 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
     }
 
     private NanoHTTPD.Response registerProject(NanoHTTPD.IHTTPSession session) {
-        JSONObject body = parseBodyObject(session);
+        JSONObject body;
+        try {
+            body = QueryApiUtil.parseBodyObject(session);
+        } catch (IllegalArgumentException ex) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_request",
+                    QueryApiUtil.invalidRequestMessage(safe(ex.getMessage()), "invalid request body"));
+        } catch (Exception ex) {
+            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "invalid_request", "invalid request body");
+        }
         String alias = safe(body.getString("alias"));
         String inputPath = safe(body.getString("inputPath"));
         String runtimePath = safe(body.getString("runtimePath"));
@@ -106,7 +115,17 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
     }
 
     private NanoHTTPD.Response switchProject(NanoHTTPD.IHTTPSession session) {
-        JSONObject body = parseBodyObject(session);
+        JSONObject body;
+        try {
+            body = QueryApiUtil.parseBodyObject(session);
+        } catch (IllegalArgumentException ex) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_request",
+                    QueryApiUtil.invalidRequestMessage(safe(ex.getMessage()), "invalid request body"));
+        } catch (Exception ex) {
+            return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "invalid_request", "invalid request body");
+        }
         String projectKey = safe(body.getString("projectKey"));
         if (projectKey.isBlank()) {
             return needParam("projectKey");
@@ -149,24 +168,6 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         return ok(out);
     }
 
-    private static JSONObject parseBodyObject(NanoHTTPD.IHTTPSession session) {
-        if (session == null) {
-            return new JSONObject();
-        }
-        try {
-            Map<String, String> files = new HashMap<>();
-            session.parseBody(files);
-            String raw = files.get("postData");
-            if (raw == null || raw.isBlank()) {
-                return new JSONObject();
-            }
-            JSONObject obj = JSON.parseObject(raw);
-            return obj == null ? new JSONObject() : obj;
-        } catch (Exception ignored) {
-            return new JSONObject();
-        }
-    }
-
     private static String safe(String value) {
         return value == null ? "" : value.trim();
     }
@@ -175,7 +176,6 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         if (message == null || message.isBlank()) {
             return false;
         }
-        return "project_build_in_progress".equals(message)
-                || "project_not_found".equals(message);
+        return "project_build_in_progress".equals(message);
     }
 }

@@ -49,6 +49,12 @@ public final class QueryCypherHandler extends ApiBaseHandler implements HttpHand
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, QueryErrorClassifier.CYPHER_QUERY_ERROR, message);
         } catch (IllegalArgumentException ex) {
             String message = safeMessage(ex, "cypher query invalid");
+            if (QueryApiUtil.isInvalidRequest(message)) {
+                return buildError(
+                        NanoHTTPD.Response.Status.BAD_REQUEST,
+                        "invalid_request",
+                        QueryApiUtil.invalidRequestMessage(message, "invalid request body"));
+            }
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;

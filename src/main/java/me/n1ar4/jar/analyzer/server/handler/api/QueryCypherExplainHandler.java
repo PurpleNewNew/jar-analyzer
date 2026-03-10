@@ -40,6 +40,12 @@ public final class QueryCypherExplainHandler extends ApiBaseHandler implements H
             return buildError(NanoHTTPD.Response.Status.INTERNAL_ERROR, "cypher_explain_error", message);
         } catch (IllegalArgumentException ex) {
             String message = safe(ex == null ? null : ex.getMessage(), "cypher query invalid");
+            if (QueryApiUtil.isInvalidRequest(message)) {
+                return buildError(
+                        NanoHTTPD.Response.Status.BAD_REQUEST,
+                        "invalid_request",
+                        QueryApiUtil.invalidRequestMessage(message, "invalid request body"));
+            }
             NanoHTTPD.Response stateResponse = projectStateError(message);
             if (stateResponse != null) {
                 return stateResponse;

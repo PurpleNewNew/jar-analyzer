@@ -129,7 +129,7 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
         m.setClassName(ar.getClassName());
         m.setMethodName(ar.getMethodName());
         m.setMethodDesc(ar.getMethodDesc());
-        m.setJarId(ar.getJarId() == null ? 0 : ar.getJarId());
+        m.setJarId(ar.getJarId());
         m.setJarName(ar.getJarName());
         m.setLineNumber(ar.getLineNumber());
         return m;

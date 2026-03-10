@@ -36,7 +36,7 @@ public class ASMPrint {
             new ClassReader(is).accept(traceClassVisitor, parsingOptions);
             return bao.toString();
         } catch (Exception ex) {
-            logger.error("asm print error: {}", ex.toString());
+            logger.error("asm print error: {}", ex.toString(), ex);
         }
         return null;
     }

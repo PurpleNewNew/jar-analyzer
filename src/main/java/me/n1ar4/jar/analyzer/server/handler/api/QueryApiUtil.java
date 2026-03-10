@@ -16,21 +16,14 @@ import java.util.List;
 import java.util.Map;
 
 final class QueryApiUtil {
+    private static final String INVALID_REQUEST = "invalid_request";
+
     private QueryApiUtil() {
     }
 
     static RequestPayload parseRequest(NanoHTTPD.IHTTPSession session) throws Exception {
-        if (session == null) {
-            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
-        }
-        Map<String, String> files = new HashMap<>();
-        session.parseBody(files);
-        String body = files.get("postData");
-        if (body == null || body.isBlank()) {
-            return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
-        }
-        JSONObject obj = JSON.parseObject(body);
-        if (obj == null) {
+        JSONObject obj = parseBodyObject(session);
+        if (obj == null || obj.isEmpty()) {
             return new RequestPayload("", Collections.emptyMap(), QueryOptions.defaults(), "");
         }
         String query = obj.getString("query");
@@ -38,6 +31,43 @@ final class QueryApiUtil {
         Map<String, Object> params = asMap(obj.getJSONObject("params"));
         Map<String, Object> options = asMap(obj.getJSONObject("options"));
         return new RequestPayload(query, params, QueryOptions.fromMap(options), projectKey);
+    }
+
+    static JSONObject parseBodyObject(NanoHTTPD.IHTTPSession session) throws Exception {
+        if (session == null) {
+            return new JSONObject();
+        }
+        Map<String, String> files = new HashMap<>();
+        try {
+            session.parseBody(files);
+        } catch (Exception ex) {
+            throw invalidRequest("invalid request body", ex);
+        }
+        String body = files.get("postData");
+        if (body == null || body.isBlank()) {
+            return new JSONObject();
+        }
+        try {
+            JSONObject obj = JSON.parseObject(body);
+            return obj == null ? new JSONObject() : obj;
+        } catch (Exception ex) {
+            throw invalidRequest("invalid json request body", ex);
+        }
+    }
+
+    static boolean isInvalidRequest(String message) {
+        return safe(message).startsWith(INVALID_REQUEST);
+    }
+
+    static String invalidRequestMessage(String message, String fallback) {
+        String text = safe(message);
+        if (text.startsWith(INVALID_REQUEST + ":")) {
+            String detail = text.substring((INVALID_REQUEST + ":").length()).trim();
+            if (!detail.isEmpty()) {
+                return detail;
+            }
+        }
+        return safe(fallback);
     }
 
     static Map<String, Object> buildData(List<String> columns, List<List<Object>> rows) {
@@ -63,6 +93,14 @@ final class QueryApiUtil {
             out.put(entry.getKey(), entry.getValue());
         }
         return out;
+    }
+
+    private static IllegalArgumentException invalidRequest(String detail, Exception cause) {
+        return new IllegalArgumentException(INVALID_REQUEST + ": " + safe(detail), cause);
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 
     static final class RequestPayload {

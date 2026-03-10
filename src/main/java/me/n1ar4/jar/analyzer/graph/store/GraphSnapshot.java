@@ -47,6 +47,8 @@ public final class GraphSnapshot {
     private final Map<String, List<GraphNode>> classNameIndex;
     private final Map<String, List<GraphNode>> methodNameIndex;
     private final Map<String, List<GraphNode>> methodSignatureIndex;
+    private static final long AMBIGUOUS_METHOD_NODE = 0L;
+
     private final Map<String, Long> methodScopedIndex;
     private final Map<String, Long> methodLooseIndex;
 
@@ -262,11 +264,11 @@ public final class GraphSnapshot {
         if (jarId != null && jarId >= 0) {
             Long scoped = methodScopedIndex.get(methodScopedKey(clazz, name, desc, jarId));
             if (scoped != null) {
-                return scoped;
+                return scoped > 0L ? scoped : -1L;
             }
         }
         Long loose = methodLooseIndex.get(methodLooseKey(clazz, name, desc));
-        return loose == null ? -1L : loose;
+        return loose == null || loose <= 0L ? -1L : loose;
     }
 
     public int getNodeCount() {
@@ -370,10 +372,22 @@ public final class GraphSnapshot {
                 continue;
             }
             long nodeId = node.getNodeId();
-            scoped.merge(methodScopedKey(clazz, name, desc, node.getJarId()), nodeId, Math::min);
-            loose.merge(methodLooseKey(clazz, name, desc), nodeId, Math::min);
+            mergeMethodNodeId(scoped, methodScopedKey(clazz, name, desc, node.getJarId()), nodeId);
+            mergeMethodNodeId(loose, methodLooseKey(clazz, name, desc), nodeId);
         }
         return new MethodNodeIndex(Collections.unmodifiableMap(scoped), Collections.unmodifiableMap(loose));
+    }
+
+    private static void mergeMethodNodeId(Map<String, Long> index, String key, long nodeId) {
+        Long existing = index.get(key);
+        if (existing == null) {
+            index.put(key, nodeId);
+            return;
+        }
+        if (existing == AMBIGUOUS_METHOD_NODE || existing == nodeId) {
+            return;
+        }
+        index.put(key, AMBIGUOUS_METHOD_NODE);
     }
 
     private static Map<String, List<GraphNode>> buildKindIndex(Collection<GraphNode> nodes) {

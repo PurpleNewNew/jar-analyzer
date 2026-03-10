@@ -303,6 +303,37 @@ class GraphPruningPolicyTest {
     }
 
     @Test
+    void sanitizerRuleShouldMatchDotClassName() throws Exception {
+        Path model = tempDir.resolve("model-dot.json");
+        Path source = tempDir.resolve("source-dot.json");
+        Path sink = tempDir.resolve("sink-dot.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            PruningPolicyFixture.FixtureData fixture = PruningPolicyFixture.installSanitizerFixture();
+            Files.writeString(model, sanitizerModelJson("hard", true), StandardCharsets.UTF_8);
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            FlowOptions options = explicitOptions(fixture);
+            List<TaintResult> results = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
+            assertTrue(results.isEmpty());
+        } finally {
+            restore(MODEL_PROP, oldModelProp);
+            restore(SOURCE_PROP, oldSourceProp);
+            restore(SINK_PROP, oldSinkProp);
+        }
+    }
+
+    @Test
     void additionalFlowsFalseShouldCutContainerDerivedPath() throws Exception {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
@@ -620,12 +651,19 @@ class GraphPruningPolicyTest {
     }
 
     private static String sanitizerModelJson(String sanitizerMode) {
+        return sanitizerModelJson(sanitizerMode, false);
+    }
+
+    private static String sanitizerModelJson(String sanitizerMode, boolean dottedClassName) {
+        String className = dottedClassName
+                ? PruningPolicyFixture.SanitizerBridge.class.getName()
+                : PruningPolicyFixture.SanitizerBridge.class.getName().replace('.', '/');
         return "{\n"
                 + "  \"summaryModel\": [],\n"
                 + "  \"additionalTaintSteps\": [],\n"
                 + "  \"sanitizerModel\": [\n"
                 + "    {\n"
-                + "      \"className\": \"" + PruningPolicyFixture.SanitizerBridge.class.getName().replace('.', '/') + "\",\n"
+                + "      \"className\": \"" + className + "\",\n"
                 + "      \"methodName\": \"cleanAndSink\",\n"
                 + "      \"methodDesc\": \"(Ljava/lang/String;)V\",\n"
                 + "      \"paramIndex\": 0,\n"

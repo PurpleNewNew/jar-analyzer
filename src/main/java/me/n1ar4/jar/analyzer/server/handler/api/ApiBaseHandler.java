@@ -217,7 +217,7 @@ public class ApiBaseHandler extends BaseHandler {
             out.sort(StableOrder.METHOD_RESULT);
             return out;
         }
-        List<MethodResult> out = filterJdkMethods(results, null);
+        List<MethodResult> out = filterJdkMethods(results);
         out.sort(StableOrder.METHOD_RESULT);
         return out;
     }

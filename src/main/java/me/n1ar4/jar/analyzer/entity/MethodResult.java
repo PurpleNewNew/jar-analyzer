@@ -55,6 +55,9 @@ public class MethodResult {
     }
 
     public String getPath() {
+        if (this.path == null) {
+            return "path: none";
+        }
         this.path = this.path.trim();
         if (this.path.isEmpty()) {
             return "path: none";

@@ -1813,7 +1813,7 @@ public final class RuntimeFacades {
                         safe(leak.getTypeName()),
                         safe(leak.getValue()),
                         safe(leak.getJarName()),
-                        leak.getJarId() == null ? 0 : leak.getJarId()
+                        leak.getJarId()
                 ));
             }
             items.sort(Comparator.comparing(LeakItemDto::typeName).thenComparing(LeakItemDto::className));

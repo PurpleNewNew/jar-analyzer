@@ -56,7 +56,7 @@ public final class StableOrder {
                     .thenComparingInt(r -> r == null ? Integer.MAX_VALUE : r.getRid());
 
     public static final Comparator<AnnoMethodResult> ANNO_METHOD_RESULT =
-            Comparator.comparingInt((AnnoMethodResult r) -> r == null || r.getJarId() == null
+            Comparator.comparingInt((AnnoMethodResult r) -> r == null || r.getJarId() <= 0
                             ? Integer.MAX_VALUE
                             : r.getJarId())
                     .thenComparing(r -> n(r == null ? null : r.getClassName()))

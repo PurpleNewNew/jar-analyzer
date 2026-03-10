@@ -14,13 +14,14 @@ import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class ChainsBuilder {
     private static final Logger logger = LogManager.getLogger();
-    public static final Map<String, SinkModel> sinkData = new LinkedHashMap<>();
+    private static volatile Map<String, SinkModel> sinkData = Map.of();
     private static volatile long loadedSinkVersion = -1L;
 
     static {
@@ -32,18 +33,19 @@ public class ChainsBuilder {
      */
     private static void loadSinkRules(long sinkVersion) {
         List<SinkModel> sinkList = SinkRuleRegistry.getSinkModels();
-        sinkData.clear();
+        Map<String, SinkModel> next = new LinkedHashMap<>();
         if (sinkList != null && !sinkList.isEmpty()) {
             for (SinkModel sink : sinkList) {
                 if (sink.getBoxName() != null && !sink.getBoxName().trim().isEmpty()) {
-                    sinkData.put(sink.getBoxName(), sink);
+                    next.put(sink.getBoxName(), sink);
                 }
             }
         } else {
             logger.warn("sink rule list is empty");
         }
+        sinkData = Collections.unmodifiableMap(next);
         loadedSinkVersion = sinkVersion;
-        logger.info("load {} sink rule version={}", sinkData.size(), sinkVersion);
+        logger.info("load {} sink rule version={}", next.size(), sinkVersion);
     }
 
     private static void ensureSinkRulesFresh() {
@@ -69,12 +71,13 @@ public class ChainsBuilder {
         if (key.isEmpty()) {
             return null;
         }
-        SinkModel direct = sinkData.get(key);
+        Map<String, SinkModel> current = sinkData;
+        SinkModel direct = current.get(key);
         if (direct != null) {
             return direct;
         }
         String simpleKey = stripParams(key);
-        for (SinkModel sink : sinkData.values()) {
+        for (SinkModel sink : current.values()) {
             if (sink == null) {
                 continue;
             }

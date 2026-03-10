@@ -567,10 +567,25 @@ public final class GraphTaintEngine {
     private static FlowTruncation mergeTruncation(FlowTruncation first, FlowTruncation second) {
         FlowTruncation a = first == null ? FlowTruncation.none() : first;
         FlowTruncation b = second == null ? FlowTruncation.none() : second;
+        if (a.truncated() && b.truncated()) {
+            return FlowTruncation.of(join(a.reason(), b.reason()), join(a.recommend(), b.recommend()));
+        }
         if (b.truncated()) {
             return b;
         }
         return a;
+    }
+
+    private static String join(String left, String right) {
+        String a = left == null ? "" : left.trim();
+        String b = right == null ? "" : right.trim();
+        if (a.isEmpty()) {
+            return b;
+        }
+        if (b.isEmpty() || a.equals(b)) {
+            return a;
+        }
+        return a + "; " + b;
     }
 
     private static void applyStats(List<TaintResult> results, FlowStats stats) {

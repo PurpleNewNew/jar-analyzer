@@ -23,6 +23,8 @@ import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
+import me.n1ar4.jar.analyzer.utils.OSUtil;
+import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -32,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -1071,7 +1074,7 @@ public final class ProjectRegistryService {
             return null;
         }
         try {
-            return Paths.get(value).toAbsolutePath().normalize();
+            return ProjectPathNormalizer.normalizeNullablePath(Paths.get(value));
         } catch (Exception ex) {
             return Paths.get(value);
         }
@@ -1096,12 +1099,36 @@ public final class ProjectRegistryService {
         if (path == null || path.isBlank()) {
             return "";
         }
+        String value = path.trim();
+        if (OSUtil.isWindows() && value.startsWith("/") && !value.startsWith("//")) {
+            return normalizePosixAbsolutePath(value);
+        }
         try {
-            Path p = Paths.get(path.trim()).toAbsolutePath().normalize();
+            Path p = Paths.get(value).toAbsolutePath().normalize();
             return p.toString();
         } catch (Exception ex) {
-            return path.trim();
+            return value;
         }
+    }
+
+    private static String normalizePosixAbsolutePath(String path) {
+        ArrayDeque<String> parts = new ArrayDeque<>();
+        for (String part : path.split("/")) {
+            if (part == null || part.isBlank() || ".".equals(part)) {
+                continue;
+            }
+            if ("..".equals(part)) {
+                if (!parts.isEmpty()) {
+                    parts.removeLast();
+                }
+                continue;
+            }
+            parts.addLast(part);
+        }
+        if (parts.isEmpty()) {
+            return "/";
+        }
+        return "/" + String.join("/", parts);
     }
 
     private static String normalizeAlias(String alias, String normalizedInput) {

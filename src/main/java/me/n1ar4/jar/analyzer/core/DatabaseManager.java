@@ -151,11 +151,11 @@ public class DatabaseManager {
         return withWriteLockValue(() -> {
             long buildSeq = BUILD_SEQ.incrementAndGet();
             String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+            ProjectMetadataSnapshotStore.getInstance()
+                    .markUnavailable(resolvedProjectKey, buildSeq, "build_started");
             BUILDING.set(true);
             buildingProjectKey = resolvedProjectKey;
             clearProjectRuntimeLocked();
-            ProjectMetadataSnapshotStore.getInstance()
-                    .markUnavailable(resolvedProjectKey, buildSeq, "build_started");
             return buildSeq;
         });
     }
@@ -276,208 +276,232 @@ public class DatabaseManager {
     }
 
     public static void saveClassFiles(Set<ClassFileEntity> classFileList) {
-        markLoadedProjectRuntimeCurrent();
-        CLASS_FILES.clear();
-        CLASS_FILES_BY_NAME.clear();
-        PRIMARY_CLASS_FILE_BY_NAME.clear();
-        if (classFileList == null || classFileList.isEmpty()) {
-            return;
-        }
-        List<ClassFileEntity> rows = new ArrayList<>();
-        for (ClassFileEntity row : classFileList) {
-            if (row == null) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            CLASS_FILES.clear();
+            CLASS_FILES_BY_NAME.clear();
+            PRIMARY_CLASS_FILE_BY_NAME.clear();
+            if (classFileList == null || classFileList.isEmpty()) {
+                return;
             }
-            ClassFileEntity copy = copyClassFileEntity(row);
-            if (copy == null) {
-                continue;
+            List<ClassFileEntity> rows = new ArrayList<>();
+            for (ClassFileEntity row : classFileList) {
+                if (row == null) {
+                    continue;
+                }
+                ClassFileEntity copy = copyClassFileEntity(row);
+                if (copy == null) {
+                    continue;
+                }
+                rows.add(copy);
             }
-            rows.add(copy);
-        }
-        rows.sort(CLASS_FILE_COMPARATOR);
-        CLASS_FILES.addAll(rows);
-        for (ClassFileEntity row : rows) {
-            String className = normalizeClassName(row.getClassName());
-            if (className == null) {
-                continue;
+            rows.sort(CLASS_FILE_COMPARATOR);
+            CLASS_FILES.addAll(rows);
+            for (ClassFileEntity row : rows) {
+                String className = normalizeClassName(row.getClassName());
+                if (className == null) {
+                    continue;
+                }
+                CLASS_FILES_BY_NAME.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                        .add(row);
+                PRIMARY_CLASS_FILE_BY_NAME.merge(className, row, DatabaseManager::pickPreferredClassFile);
             }
-            CLASS_FILES_BY_NAME.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(row);
-            PRIMARY_CLASS_FILE_BY_NAME.merge(className, row, DatabaseManager::pickPreferredClassFile);
-        }
+        });
     }
 
     public static void saveClassInfo(Set<ClassReference> discoveredClasses) {
-        markLoadedProjectRuntimeCurrent();
-        CLASS_REFERENCES.clear();
-        CLASS_REFS_BY_NAME.clear();
-        if (discoveredClasses == null || discoveredClasses.isEmpty()) {
-            return;
-        }
-        List<ClassReference> rows = new ArrayList<>();
-        for (ClassReference row : discoveredClasses) {
-            if (row == null || row.getName() == null || row.getName().isBlank()) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            CLASS_REFERENCES.clear();
+            CLASS_REFS_BY_NAME.clear();
+            if (discoveredClasses == null || discoveredClasses.isEmpty()) {
+                return;
             }
-            rows.add(row);
-        }
-        rows.sort(CLASS_REF_COMPARATOR);
-        CLASS_REFERENCES.addAll(rows);
-        for (ClassReference row : rows) {
-            String className = normalizeClassName(row.getName());
-            if (className == null) {
-                continue;
+            List<ClassReference> rows = new ArrayList<>();
+            for (ClassReference row : discoveredClasses) {
+                if (row == null || row.getName() == null || row.getName().isBlank()) {
+                    continue;
+                }
+                rows.add(row);
             }
-            CLASS_REFS_BY_NAME.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(row);
-        }
+            rows.sort(CLASS_REF_COMPARATOR);
+            CLASS_REFERENCES.addAll(rows);
+            for (ClassReference row : rows) {
+                String className = normalizeClassName(row.getName());
+                if (className == null) {
+                    continue;
+                }
+                CLASS_REFS_BY_NAME.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                        .add(row);
+            }
+        });
     }
 
     public static void saveMethods(Set<MethodReference> discoveredMethods) {
-        markLoadedProjectRuntimeCurrent();
-        METHOD_REFERENCES.clear();
-        METHODS_BY_CLASS.clear();
-        if (discoveredMethods == null || discoveredMethods.isEmpty()) {
-            return;
-        }
-        List<MethodReference> rows = new ArrayList<>();
-        for (MethodReference row : discoveredMethods) {
-            if (row == null || row.getClassReference() == null) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            METHOD_REFERENCES.clear();
+            METHODS_BY_CLASS.clear();
+            if (discoveredMethods == null || discoveredMethods.isEmpty()) {
+                return;
             }
-            String className = normalizeClassName(row.getClassReference().getName());
-            String methodName = safe(row.getName());
-            String methodDesc = safe(row.getDesc());
-            if (className == null || methodName.isEmpty() || methodDesc.isEmpty()) {
-                continue;
+            List<MethodReference> rows = new ArrayList<>();
+            for (MethodReference row : discoveredMethods) {
+                if (row == null || row.getClassReference() == null) {
+                    continue;
+                }
+                String className = normalizeClassName(row.getClassReference().getName());
+                String methodName = safe(row.getName());
+                String methodDesc = safe(row.getDesc());
+                if (className == null || methodName.isEmpty() || methodDesc.isEmpty()) {
+                    continue;
+                }
+                rows.add(row);
             }
-            rows.add(row);
-        }
-        rows.sort(METHOD_REF_COMPARATOR);
-        METHOD_REFERENCES.addAll(rows);
-        for (MethodReference row : rows) {
-            String className = normalizeClassName(row.getClassReference().getName());
-            if (className == null) {
-                continue;
+            rows.sort(METHOD_REF_COMPARATOR);
+            METHOD_REFERENCES.addAll(rows);
+            for (MethodReference row : rows) {
+                String className = normalizeClassName(row.getClassReference().getName());
+                if (className == null) {
+                    continue;
+                }
+                METHODS_BY_CLASS.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
+                        .add(row);
             }
-            METHODS_BY_CLASS.computeIfAbsent(className, ignore -> Collections.synchronizedList(new ArrayList<>()))
-                    .add(row);
-        }
+        });
     }
 
     public static void saveStrMap(Map<MethodReference.Handle, List<String>> strMap,
                                   Map<MethodReference.Handle, List<String>> stringAnnoMap) {
-        markLoadedProjectRuntimeCurrent();
-        METHOD_STRINGS.clear();
-        METHOD_STRING_ANNOS.clear();
-        saveMethodStringMap(METHOD_STRINGS, strMap);
-        saveMethodStringMap(METHOD_STRING_ANNOS, stringAnnoMap);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            METHOD_STRINGS.clear();
+            METHOD_STRING_ANNOS.clear();
+            saveMethodStringMap(METHOD_STRINGS, strMap);
+            saveMethodStringMap(METHOD_STRING_ANNOS, stringAnnoMap);
+        });
     }
 
     public static void saveResources(List<ResourceEntity> resources) {
-        markLoadedProjectRuntimeCurrent();
-        RESOURCE_ENTRIES.clear();
-        NEXT_RESOURCE_ID.set(1);
-        if (resources == null || resources.isEmpty()) {
-            return;
-        }
-        for (ResourceEntity row : resources) {
-            if (row == null) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            RESOURCE_ENTRIES.clear();
+            NEXT_RESOURCE_ID.set(1);
+            if (resources == null || resources.isEmpty()) {
+                return;
             }
-            ResourceEntity copy = copyResourceEntity(row);
-            if (copy.getRid() <= 0) {
-                copy.setRid(NEXT_RESOURCE_ID.getAndIncrement());
-            } else {
-                NEXT_RESOURCE_ID.set(Math.max(NEXT_RESOURCE_ID.get(), copy.getRid() + 1));
+            for (ResourceEntity row : resources) {
+                if (row == null) {
+                    continue;
+                }
+                ResourceEntity copy = copyResourceEntity(row);
+                if (copy.getRid() <= 0) {
+                    copy.setRid(NEXT_RESOURCE_ID.getAndIncrement());
+                } else {
+                    NEXT_RESOURCE_ID.set(Math.max(NEXT_RESOURCE_ID.get(), copy.getRid() + 1));
+                }
+                RESOURCE_ENTRIES.add(copy);
             }
-            RESOURCE_ENTRIES.add(copy);
-        }
+        });
     }
 
     public static void saveCallSites(List<CallSiteEntity> callSites) {
-        markLoadedProjectRuntimeCurrent();
-        CALL_SITES_BY_CALLER_CLASS.clear();
-        CALL_SITES_BY_CALLER.clear();
-        if (callSites == null || callSites.isEmpty()) {
-            return;
-        }
-        for (CallSiteEntity row : callSites) {
-            if (row == null) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            CALL_SITES_BY_CALLER_CLASS.clear();
+            CALL_SITES_BY_CALLER.clear();
+            if (callSites == null || callSites.isEmpty()) {
+                return;
             }
-            CallSiteEntity copy = copyCallSiteEntity(row);
-            saveCallSiteByCallerClass(copy.getCallerClassName(), copy);
-            String callerKey = methodKey(copy.getCallerClassName(), copy.getCallerMethodName(), copy.getCallerMethodDesc(), copy.getJarId());
-            saveCallSiteByCaller(callerKey, copy);
-            Integer jarId = copy.getJarId();
-            if (jarId != null && jarId >= 0) {
-                saveCallSiteByCaller(methodKey(
-                        copy.getCallerClassName(),
-                        copy.getCallerMethodName(),
-                        copy.getCallerMethodDesc(),
-                        -1
-                ), copy);
+            for (CallSiteEntity row : callSites) {
+                if (row == null) {
+                    continue;
+                }
+                CallSiteEntity copy = copyCallSiteEntity(row);
+                saveCallSiteByCallerClass(copy.getCallerClassName(), copy);
+                String callerKey = methodKey(copy.getCallerClassName(), copy.getCallerMethodName(), copy.getCallerMethodDesc(), copy.getJarId());
+                saveCallSiteByCaller(callerKey, copy);
+                Integer jarId = copy.getJarId();
+                if (jarId != null && jarId >= 0) {
+                    saveCallSiteByCaller(methodKey(
+                            copy.getCallerClassName(),
+                            copy.getCallerMethodName(),
+                            copy.getCallerMethodDesc(),
+                            -1
+                    ), copy);
+                }
             }
-        }
+        });
     }
 
     public static void saveLocalVars(List<LocalVarEntity> localVars) {
-        markLoadedProjectRuntimeCurrent();
-        LOCAL_VARS_BY_METHOD.clear();
-        if (localVars == null || localVars.isEmpty()) {
-            return;
-        }
-        for (LocalVarEntity row : localVars) {
-            if (row == null) {
-                continue;
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            LOCAL_VARS_BY_METHOD.clear();
+            if (localVars == null || localVars.isEmpty()) {
+                return;
             }
-            LocalVarEntity copy = copyLocalVarEntity(row);
-            String key = methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), copy.getJarId());
-            saveLocalVarByMethod(key, copy);
-            Integer jarId = copy.getJarId();
-            if (jarId != null && jarId >= 0) {
-                saveLocalVarByMethod(methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), -1), copy);
+            for (LocalVarEntity row : localVars) {
+                if (row == null) {
+                    continue;
+                }
+                LocalVarEntity copy = copyLocalVarEntity(row);
+                String key = methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), copy.getJarId());
+                saveLocalVarByMethod(key, copy);
+                Integer jarId = copy.getJarId();
+                if (jarId != null && jarId >= 0) {
+                    saveLocalVarByMethod(methodKey(copy.getClassName(), copy.getMethodName(), copy.getMethodDesc(), -1), copy);
+                }
             }
-        }
+        });
     }
 
     public static void saveSpringController(ArrayList<SpringController> controllers) {
-        markLoadedProjectRuntimeCurrent();
-        SPRING_CONTROLLERS.clear();
-        if (controllers == null || controllers.isEmpty()) {
-            return;
-        }
-        for (SpringController controller : controllers) {
-            SpringController copy = copySpringController(controller);
-            if (copy != null) {
-                SPRING_CONTROLLERS.add(copy);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            SPRING_CONTROLLERS.clear();
+            if (controllers == null || controllers.isEmpty()) {
+                return;
             }
-        }
+            for (SpringController controller : controllers) {
+                SpringController copy = copySpringController(controller);
+                if (copy != null) {
+                    SPRING_CONTROLLERS.add(copy);
+                }
+            }
+        });
     }
 
     public static void saveSpringInterceptor(ArrayList<String> interceptors) {
-        markLoadedProjectRuntimeCurrent();
-        SPRING_INTERCEPTORS.clear();
-        saveClassNameSet(SPRING_INTERCEPTORS, interceptors);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            SPRING_INTERCEPTORS.clear();
+            saveClassNameSet(SPRING_INTERCEPTORS, interceptors);
+        });
     }
 
     public static void saveServlets(ArrayList<String> servlets) {
-        markLoadedProjectRuntimeCurrent();
-        SERVLETS.clear();
-        saveClassNameSet(SERVLETS, servlets);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            SERVLETS.clear();
+            saveClassNameSet(SERVLETS, servlets);
+        });
     }
 
     public static void saveFilters(ArrayList<String> filters) {
-        markLoadedProjectRuntimeCurrent();
-        FILTERS.clear();
-        saveClassNameSet(FILTERS, filters);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            FILTERS.clear();
+            saveClassNameSet(FILTERS, filters);
+        });
     }
 
     public static void saveListeners(ArrayList<String> listeners) {
-        markLoadedProjectRuntimeCurrent();
-        LISTENERS.clear();
-        saveClassNameSet(LISTENERS, listeners);
+        withWriteLock(() -> {
+            markLoadedProjectRuntimeCurrent();
+            LISTENERS.clear();
+            saveClassNameSet(LISTENERS, listeners);
+        });
     }
 
     public static void cleanFav() {
@@ -1485,9 +1509,6 @@ public class DatabaseManager {
             temp = jarPath.split("\\\\");
         } else {
             temp = jarPath.split("/");
-        }
-        if (temp.length == 0) {
-            return jarPath;
         }
         return temp[temp.length - 1];
     }

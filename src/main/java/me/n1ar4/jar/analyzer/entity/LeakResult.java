@@ -21,7 +21,7 @@ public class LeakResult {
     private String value;
     private String typeName;
     private String jarName;
-    private Integer jarId;
+    private int jarId;
 
     public String getClassName() {
         return className;
@@ -55,12 +55,16 @@ public class LeakResult {
         this.jarName = jarName;
     }
 
-    public Integer getJarId() {
+    public int getJarId() {
         return jarId;
     }
 
-    public void setJarId(Integer jarId) {
+    public void setJarId(int jarId) {
         this.jarId = jarId;
+    }
+
+    public void setJarId(Integer jarId) {
+        this.jarId = jarId == null ? 0 : jarId;
     }
 
     @Override
@@ -72,7 +76,7 @@ public class LeakResult {
         return Objects.equals(className, that.className)
                 && Objects.equals(value, that.value)
                 && Objects.equals(typeName, that.typeName)
-                && Objects.equals(jarId, that.jarId)
+                && jarId == that.jarId
                 && Objects.equals(jarName, that.jarName);
     }
 
@@ -81,14 +85,15 @@ public class LeakResult {
         int result = Objects.hashCode(className);
         result = 31 * result + Objects.hashCode(value);
         result = 31 * result + Objects.hashCode(typeName);
-        result = 31 * result + Objects.hashCode(jarId);
+        result = 31 * result + jarId;
         result = 31 * result + Objects.hashCode(jarName);
         return result;
     }
 
     @Override
     public String toString() {
-        String displayValue = value.length() > 16 ? value.substring(0, 16) + "..." : value;
+        String safeValue = value == null ? "" : value;
+        String displayValue = safeValue.length() > 16 ? safeValue.substring(0, 16) + "..." : safeValue;
         return "<html>" +
                 "TYPE: " +
                 "<font style=\"color: blue; font-weight: bold;\">" +

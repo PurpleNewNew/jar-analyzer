@@ -15,7 +15,7 @@ public class AnnoMethodResult {
     private String methodName;
     private String methodDesc;
     private int lineNumber;
-    private Integer jarId;
+    private int jarId;
     private String jarName;
     private String annoName;
     private String annoScope;
@@ -52,12 +52,16 @@ public class AnnoMethodResult {
         this.lineNumber = lineNumber;
     }
 
-    public Integer getJarId() {
+    public int getJarId() {
         return jarId;
     }
 
-    public void setJarId(Integer jarId) {
+    public void setJarId(int jarId) {
         this.jarId = jarId;
+    }
+
+    public void setJarId(Integer jarId) {
+        this.jarId = jarId == null ? 0 : jarId;
     }
 
     public String getJarName() {

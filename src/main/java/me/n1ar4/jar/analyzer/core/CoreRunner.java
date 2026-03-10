@@ -109,13 +109,16 @@ public class CoreRunner {
                                   IntConsumer progressConsumer,
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
-        BuildSession session = beginBuildSession();
-        String targetProjectKey = session.targetProjectKey();
-        long buildSeq = session.buildSeq();
         BuildContext context = new BuildContext();
         boolean cleaned = false;
         boolean buildCommitted = false;
+        BuildSession session = null;
+        String targetProjectKey = "";
+        long buildSeq = 0L;
         try {
+            session = beginBuildSession();
+            targetProjectKey = session.targetProjectKey();
+            buildSeq = session.buildSeq();
             LAST_BUILD_STAGE.remove();
             markBuildStage("prepare-project-model");
             prepareProjectModelForBuild(jarPath, rtJarPath, includeNested);
@@ -155,7 +158,9 @@ public class CoreRunner {
             if (!cleaned) {
                 clearBuildContext(context);
             }
-            DatabaseManager.finishBuild(buildCommitted);
+            if (session != null || DatabaseManager.isBuilding()) {
+                DatabaseManager.finishBuild(buildCommitted);
+            }
             BUILD_STAGE.remove();
             if (buildCommitted) {
                 LAST_BUILD_STAGE.remove();
@@ -178,8 +183,15 @@ public class CoreRunner {
     private static BuildSession beginBuildSession() {
         synchronized (ActiveProjectContext.mutationLock()) {
             String targetProjectKey = ActiveProjectContext.getActiveProjectKey();
-            long buildSeq = DatabaseManager.beginBuild(targetProjectKey);
-            return new BuildSession(targetProjectKey, buildSeq);
+            try {
+                long buildSeq = DatabaseManager.beginBuild(targetProjectKey);
+                return new BuildSession(targetProjectKey, buildSeq);
+            } catch (Throwable ex) {
+                if (DatabaseManager.isBuilding(targetProjectKey)) {
+                    DatabaseManager.finishBuild(false);
+                }
+                throw ex;
+            }
         }
     }
 

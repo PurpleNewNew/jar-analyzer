@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine.project;
 
+import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -158,7 +160,7 @@ public record ProjectModel(
         }
         List<Path> out = new ArrayList<>();
         for (Path path : paths) {
-            Path normalized = normalizeNullablePath(path);
+            Path normalized = ProjectPathNormalizer.normalizeNullablePath(path);
             if (normalized != null) {
                 out.add(normalized);
             }
@@ -167,14 +169,7 @@ public record ProjectModel(
     }
 
     private static Path normalizeNullablePath(Path path) {
-        if (path == null) {
-            return null;
-        }
-        try {
-            return path.toAbsolutePath().normalize();
-        } catch (Exception ex) {
-            return path.normalize();
-        }
+        return ProjectPathNormalizer.normalizeNullablePath(path);
     }
 
     public static final class Builder {

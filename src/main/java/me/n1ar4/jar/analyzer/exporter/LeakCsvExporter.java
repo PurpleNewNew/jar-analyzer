@@ -37,7 +37,7 @@ public class LeakCsvExporter {
         }
 
         List<LeakResult> ordered = new ArrayList<>(leakResults);
-        ordered.sort(Comparator.comparingInt((LeakResult r) -> r == null || r.getJarId() == null ? Integer.MAX_VALUE : r.getJarId())
+        ordered.sort(Comparator.comparingInt((LeakResult r) -> r == null || r.getJarId() <= 0 ? Integer.MAX_VALUE : r.getJarId())
                 .thenComparing(r -> r == null || r.getTypeName() == null ? "" : r.getTypeName())
                 .thenComparing(r -> r == null || r.getClassName() == null ? "" : r.getClassName())
                 .thenComparing(r -> r == null || r.getValue() == null ? "" : r.getValue()));

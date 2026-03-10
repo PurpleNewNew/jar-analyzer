@@ -38,6 +38,12 @@ Release 目录结构（由 `build.py` 生成）仅保留一个包：
 mvn -B clean package -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true
 ```
 
+PowerShell 请使用带引号的参数形式，避免 `-D...` 被误解析：
+
+```powershell
+mvn -B clean package "-DskipTests" "-Dskip.npm=true" "-Dskip.installnodenpm=true"
+```
+
 产物：
 
 1. `target/jar-analyzer-<version>-jar-with-dependencies.jar`

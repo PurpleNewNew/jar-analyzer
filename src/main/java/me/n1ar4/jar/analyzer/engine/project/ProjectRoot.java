@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine.project;
 
+import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
+
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -39,10 +41,6 @@ public record ProjectRoot(
 
     private static Path normalizePath(Path path) {
         Objects.requireNonNull(path, "path");
-        try {
-            return path.toAbsolutePath().normalize();
-        } catch (Exception ex) {
-            return path.normalize();
-        }
+        return ProjectPathNormalizer.normalizeNullablePath(path);
     }
 }

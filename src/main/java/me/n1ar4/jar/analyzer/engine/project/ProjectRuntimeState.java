@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine.project;
 
+import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -121,13 +123,6 @@ public record ProjectRuntimeState(
     }
 
     private static Path normalizePath(Path path) {
-        if (path == null) {
-            return null;
-        }
-        try {
-            return path.toAbsolutePath().normalize();
-        } catch (Exception ex) {
-            return path.normalize();
-        }
+        return ProjectPathNormalizer.normalizeNullablePath(path);
     }
 }

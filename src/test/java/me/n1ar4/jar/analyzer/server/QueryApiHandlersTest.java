@@ -125,6 +125,27 @@ class QueryApiHandlersTest {
     }
 
     @Test
+    void malformedJsonBodyShouldReturnInvalidRequestAcrossEndpoints() {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        Exception cypher = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", "{invalid-json"));
+        assertTrue(cypher.getMessage().contains("\"code\":\"invalid_request\""));
+
+        Exception explain = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher/explain", "{invalid-json"));
+        assertTrue(explain.getMessage().contains("\"code\":\"invalid_request\""));
+
+        Exception register = assertThrows(Exception.class,
+                () -> api.postJson("/api/projects/register", "{invalid-json"));
+        assertTrue(register.getMessage().contains("\"code\":\"invalid_request\""));
+
+        Exception projectSwitch = assertThrows(Exception.class,
+                () -> api.postJson("/api/projects/switch", "{invalid-json"));
+        assertTrue(projectSwitch.getMessage().contains("\"code\":\"invalid_request\""));
+    }
+
+    @Test
     void cypherShouldIgnoreWriteKeywordsInsideLiteralAndComment() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();

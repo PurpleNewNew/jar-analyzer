@@ -43,8 +43,7 @@ public class BaseHandler {
         return data.get(0);
     }
 
-    protected ArrayList<MethodResult> filterJdkMethods(List<MethodResult> results,
-                                                       NanoHTTPD.IHTTPSession session) {
+    protected ArrayList<MethodResult> filterJdkMethods(List<MethodResult> results) {
         if (results == null) {
             return new ArrayList<>();
         }

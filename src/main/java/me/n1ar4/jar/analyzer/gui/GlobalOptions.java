@@ -34,14 +34,6 @@ public class GlobalOptions {
         return LANGUAGE;
     }
 
-    public static int getLANGUAGE() {
-        return LANGUAGE;
-    }
-
-    public static void setLANGUAGE(int LANGUAGE) {
-        GlobalOptions.LANGUAGE = LANGUAGE;
-    }
-
     public static ServerConfig getServerConfig() {
         return serverConfig;
     }
