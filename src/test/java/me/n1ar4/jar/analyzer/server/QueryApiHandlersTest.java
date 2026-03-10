@@ -127,6 +127,8 @@ class QueryApiHandlersTest {
         assertTrue(data.getJSONArray("functions").contains("ja.relSubtype"));
         assertTrue(data.getJSONArray("functions").contains("ja.ruleValidation"));
         assertTrue(data.getJSONArray("functions").contains("ja.ruleValidationIssues"));
+        assertTrue(data.getJSONArray("procedures").contains("ja.gadget.track"));
+        assertTrue(data.getJSONArray("procedures").contains("ja.path.gadget"));
         assertTrue(data.getJSONArray("procedures").contains("ja.path.from_to_pruned"));
     }
 
@@ -239,6 +241,16 @@ class QueryApiHandlersTest {
         assertEquals(1, pathJson.getJSONObject("data").getJSONArray("rows").size());
         assertEquals("1,2,3", pathJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(1));
         assertEquals("11,12", pathJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(2));
+
+        JSONObject gadgetBody = new JSONObject();
+        gadgetBody.put("query",
+                "CALL ja.path.gadget(1, 3, 4, 10) " +
+                        "YIELD path_id, node_ids, edge_ids, confidence, evidence " +
+                        "RETURN path_id, node_ids, edge_ids, confidence, evidence");
+        String gadgetOut = api.postJson("/api/query/cypher", gadgetBody.toJSONString());
+        JSONObject gadgetJson = JSON.parseObject(gadgetOut);
+        assertEquals(true, gadgetJson.getBoolean("ok"));
+        assertEquals(0, gadgetJson.getJSONObject("data").getJSONArray("rows").size());
 
         JSONObject udfBody = new JSONObject();
         udfBody.put("query",

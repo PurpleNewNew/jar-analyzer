@@ -4,10 +4,12 @@
 
 package me.n1ar4.jar.analyzer.graph.query;
 
+import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 
@@ -98,6 +100,7 @@ public final class QueryDisplayModel {
         Integer lineNumber = parseInt(firstValue(input, "line_number", "lineNumber"));
         Integer callIndex = parseInt(firstValue(input, "call_index", "callIndex"));
         Integer sourceFlags = parseInt(firstValue(input, "source_flags", "sourceFlags"));
+        Integer methodSemanticFlags = parseInt(firstValue(input, "method_semantic_flags", "methodSemanticFlags"));
         Boolean isInterface = parseBoolean(firstValue(input, "is_interface", "isInterface"));
         Boolean isAbstract = parseBoolean(firstValue(input, "is_abstract", "isAbstract"));
 
@@ -115,6 +118,10 @@ public final class QueryDisplayModel {
         }
         if (sourceFlags != null && sourceFlags >= 0) {
             out.put("source_flags", sourceFlags);
+        }
+        if (methodSemanticFlags != null && methodSemanticFlags > 0) {
+            out.put("method_semantic_flags", methodSemanticFlags);
+            out.put("method_semantic_badges", MethodSemanticFlags.describe(methodSemanticFlags));
         }
         if (isInterface != null) {
             out.put("is_interface", isInterface);
@@ -144,6 +151,7 @@ public final class QueryDisplayModel {
         Integer lineNumber = parseInt(firstValue(input, "line_number", "lineNumber"));
         Integer callIndex = parseInt(firstValue(input, "call_index", "callIndex"));
         Integer opCode = parseInt(firstValue(input, "op_code", "opCode"));
+        Integer edgeSemanticFlags = parseInt(firstValue(input, "edge_semantic_flags", "edgeSemanticFlags"));
 
         putIfPresent(out, "rel_type", effectiveRelType);
         putIfPresent(out, "display_rel_type", GraphRelationType.relationGroup(effectiveRelType));
@@ -160,6 +168,10 @@ public final class QueryDisplayModel {
         }
         if (opCode != null && opCode >= 0) {
             out.put("op_code", opCode);
+        }
+        if (edgeSemanticFlags != null && edgeSemanticFlags > 0) {
+            out.put("edge_semantic_flags", edgeSemanticFlags);
+            out.put("edge_semantic_badges", MethodCallMeta.describeEvidenceBits(edgeSemanticFlags));
         }
         return out;
     }

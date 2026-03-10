@@ -258,6 +258,7 @@ public class GraphQueryEngineBenchTest {
                 evidences,
                 new String[edgeIds.length],
                 opCodes,
+                new int[edgeIds.length],
                 new String[edgeIds.length],
                 new int[edgeIds.length],
                 new int[edgeIds.length],

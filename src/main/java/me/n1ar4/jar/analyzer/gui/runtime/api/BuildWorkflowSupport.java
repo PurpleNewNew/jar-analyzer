@@ -532,10 +532,14 @@ final class BuildWorkflowSupport {
                 ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, false, 20);
         addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "resources")),
                 ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, false, 25);
+        addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "main", "webapp")),
+                ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, false, 26);
         addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "java")),
                 ProjectRootKind.SOURCE_ROOT, ProjectOrigin.APP, true, 30);
         addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "resources")),
                 ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, true, 35);
+        addRootIfExists(builder, projectRoot.resolve(Paths.get("src", "test", "webapp")),
+                ProjectRootKind.RESOURCE_ROOT, ProjectOrigin.APP, true, 36);
         addRootIfExists(builder, projectRoot.resolve(Paths.get("target", "generated-sources")),
                 ProjectRootKind.GENERATED, ProjectOrigin.GENERATED, false, 40);
         addRootIfExists(builder, projectRoot.resolve(Paths.get("build", "generated")),

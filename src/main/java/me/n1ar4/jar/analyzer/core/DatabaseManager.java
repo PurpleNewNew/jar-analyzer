@@ -2186,7 +2186,8 @@ public class DatabaseManager {
                 ref.isStatic(),
                 ref.getLineNumber(),
                 ref.getJarName(),
-                ref.getJarId()
+                ref.getJarId(),
+                ref.getSemanticFlags()
         );
     }
 
@@ -2203,7 +2204,8 @@ public class DatabaseManager {
                 data.access(),
                 data.lineNumber(),
                 data.jarName(),
-                data.jarId()
+                data.jarId(),
+                data.semanticFlags()
         );
     }
 

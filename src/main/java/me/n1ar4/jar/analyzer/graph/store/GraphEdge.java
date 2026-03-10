@@ -22,6 +22,7 @@ public final class GraphEdge {
     private final String callSiteKey;
     private final int lineNumber;
     private final int callIndex;
+    private final int semanticFlags;
 
     public GraphEdge(long edgeId,
                      long srcId,
@@ -30,7 +31,7 @@ public final class GraphEdge {
                      String confidence,
                      String evidence,
                      int opCode) {
-        this(edgeId, srcId, dstId, relType, confidence, evidence, "", opCode, "", -1, -1);
+        this(edgeId, srcId, dstId, relType, confidence, evidence, "", opCode, "", -1, -1, 0);
     }
 
     public GraphEdge(long edgeId,
@@ -44,6 +45,21 @@ public final class GraphEdge {
                      String callSiteKey,
                      int lineNumber,
                      int callIndex) {
+        this(edgeId, srcId, dstId, relType, confidence, evidence, aliasKind, opCode, callSiteKey, lineNumber, callIndex, 0);
+    }
+
+    public GraphEdge(long edgeId,
+                     long srcId,
+                     long dstId,
+                     String relType,
+                     String confidence,
+                     String evidence,
+                     String aliasKind,
+                     int opCode,
+                     String callSiteKey,
+                     int lineNumber,
+                     int callIndex,
+                     int semanticFlags) {
         this.edgeId = edgeId;
         this.srcId = srcId;
         this.dstId = dstId;
@@ -55,6 +71,7 @@ public final class GraphEdge {
         this.callSiteKey = safe(callSiteKey);
         this.lineNumber = lineNumber;
         this.callIndex = callIndex;
+        this.semanticFlags = Math.max(0, semanticFlags);
     }
 
     public long getEdgeId() {
@@ -99,6 +116,10 @@ public final class GraphEdge {
 
     public int getCallIndex() {
         return callIndex;
+    }
+
+    public int getSemanticFlags() {
+        return semanticFlags;
     }
 
     private static String safe(String value) {

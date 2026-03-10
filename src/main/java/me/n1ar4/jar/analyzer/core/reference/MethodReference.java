@@ -23,11 +23,20 @@ public class MethodReference {
     private int lineNumber = -1;
     private final String jarName;
     private final Integer jarId;
+    private int semanticFlags = 0;
 
     public MethodReference(ClassReference.Handle classReference,
                            String name, String desc, boolean isStatic,
                            Set<AnnoReference> annotations,
                            int access, int lineNumber, String jarName, Integer jarId) {
+        this(classReference, name, desc, isStatic, annotations, access, lineNumber, jarName, jarId, 0);
+    }
+
+    public MethodReference(ClassReference.Handle classReference,
+                           String name, String desc, boolean isStatic,
+                           Set<AnnoReference> annotations,
+                           int access, int lineNumber, String jarName, Integer jarId,
+                           int semanticFlags) {
         this.classReference = classReference;
         this.name = name;
         this.desc = desc;
@@ -37,6 +46,7 @@ public class MethodReference {
         this.lineNumber = lineNumber;
         this.jarName = jarName;
         this.jarId = jarId;
+        this.semanticFlags = Math.max(0, semanticFlags);
     }
 
     public int getAccess() {
@@ -79,6 +89,20 @@ public class MethodReference {
         return isStatic;
     }
 
+    public int getSemanticFlags() {
+        return semanticFlags;
+    }
+
+    public void setSemanticFlags(int semanticFlags) {
+        this.semanticFlags = Math.max(0, semanticFlags);
+    }
+
+    public void mergeSemanticFlags(int semanticFlags) {
+        if (semanticFlags > 0) {
+            this.semanticFlags |= semanticFlags;
+        }
+    }
+
     public Handle getHandle() {
         return new Handle(classReference, name, desc);
     }
@@ -86,7 +110,7 @@ public class MethodReference {
     public MethodReference cloneObj() {
         return new MethodReference(new ClassReference.Handle(this.classReference.getName(), this.classReference.getJarId()),
                 this.name, this.desc, this.isStatic,
-                this.annotations, this.access, this.lineNumber, jarName, jarId);
+                this.annotations, this.access, this.lineNumber, jarName, jarId, semanticFlags);
     }
 
     public static class Handle {

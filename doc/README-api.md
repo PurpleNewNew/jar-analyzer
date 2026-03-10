@@ -215,7 +215,7 @@
   说明:
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
   - 查询执行固定采用 Neo4j 原生引擎；`CALL ja.*` 不再回退到 ANTLR4/内存 `GraphSnapshot` 兼容过程链
-  - 返回的 `Node/Relationship/Path` 值会统一按公开模型投影：节点 `labels` 只默认暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`
+  - 返回的 `Node/Relationship/Path` 值会统一按公开模型投影：节点 `labels` 只默认暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`，同时保留建库期稳定事实 `method_semantic_flags/method_semantic_badges`；调用边会额外返回 `edge_semantic_flags/edge_semantic_badges`
   - 提供一组本地只读 `apoc.*` 兼容函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
   - `jar.analyzer.cypher.apoc.whitelist` 默认为 `default`；可设为 `none|off|disabled` 彻底关闭，或用 `coll,text,map,apoc.text.join` 这类逗号列表精确控制
   - `maxMs/maxRows` 对原生查询生效
@@ -232,7 +232,9 @@
   - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb`
   - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
   - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
-  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
+  - `ja.path.gadget(from, to, maxHops, maxPaths, traversalMode='call-only')` 会基于 `method_semantic_flags + edge_semantic_flags` 做 gadget 状态机搜索，当前内置 `container-callback` `proxy-dynamic` `container-trigger` `reflection-callback` `reflection-container` `reflection-trigger` `deserialization-trigger` 路线；命中后 `evidence` 会带 `route=...` 与 `constraints=...`
+  - `ja.gadget.track(sourceClass, sourceMethod, sourceDesc, sinkClass, sinkMethod, sinkDesc, depth, maxPaths, searchAllSources=false, traversalMode='call-only')` 面向显式 source->sink 或 `searchAllSources=true` 的反序列化 source 枚举；当 `searchAllSources=true` 时，source 可留空，系统会从当前图里自动挑选 `DeserializationCallback` 方法作为候选
+  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
@@ -255,7 +257,7 @@
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
-  返回当前 Cypher 能力、过程列表、函数列表、支持的 options/profile，以及当前 `procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。`graphModel` 会额外给出物理标签/物理边类型、公开标签/公开关系类别、默认遍历模式、逻辑关系类型重写能力、`type(r)` 逻辑筛选重写能力、参数化 `type(r)` 逻辑筛选重写能力与动态语义边界，方便 Workbench/MCP 统一心智。
+  返回当前 Cypher 能力、过程列表、函数列表、支持的 options/profile，以及当前 `procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；过程列表现包含 `ja.path.gadget` / `ja.gadget.track`。`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。`graphModel` 会额外给出物理标签/物理边类型、公开标签/公开关系类别、默认遍历模式、逻辑关系类型重写能力、`type(r)` 逻辑筛选重写能力、参数化 `type(r)` 逻辑筛选重写能力与动态语义边界，方便 Workbench/MCP 统一心智。
 
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图

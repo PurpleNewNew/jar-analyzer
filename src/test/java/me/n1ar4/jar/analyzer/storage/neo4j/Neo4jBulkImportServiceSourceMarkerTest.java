@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,7 +41,8 @@ class Neo4jBulkImportServiceSourceMarkerTest {
                 List.of("demo/AuthInterceptor"),
                 List.of("demo/LegacyServlet"),
                 List.of("demo/AuthFilter"),
-                List.of("demo/AppListener")
+                List.of("demo/AppListener"),
+                Map.of()
         ));
         Class<?> markerIndexType = Class.forName(
                 "me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService$SourceMarkerIndex");

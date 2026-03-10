@@ -33,7 +33,7 @@ public record ProjectRuntimeSnapshot(
         Set<String> filters,
         Set<String> listeners
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public ProjectRuntimeSnapshot {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
@@ -146,10 +146,23 @@ public record ProjectRuntimeSnapshot(
             boolean isStatic,
             int lineNumber,
             String jarName,
-            Integer jarId
+            Integer jarId,
+            int semanticFlags
     ) {
         public MethodReferenceData {
             annotations = annotations == null ? List.of() : List.copyOf(annotations);
+        }
+
+        public MethodReferenceData(ClassHandleData classReference,
+                                   List<AnnoData> annotations,
+                                   String name,
+                                   String desc,
+                                   int access,
+                                   boolean isStatic,
+                                   int lineNumber,
+                                   String jarName,
+                                   Integer jarId) {
+            this(classReference, annotations, name, desc, access, isStatic, lineNumber, jarName, jarId, 0);
         }
     }
 

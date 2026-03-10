@@ -45,6 +45,7 @@ public final class BuildContext {
     public final ArrayList<String> servlets = new ArrayList<>();
     public final ArrayList<String> filters = new ArrayList<>();
     public final ArrayList<String> listeners = new ArrayList<>();
+    public final Map<MethodReference.Handle, Integer> explicitSourceMethodFlags = new HashMap<>();
     public final Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
     public final ArrayList<ResourceEntity> resources = new ArrayList<>();
     public final ArrayList<CallSiteEntity> callSites = new ArrayList<>();

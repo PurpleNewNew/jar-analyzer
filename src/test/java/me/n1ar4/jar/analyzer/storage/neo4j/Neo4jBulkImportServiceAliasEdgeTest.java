@@ -143,7 +143,8 @@ class Neo4jBulkImportServiceAliasEdgeTest {
                             List.of(),
                             List.of(),
                             List.of(),
-                            List.of()
+                            List.of(),
+                            Map.of()
                     ),
                     () -> snapshot,
                     Map.of()

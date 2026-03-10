@@ -27,6 +27,7 @@ public final class GraphNode {
     private final int lineNumber;
     private final int callIndex;
     private final int sourceFlags;
+    private final int methodSemanticFlags;
 
     public GraphNode(long nodeId,
                      String kind,
@@ -37,7 +38,7 @@ public final class GraphNode {
                      String callSiteKey,
                      int lineNumber,
                      int callIndex) {
-        this(nodeId, kind, jarId, className, methodName, methodDesc, callSiteKey, lineNumber, callIndex, 0);
+        this(nodeId, kind, jarId, className, methodName, methodDesc, callSiteKey, lineNumber, callIndex, 0, 0);
     }
 
     public GraphNode(long nodeId,
@@ -50,6 +51,20 @@ public final class GraphNode {
                      int lineNumber,
                      int callIndex,
                      int sourceFlags) {
+        this(nodeId, kind, jarId, className, methodName, methodDesc, callSiteKey, lineNumber, callIndex, sourceFlags, 0);
+    }
+
+    public GraphNode(long nodeId,
+                     String kind,
+                     int jarId,
+                     String className,
+                     String methodName,
+                     String methodDesc,
+                     String callSiteKey,
+                     int lineNumber,
+                     int callIndex,
+                     int sourceFlags,
+                     int methodSemanticFlags) {
         this.nodeId = nodeId;
         this.kind = safe(kind);
         this.jarId = jarId;
@@ -60,6 +75,7 @@ public final class GraphNode {
         this.lineNumber = lineNumber;
         this.callIndex = callIndex;
         this.sourceFlags = Math.max(0, sourceFlags);
+        this.methodSemanticFlags = Math.max(0, methodSemanticFlags);
     }
 
     public long getNodeId() {
@@ -102,11 +118,22 @@ public final class GraphNode {
         return sourceFlags;
     }
 
+    public int getMethodSemanticFlags() {
+        return methodSemanticFlags;
+    }
+
     public boolean hasSourceFlag(int flag) {
         if (flag <= 0) {
             return false;
         }
         return (sourceFlags & flag) != 0;
+    }
+
+    public boolean hasMethodSemanticFlag(int flag) {
+        if (flag <= 0) {
+            return false;
+        }
+        return (methodSemanticFlags & flag) != 0;
     }
 
     private static String safe(String value) {

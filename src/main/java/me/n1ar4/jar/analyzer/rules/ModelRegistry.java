@@ -102,16 +102,17 @@ public final class ModelRegistry {
 
     public static SinkDescriptor resolveSinkDescriptor(MethodReference.Handle sink) {
         SinkModel model = findSinkModel(sink);
-        if (model == null) {
-            return SinkDescriptor.empty();
+        if (model != null) {
+            return new SinkDescriptor(
+                    normalizeSinkKind(model.getCategory()),
+                    safe(model.getCategory()),
+                    SinkRuleSupport.normalizeSeverity(model.getSeverity(), ""),
+                    SinkRuleSupport.normalizeRuleTier(model.getRuleTier()),
+                    SinkRuleSupport.normalizeTags(model.getTags())
+            );
         }
-        return new SinkDescriptor(
-                normalizeSinkKind(model.getCategory()),
-                safe(model.getCategory()),
-                SinkRuleSupport.normalizeSeverity(model.getSeverity(), ""),
-                SinkRuleSupport.normalizeRuleTier(model.getRuleTier()),
-                SinkRuleSupport.normalizeTags(model.getTags())
-        );
+        SinkDescriptor dynamicDescriptor = resolveDynamicSinkDescriptor(sink);
+        return dynamicDescriptor == null ? SinkDescriptor.empty() : dynamicDescriptor;
     }
 
     public static SanitizerRule getSanitizerRule() {
@@ -452,6 +453,31 @@ public final class ModelRegistry {
             return model;
         }
         return null;
+    }
+
+    private static SinkDescriptor resolveDynamicSinkDescriptor(MethodReference.Handle sink) {
+        if (sink == null || sink.getClassReference() == null) {
+            return null;
+        }
+        MyBatisMapperXmlIndex.Result index = MyBatisMapperXmlIndex.currentProject();
+        if (index == null) {
+            return null;
+        }
+        MyBatisMapperXmlIndex.SinkPattern pattern = index.resolve(
+                sink.getClassReference().getName(),
+                sink.getName(),
+                sink.getDesc()
+        );
+        if (pattern == null) {
+            return null;
+        }
+        return new SinkDescriptor(
+                "sql",
+                "sql",
+                "high",
+                "project-xml",
+                List.of("mybatis", "xml", "dynamic-sql")
+        );
     }
 
     private static String safe(String value) {

@@ -215,6 +215,7 @@ public final class Neo4jBulkImportService {
                         "line_number:int",
                         "call_index:int",
                         "source_flags:int",
+                        "method_semantic_flags:int",
                         "is_interface:boolean",
                         "is_abstract:boolean",
                         ":LABEL"
@@ -232,6 +233,7 @@ public final class Neo4jBulkImportService {
                         "evidence",
                         "alias_kind",
                         "op_code:int",
+                        "edge_semantic_flags:int",
                         "call_site_key",
                         "line_number:int",
                         "call_index:int"
@@ -272,6 +274,7 @@ public final class Neo4jBulkImportService {
                         -1,
                         -1,
                         -1,
+                        0,
                         classReference != null && classReference.isInterface(),
                         isAbstractClass(classReference),
                         classLabels()
@@ -311,6 +314,7 @@ public final class Neo4jBulkImportService {
                                 "class_structure",
                                 "",
                                 -1,
+                                0,
                                 "",
                                 -1,
                                 -1
@@ -342,6 +346,7 @@ public final class Neo4jBulkImportService {
                             "class_structure",
                             "",
                             -1,
+                            0,
                             "",
                             -1,
                             -1
@@ -357,6 +362,7 @@ public final class Neo4jBulkImportService {
                 }
                 long nodeId = nextNodeId++;
                 int sourceFlags = resolveSourceFlags(method, sourceMarkerIndex);
+                int methodSemanticFlags = Math.max(0, method.getSemanticFlags());
                 nodePrinter.printRecord(
                         nodeId,
                         "method",
@@ -368,6 +374,7 @@ public final class Neo4jBulkImportService {
                         -1,
                         -1,
                         sourceFlags,
+                        methodSemanticFlags,
                         false,
                         false,
                         methodLabels()
@@ -395,12 +402,13 @@ public final class Neo4jBulkImportService {
                             nextEdgeId++,
                         "HAS",
                         "",
-                        "class_structure",
-                        "",
-                        -1,
-                        "",
-                        -1,
-                            -1
+                                "class_structure",
+                                "",
+                                -1,
+                                0,
+                                "",
+                                -1,
+                                -1
                     );
                     edgeCount++;
                 }
@@ -440,6 +448,7 @@ public final class Neo4jBulkImportService {
                         safe(aliasEdge.evidence()),
                         safe(aliasEdge.aliasKind()),
                         -1,
+                        0,
                         "",
                         -1,
                         -1
@@ -490,6 +499,7 @@ public final class Neo4jBulkImportService {
                             confidence = "low";
                         }
                         String evidence = meta == null ? "" : safe(meta.getEvidence());
+                        int edgeSemanticFlags = meta == null ? 0 : meta.getEvidenceBits();
                         int opCode = resolveOpcode(meta, caller, callee);
                         List<CallSiteProjection> projections = resolveCallSiteProjections(callSiteIndex, caller, callee);
                         if (projections.isEmpty()) {
@@ -503,6 +513,7 @@ public final class Neo4jBulkImportService {
                                     evidence,
                                     "",
                                     opCode,
+                                    edgeSemanticFlags,
                                     "",
                                     -1,
                                     -1
@@ -521,6 +532,7 @@ public final class Neo4jBulkImportService {
                                     evidence,
                                     "",
                                     projection.opCode() > 0 ? projection.opCode() : opCode,
+                                    edgeSemanticFlags,
                                     projection.callSiteKey(),
                                     projection.lineNumber(),
                                     projection.callIndex()
@@ -841,9 +853,20 @@ public final class Neo4jBulkImportService {
 
     private static SourceMarkerIndex buildSourceMarkerIndex(GraphPayloadData graphPayloadData) {
         SourceRuleSupport.RuleSnapshot ruleSnapshot = SourceRuleSupport.snapshotCurrentRules();
-        Map<MethodLooseKey, Integer> explicitWebFlags = new HashMap<>();
-        mergeExplicitWebEntryFlags(explicitWebFlags, graphPayloadData);
-        return new SourceMarkerIndex(ruleSnapshot, explicitWebFlags);
+        Map<MethodLooseKey, Integer> explicitSourceFlags = new HashMap<>();
+        mergeExplicitWebEntryFlags(explicitSourceFlags, graphPayloadData);
+        Map<ClassKey, ClassReference> classReferences = new HashMap<>();
+        Map<String, ClassReference> classReferencesByName = new HashMap<>();
+        if (graphPayloadData != null && graphPayloadData.classReferences() != null) {
+            for (ClassReference classReference : graphPayloadData.classReferences()) {
+                if (classReference == null) {
+                    continue;
+                }
+                classReferences.put(toClassKey(classReference), classReference);
+                classReferencesByName.putIfAbsent(safe(classReference.getName()), classReference);
+            }
+        }
+        return new SourceMarkerIndex(ruleSnapshot, explicitSourceFlags, classReferences, classReferencesByName);
     }
 
     private static int resolveSourceFlags(MethodReference method, SourceMarkerIndex markerIndex) {
@@ -859,9 +882,17 @@ public final class Neo4jBulkImportService {
 
         int flags = markerIndex == null ? 0 : SourceRuleSupport.resolveRuleFlags(method, markerIndex.ruleSnapshot());
         if (markerIndex != null) {
-            Map<MethodLooseKey, Integer> explicitWebFlags = markerIndex.explicitWebFlags();
-            if (explicitWebFlags != null && !explicitWebFlags.isEmpty()) {
-                Integer explicit = explicitWebFlags.get(new MethodLooseKey(cls, name, desc));
+            ClassReference ownerClass = resolveMarkerClassReference(markerIndex, cls, resolveMethodJar(method));
+            flags |= SourceRuleSupport.resolveFrameworkFlags(
+                    method,
+                    ownerClass,
+                    (ownerName, ownerJarId) -> resolveMarkerClassReference(markerIndex, ownerName, ownerJarId)
+            );
+        }
+        if (markerIndex != null) {
+            Map<MethodLooseKey, Integer> explicitSourceFlags = markerIndex.explicitSourceFlags();
+            if (explicitSourceFlags != null && !explicitSourceFlags.isEmpty()) {
+                Integer explicit = explicitSourceFlags.get(new MethodLooseKey(cls, name, desc));
                 if (explicit != null) {
                     flags |= explicit;
                 }
@@ -906,6 +937,19 @@ public final class Neo4jBulkImportService {
         addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.filters(), WebEntryMethods.FILTER_ENTRY_METHODS);
         addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.springInterceptors(), WebEntryMethods.INTERCEPTOR_ENTRY_METHODS);
         addExplicitEntriesByClass(explicitWebFlags, graphPayloadData.listeners(), WebEntryMethods.LISTENER_ENTRY_METHODS);
+        if (graphPayloadData.explicitSourceMethodFlags() != null) {
+            for (Map.Entry<MethodReference.Handle, Integer> entry : graphPayloadData.explicitSourceMethodFlags().entrySet()) {
+                MethodReference.Handle handle = entry.getKey();
+                if (handle == null || handle.getClassReference() == null) {
+                    continue;
+                }
+                String owner = handle.getClassReference().getName();
+                String methodName = handle.getName();
+                String methodDesc = handle.getDesc();
+                int flags = entry.getValue() == null ? 0 : entry.getValue();
+                addExplicitWebEntry(explicitWebFlags, owner, methodName, methodDesc, flags);
+            }
+        }
     }
 
     private static void addExplicitEntriesByClass(Map<MethodLooseKey, Integer> explicitWebFlags,
@@ -928,17 +972,46 @@ public final class Neo4jBulkImportService {
                                             String className,
                                             String methodName,
                                             String methodDesc) {
+        addExplicitWebEntry(explicitWebFlags, className, methodName, methodDesc, GraphNode.SOURCE_FLAG_WEB);
+    }
+
+    private static void addExplicitWebEntry(Map<MethodLooseKey, Integer> explicitWebFlags,
+                                            String className,
+                                            String methodName,
+                                            String methodDesc,
+                                            int flags) {
         String owner = normalizeInternalName(className);
         String method = safe(methodName);
         String desc = safe(methodDesc);
-        if (owner.isBlank() || method.isBlank() || desc.isBlank()) {
+        if (owner.isBlank() || method.isBlank() || desc.isBlank() || flags == 0) {
             return;
         }
         explicitWebFlags.merge(
                 new MethodLooseKey(owner, method, desc),
-                GraphNode.SOURCE_FLAG_WEB,
+                flags,
                 (left, right) -> left | right
         );
+    }
+
+    private static ClassReference resolveMarkerClassReference(SourceMarkerIndex markerIndex,
+                                                              String className,
+                                                              Integer jarId) {
+        if (markerIndex == null) {
+            return null;
+        }
+        String normalized = safe(className);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        Map<ClassKey, ClassReference> classes = markerIndex.classReferences();
+        if (classes != null) {
+            ClassReference direct = classes.get(new ClassKey(normalized, normalizeJarId(jarId)));
+            if (direct != null) {
+                return direct;
+            }
+        }
+        Map<String, ClassReference> classReferencesByName = markerIndex.classReferencesByName();
+        return classReferencesByName == null ? null : classReferencesByName.get(normalized);
     }
 
     private static String normalizeInternalName(String className) {
@@ -1401,7 +1474,8 @@ public final class Neo4jBulkImportService {
                                    List<String> springInterceptors,
                                    List<String> servlets,
                                    List<String> filters,
-                                   List<String> listeners) {
+                                   List<String> listeners,
+                                   Map<MethodReference.Handle, Integer> explicitSourceMethodFlags) {
         public GraphPayloadData {
             callSites = callSites == null ? List.of() : callSites;
             classReferences = classReferences == null ? List.of() : classReferences;
@@ -1410,6 +1484,7 @@ public final class Neo4jBulkImportService {
             servlets = servlets == null ? List.of() : servlets;
             filters = filters == null ? List.of() : filters;
             listeners = listeners == null ? List.of() : listeners;
+            explicitSourceMethodFlags = explicitSourceMethodFlags == null ? Map.of() : Map.copyOf(explicitSourceMethodFlags);
         }
     }
 
@@ -1449,7 +1524,9 @@ public final class Neo4jBulkImportService {
     }
 
     private record SourceMarkerIndex(SourceRuleSupport.RuleSnapshot ruleSnapshot,
-                                     Map<MethodLooseKey, Integer> explicitWebFlags) {
+                                     Map<MethodLooseKey, Integer> explicitSourceFlags,
+                                     Map<ClassKey, ClassReference> classReferences,
+                                     Map<String, ClassReference> classReferencesByName) {
     }
 
     private static final Comparator<ClassReference> CLASS_REFERENCE_COMPARATOR = Comparator

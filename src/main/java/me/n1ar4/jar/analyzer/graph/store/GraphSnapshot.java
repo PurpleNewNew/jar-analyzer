@@ -38,6 +38,7 @@ public final class GraphSnapshot {
     private final String[] evidences;
     private final String[] aliasKinds;
     private final int[] opCodes;
+    private final int[] semanticFlags;
     private final String[] callSiteKeys;
     private final int[] lineNumbers;
     private final int[] callIndexes;
@@ -84,6 +85,7 @@ public final class GraphSnapshot {
         this.evidences = encoded.evidences;
         this.aliasKinds = encoded.aliasKinds;
         this.opCodes = encoded.opCodes;
+        this.semanticFlags = encoded.semanticFlags;
         this.callSiteKeys = encoded.callSiteKeys;
         this.lineNumbers = encoded.lineNumbers;
         this.callIndexes = encoded.callIndexes;
@@ -119,6 +121,7 @@ public final class GraphSnapshot {
                         new String[0],
                         new String[0],
                         new int[0],
+                        new int[0],
                         new String[0],
                         new int[0],
                         new int[0],
@@ -148,6 +151,7 @@ public final class GraphSnapshot {
                                              String[] evidences,
                                              String[] aliasKinds,
                                              int[] opCodes,
+                                             int[] semanticFlags,
                                              String[] callSiteKeys,
                                              int[] lineNumbers,
                                              int[] callIndexes,
@@ -161,6 +165,7 @@ public final class GraphSnapshot {
                 copy(evidences),
                 copy(aliasKinds),
                 copy(opCodes),
+                copy(semanticFlags),
                 copy(callSiteKeys),
                 copy(lineNumbers),
                 copy(callIndexes),
@@ -300,7 +305,8 @@ public final class GraphSnapshot {
                 opCodes[index],
                 callSiteKeys[index],
                 lineNumbers[index],
-                callIndexes[index]
+                callIndexes[index],
+                semanticFlags[index]
         );
         if (edgeCache.compareAndSet(index, null, created)) {
             return created;
@@ -332,6 +338,7 @@ public final class GraphSnapshot {
                     new String[0],
                     new String[0],
                     new String[0],
+                    new int[0],
                     new int[0],
                     new String[0],
                     new int[0],
@@ -517,6 +524,7 @@ public final class GraphSnapshot {
         private String[] evidences;
         private String[] aliasKinds;
         private int[] opCodes;
+        private int[] semanticFlags;
         private String[] callSiteKeys;
         private int[] lineNumbers;
         private int[] callIndexes;
@@ -534,6 +542,7 @@ public final class GraphSnapshot {
             this.evidences = new String[initCapacity];
             this.aliasKinds = new String[initCapacity];
             this.opCodes = new int[initCapacity];
+            this.semanticFlags = new int[initCapacity];
             this.callSiteKeys = new String[initCapacity];
             this.lineNumbers = new int[initCapacity];
             this.callIndexes = new int[initCapacity];
@@ -559,6 +568,7 @@ public final class GraphSnapshot {
             evidences[idx] = safe(edge.getEvidence());
             aliasKinds[idx] = safe(edge.getAliasKind());
             opCodes[idx] = edge.getOpCode();
+            semanticFlags[idx] = edge.getSemanticFlags();
             callSiteKeys[idx] = safe(edge.getCallSiteKey());
             lineNumbers[idx] = edge.getLineNumber();
             callIndexes[idx] = edge.getCallIndex();
@@ -575,6 +585,7 @@ public final class GraphSnapshot {
             evidences = copyOf(evidences, next);
             aliasKinds = copyOf(aliasKinds, next);
             opCodes = copyOf(opCodes, next);
+            semanticFlags = copyOf(semanticFlags, next);
             callSiteKeys = copyOf(callSiteKeys, next);
             lineNumbers = copyOf(lineNumbers, next);
             callIndexes = copyOf(callIndexes, next);
@@ -590,6 +601,7 @@ public final class GraphSnapshot {
                     trim(evidences, size),
                     trim(aliasKinds, size),
                     trim(opCodes, size),
+                    trim(semanticFlags, size),
                     trim(callSiteKeys, size),
                     trim(lineNumbers, size),
                     trim(callIndexes, size),
@@ -715,6 +727,7 @@ public final class GraphSnapshot {
                                 String[] evidences,
                                 String[] aliasKinds,
                                 int[] opCodes,
+                                int[] semanticFlags,
                                 String[] callSiteKeys,
                                 int[] lineNumbers,
                                 int[] callIndexes,

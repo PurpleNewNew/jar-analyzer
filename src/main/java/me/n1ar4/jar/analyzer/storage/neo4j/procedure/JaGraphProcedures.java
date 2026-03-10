@@ -57,6 +57,16 @@ public final class JaGraphProcedures {
         return rows("ja.path.from_to_pruned", List.of(from, to, maxHops, maxPaths, traversalMode));
     }
 
+    @Procedure(name = "ja.path.gadget", mode = Mode.READ)
+    @Description("Jar Analyzer gadget-oriented path search over the in-memory graph snapshot.")
+    public Stream<JaNativeBridge.JaProcedureRow> gadgetPath(@Name("from") Object from,
+                                                            @Name("to") Object to,
+                                                            @Name("maxHops") Long maxHops,
+                                                            @Name("maxPaths") Long maxPaths,
+                                                            @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
+        return rows("ja.path.gadget", List.of(from, to, maxHops, maxPaths, traversalMode));
+    }
+
     @Procedure(name = "ja.taint.track", mode = Mode.READ)
     @Description("Jar Analyzer taint tracking over the in-memory graph snapshot.")
     public Stream<JaNativeBridge.JaProcedureRow> taintTrack(@Name("sourceClass") String sourceClass,
@@ -85,6 +95,32 @@ public final class JaGraphProcedures {
                 mode,
                 searchAllSources,
                 onlyFromWeb,
+                traversalMode
+        ));
+    }
+
+    @Procedure(name = "ja.gadget.track", mode = Mode.READ)
+    @Description("Jar Analyzer gadget chain tracking over the in-memory graph snapshot.")
+    public Stream<JaNativeBridge.JaProcedureRow> gadgetTrack(@Name("sourceClass") String sourceClass,
+                                                             @Name("sourceMethod") String sourceMethod,
+                                                             @Name("sourceDesc") String sourceDesc,
+                                                             @Name("sinkClass") String sinkClass,
+                                                             @Name("sinkMethod") String sinkMethod,
+                                                             @Name("sinkDesc") String sinkDesc,
+                                                             @Name("depth") Long depth,
+                                                             @Name("maxPaths") Long maxPaths,
+                                                             @Name(value = "searchAllSources", defaultValue = "false") Boolean searchAllSources,
+                                                             @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
+        return rows("ja.gadget.track", List.of(
+                sourceClass,
+                sourceMethod,
+                sourceDesc,
+                sinkClass,
+                sinkMethod,
+                sinkDesc,
+                depth,
+                maxPaths,
+                searchAllSources,
                 traversalMode
         ));
     }

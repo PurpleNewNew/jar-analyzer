@@ -33,6 +33,7 @@ import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.rules.MethodSemanticSupport;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
@@ -294,6 +295,14 @@ public class CoreRunner {
         long stageStartNs = System.nanoTime();
         List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
                 userArchives, jarIdMap, context.resources, includeNested);
+        List<ClassFileEntity> jspClassFiles = JspCompileRunner.compile(
+                ProjectRuntimeContext.getProjectModel(),
+                context.resources,
+                userArchives
+        );
+        if (!jspClassFiles.isEmpty()) {
+            classFiles.addAll(jspClassFiles);
+        }
         for (ClassFileEntity cf : classFiles) {
             String className = cf.getClassName();
             if (!fixClass) {
@@ -382,6 +391,36 @@ public class CoreRunner {
                 context.servlets.size(),
                 context.filters.size(),
                 context.listeners.size(),
+                heapUsage());
+
+        markBuildStage("framework-entry");
+        stageStartNs = System.nanoTime();
+        FrameworkEntryDiscovery.Result frameworkEntries = FrameworkEntryDiscovery.discover(
+                context.resources,
+                context.classMap,
+                context.methodMap
+        );
+        mergeUnique(context.servlets, frameworkEntries.servlets());
+        mergeUnique(context.filters, frameworkEntries.filters());
+        mergeUnique(context.listeners, frameworkEntries.listeners());
+        if (frameworkEntries.explicitSourceMethodFlags() != null
+                && !frameworkEntries.explicitSourceMethodFlags().isEmpty()) {
+            context.explicitSourceMethodFlags.putAll(frameworkEntries.explicitSourceMethodFlags());
+        }
+        logger.info("build stage framework-entry: {} ms (explicitMethods={}, servlets={}, filters={}, listeners={}, heap={})",
+                msSince(stageStartNs),
+                context.explicitSourceMethodFlags.size(),
+                context.servlets.size(),
+                context.filters.size(),
+                context.listeners.size(),
+                heapUsage());
+
+        markBuildStage("method-semantic");
+        stageStartNs = System.nanoTime();
+        applyMethodSemanticFlags(context);
+        logger.info("build stage method-semantic: {} ms (taggedMethods={}, heap={})",
+                msSince(stageStartNs),
+                countSemanticMethods(context),
                 heapUsage());
 
         markBuildStage("bytecode-symbol");
@@ -571,7 +610,8 @@ public class CoreRunner {
                         context.interceptors,
                         context.servlets,
                         context.filters,
-                        context.listeners
+                        context.listeners,
+                        context.explicitSourceMethodFlags
                 ),
                 () -> {
                     markBuildStage("build-runtime-snapshot");
@@ -1062,11 +1102,59 @@ public class CoreRunner {
                 context.methodMap,
                 jarOriginsById
         );
+        if (context.explicitSourceMethodFlags != null && !context.explicitSourceMethodFlags.isEmpty()) {
+            for (MethodReference.Handle handle : context.explicitSourceMethodFlags.keySet()) {
+                addEntrySignature(signatures, resolveMethodByHandle(handle, context.methodMap), jarOriginsById);
+            }
+        }
 
         if (!signatures.isEmpty()) {
             logger.info("tai-e explicit entry methods resolved: {}", signatures.size());
         }
         return signatures.isEmpty() ? List.of() : List.copyOf(signatures);
+    }
+
+    private static void applyMethodSemanticFlags(BuildContext context) {
+        if (context == null || context.discoveredMethods.isEmpty()) {
+            return;
+        }
+        Map<MethodReference.Handle, Integer> flags = MethodSemanticSupport.derive(
+                context.discoveredMethods,
+                context.discoveredClasses,
+                context.controllers,
+                context.interceptors,
+                context.servlets,
+                context.filters,
+                context.listeners,
+                context.resources,
+                context.explicitSourceMethodFlags
+        );
+        if (flags.isEmpty()) {
+            return;
+        }
+        for (MethodReference method : context.discoveredMethods) {
+            if (method != null) {
+                method.mergeSemanticFlags(flags.getOrDefault(method.getHandle(), 0));
+            }
+        }
+        for (MethodReference method : context.methodMap.values()) {
+            if (method != null) {
+                method.mergeSemanticFlags(flags.getOrDefault(method.getHandle(), 0));
+            }
+        }
+    }
+
+    private static int countSemanticMethods(BuildContext context) {
+        if (context == null || context.discoveredMethods.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (MethodReference method : context.discoveredMethods) {
+            if (method != null && method.getSemanticFlags() != 0) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static void addEntryMethodsByClass(Set<String> out,
@@ -1135,6 +1223,18 @@ public class CoreRunner {
             }
         }
         return null;
+    }
+
+    private static void mergeUnique(List<String> target, List<String> source) {
+        if (target == null || source == null || source.isEmpty()) {
+            return;
+        }
+        Set<String> seen = new HashSet<>(target);
+        for (String value : source) {
+            if (value != null && seen.add(value)) {
+                target.add(value);
+            }
+        }
     }
 
     private static void addEntrySignature(Set<String> out,

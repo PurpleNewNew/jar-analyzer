@@ -15,10 +15,13 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.WebEntryMethodSpec;
 import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,8 +29,46 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 public final class SourceRuleSupport {
+    private static final Set<String> RPC_SERVICE_ANNOTATIONS = Set.of(
+            "Lorg/apache/dubbo/config/annotation/DubboService;",
+            "Lorg/apache/dubbo/config/annotation/Service;",
+            "Lcom/alibaba/dubbo/config/annotation/Service;",
+            "Lnet/devh/boot/grpc/server/service/GrpcService;",
+            "Ljavax/jws/WebService;",
+            "Ljakarta/jws/WebService;",
+            "Ljavax/xml/ws/WebServiceProvider;",
+            "Ljakarta/xml/ws/WebServiceProvider;"
+    );
+    private static final Set<String> STRUTS_ENTRY_TYPES = Set.of(
+            "com/opensymphony/xwork2/ActionSupport",
+            "com/opensymphony/xwork2/Action",
+            "org/apache/struts/action/Action",
+            "org/apache/struts/actions/DispatchAction"
+    );
+    private static final Set<String> STRUTS_ENTRY_METHODS = Set.of(
+            "execute",
+            "doExecute",
+            "unspecified"
+    );
+    private static final Set<String> NETTY_HANDLER_TYPES = Set.of(
+            "io/netty/channel/ChannelInboundHandler",
+            "io/netty/channel/SimpleChannelInboundHandler",
+            "org/jboss/netty/channel/SimpleChannelUpstreamHandler"
+    );
+    private static final Set<String> NETTY_HANDLER_METHODS = Set.of(
+            "channelRead",
+            "channelRead0",
+            "messageReceived"
+    );
+    private static final Set<String> NETTY_DECODER_TYPES = Set.of(
+            "io/netty/handler/codec/ByteToMessageDecoder",
+            "io/netty/handler/codec/MessageToMessageDecoder",
+            "org/jboss/netty/handler/codec/frame/FrameDecoder"
+    );
+
     private SourceRuleSupport() {
     }
 
@@ -94,6 +135,7 @@ public final class SourceRuleSupport {
 
         int flags = 0;
         RuleSnapshot snapshot = snapshotCurrentRules();
+        BiFunction<String, Integer, ClassReference> classResolver = (owner, ownerJarId) -> resolveCurrentClass(owner, ownerJarId);
         List<MethodReference> methods = DatabaseManager.getMethodReferencesByClass(cls);
         if (methods != null && !methods.isEmpty()) {
             for (MethodReference method : methods) {
@@ -101,6 +143,14 @@ public final class SourceRuleSupport {
                     continue;
                 }
                 flags |= resolveRuleFlags(method, snapshot);
+                flags |= resolveFrameworkFlags(
+                        method,
+                        resolveCurrentClass(
+                                method.getClassReference() == null ? cls : method.getClassReference().getName(),
+                                method.getJarId()
+                        ),
+                        classResolver
+                );
             }
         }
         int explicitFlags = resolveExplicitProjectFlags(cls, name, desc);
@@ -211,6 +261,42 @@ public final class SourceRuleSupport {
                 || value.contains("/jws/webservice;");
     }
 
+    public static int resolveFrameworkFlags(MethodReference method,
+                                            ClassReference ownerClass,
+                                            BiFunction<String, Integer, ClassReference> classResolver) {
+        if (method == null) {
+            return 0;
+        }
+        String methodName = safe(method.getName());
+        String methodDesc = safe(method.getDesc());
+        if (methodName.isBlank() || methodDesc.isBlank()) {
+            return 0;
+        }
+        int flags = 0;
+        if (isJspServiceEntry(methodName, methodDesc)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (ownerClass == null) {
+            return flags;
+        }
+        if (isRpcServiceClass(ownerClass) && isRemoteServiceMethod(method)) {
+            flags |= GraphNode.SOURCE_FLAG_RPC;
+        }
+        if (STRUTS_ENTRY_METHODS.contains(methodName)
+                && matchesHierarchy(ownerClass, classResolver, STRUTS_ENTRY_TYPES)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (NETTY_HANDLER_METHODS.contains(methodName)
+                && matchesHierarchy(ownerClass, classResolver, NETTY_HANDLER_TYPES)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if ("decode".equals(methodName)
+                && matchesHierarchy(ownerClass, classResolver, NETTY_DECODER_TYPES)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        return flags;
+    }
+
     private static int resolveExplicitProjectFlags(String className,
                                                    String methodName,
                                                    String methodDesc) {
@@ -233,6 +319,7 @@ public final class SourceRuleSupport {
         if (isServletEntry(methodName, methodDesc)) {
             flags |= GraphNode.SOURCE_FLAG_WEB;
         }
+        flags |= resolveExplicitResourceFlags(className, methodName, methodDesc);
         return flags;
     }
 
@@ -313,6 +400,142 @@ public final class SourceRuleSupport {
             }
         }
         return false;
+    }
+
+    private static int resolveExplicitResourceFlags(String className,
+                                                    String methodName,
+                                                    String methodDesc) {
+        FrameworkXmlSourceIndex.Result index = FrameworkXmlSourceIndex.currentProject();
+        if (index == null || index.isEmpty()) {
+            return 0;
+        }
+        int flags = 0;
+        if (matchesWebEntryClass(index.servletClasses(), className, methodName, methodDesc, WebEntryMethods.SERVLET_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(index.filterClasses(), className, methodName, methodDesc, WebEntryMethods.FILTER_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(index.listenerClasses(), className, methodName, methodDesc, WebEntryMethods.LISTENER_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        flags |= index.resolveFlags(className, methodName, methodDesc);
+        return flags;
+    }
+
+    private static boolean isJspServiceEntry(String methodName, String methodDesc) {
+        return "_jspService".equals(safe(methodName))
+                && ("(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(safe(methodDesc))
+                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(safe(methodDesc)));
+    }
+
+    private static boolean isRpcServiceClass(ClassReference ownerClass) {
+        Set<AnnoReference> annotations = ownerClass == null ? null : ownerClass.getAnnotations();
+        if (annotations == null || annotations.isEmpty()) {
+            return false;
+        }
+        for (AnnoReference annotation : annotations) {
+            String normalized = normalizeAnnotationName(annotation == null ? null : annotation.getAnnoName());
+            if (RPC_SERVICE_ANNOTATIONS.contains(normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRemoteServiceMethod(MethodReference method) {
+        if (method == null) {
+            return false;
+        }
+        String name = safe(method.getName());
+        if (name.isBlank() || "<init>".equals(name) || "<clinit>".equals(name)) {
+            return false;
+        }
+        int access = method.getAccess();
+        if ((access & Opcodes.ACC_PUBLIC) == 0) {
+            return false;
+        }
+        return (access & Opcodes.ACC_STATIC) == 0;
+    }
+
+    private static boolean matchesHierarchy(ClassReference ownerClass,
+                                            BiFunction<String, Integer, ClassReference> classResolver,
+                                            Set<String> targets) {
+        if (ownerClass == null || targets == null || targets.isEmpty()) {
+            return false;
+        }
+        ArrayDeque<ClassReference> queue = new ArrayDeque<>();
+        Set<String> visited = new HashSet<>();
+        queue.add(ownerClass);
+        while (!queue.isEmpty()) {
+            ClassReference current = queue.poll();
+            if (current == null) {
+                continue;
+            }
+            String currentName = safe(current.getName()).replace('.', '/');
+            if (currentName.isBlank() || !visited.add(currentName)) {
+                continue;
+            }
+            if (targets.contains(currentName)) {
+                return true;
+            }
+            enqueueHierarchyNode(queue, classResolver, current.getSuperClass(), current.getJarId(), targets);
+            List<String> interfaces = current.getInterfaces();
+            if (interfaces == null || interfaces.isEmpty()) {
+                continue;
+            }
+            for (String iface : interfaces) {
+                enqueueHierarchyNode(queue, classResolver, iface, current.getJarId(), targets);
+            }
+        }
+        return false;
+    }
+
+    private static void enqueueHierarchyNode(ArrayDeque<ClassReference> queue,
+                                             BiFunction<String, Integer, ClassReference> classResolver,
+                                             String rawName,
+                                             Integer jarId,
+                                             Set<String> targets) {
+        String normalized = safe(rawName).replace('.', '/');
+        if (normalized.isBlank()) {
+            return;
+        }
+        if (targets.contains(normalized)) {
+            queue.add(new ClassReference(
+                    normalized,
+                    "",
+                    List.of(),
+                    false,
+                    List.of(),
+                    new ArrayList<>(),
+                    "",
+                    jarId
+            ));
+            return;
+        }
+        if (classResolver == null) {
+            return;
+        }
+        ClassReference next = classResolver.apply(normalized, jarId);
+        if (next != null) {
+            queue.add(next);
+        }
+    }
+
+    private static ClassReference resolveCurrentClass(String className, Integer jarId) {
+        String normalized = safe(className).replace('.', '/');
+        if (normalized.isBlank()) {
+            return null;
+        }
+        ClassReference exact = DatabaseManager.getClassReferenceByName(normalized, jarId);
+        if (exact != null) {
+            return exact;
+        }
+        List<ClassReference> candidates = DatabaseManager.getClassReferencesByName(normalized);
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        return candidates.get(0);
     }
 
     private static String safe(String value) {

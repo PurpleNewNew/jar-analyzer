@@ -11,7 +11,9 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class MethodCallMeta {
@@ -94,6 +96,24 @@ public final class MethodCallMeta {
 
     public int getEvidenceBits() {
         return evidenceBits;
+    }
+
+    public static List<String> describeEvidenceBits(int flags) {
+        if (flags <= 0) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        addIfSet(out, flags, EVIDENCE_DIRECT, "Direct");
+        addIfSet(out, flags, EVIDENCE_DISPATCH, "Dispatch");
+        addIfSet(out, flags, EVIDENCE_TYPED, "Typed");
+        addIfSet(out, flags, EVIDENCE_REFLECTION, "Reflection");
+        addIfSet(out, flags, EVIDENCE_CALLBACK, "Callback");
+        addIfSet(out, flags, EVIDENCE_OVERRIDE, "Override");
+        addIfSet(out, flags, EVIDENCE_INDY, "InvokeDynamic");
+        addIfSet(out, flags, EVIDENCE_METHOD_HANDLE, "MethodHandle");
+        addIfSet(out, flags, EVIDENCE_FRAMEWORK, "Framework");
+        addIfSet(out, flags, EVIDENCE_PTA, "PTA");
+        return List.copyOf(out);
     }
 
     public static void record(Map<MethodCallKey, MethodCallMeta> map,
@@ -220,6 +240,12 @@ public final class MethodCallMeta {
             evidenceReason.put(t, reason.trim());
         }
         evidenceBits |= evidenceBitFor(t, reason);
+    }
+
+    private static void addIfSet(List<String> out, int flags, int mask, String label) {
+        if ((flags & mask) != 0) {
+            out.add(label);
+        }
     }
 
     public void updateBestOpcode(Integer opcode) {

@@ -82,8 +82,10 @@ public final class Neo4jQueryService {
         out.put("readOnly", true);
         out.put("clauses", List.of("MATCH", "WHERE", "RETURN", "WITH", "ORDER BY", "LIMIT", "SKIP", "CALL", "UNION", "UNWIND", "subquery"));
         out.put("procedures", List.of(
+                "ja.gadget.track",
                 "ja.path.from_to",
                 "ja.path.from_to_pruned",
+                "ja.path.gadget",
                 "ja.path.shortest",
                 "ja.path.shortest_pruned",
                 "ja.taint.track"
@@ -201,7 +203,9 @@ public final class Neo4jQueryService {
             return false;
         }
         String lower = query.toLowerCase(Locale.ROOT).trim();
-        if (lower.startsWith("call ja.path.") || lower.startsWith("call ja.taint.")) {
+        if (lower.startsWith("call ja.path.")
+                || lower.startsWith("call ja.taint.")
+                || lower.startsWith("call ja.gadget.")) {
             return false;
         }
         String sanitized = stripLiteralsAndComments(query);

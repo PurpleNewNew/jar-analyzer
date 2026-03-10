@@ -516,7 +516,7 @@ public final class QueryResultProjector {
                 methodName,
                 methodDesc,
                 QueryDisplayModel.displayLabels(kind, fallback == null ? null : stringList(fallback.get("labels"))),
-                mergeProperties(nodeMetadataProperties(nodeId, kind, jarId, className, methodName, methodDesc, "", -1, -1, sourceFlags), properties)
+                mergeProperties(nodeMetadataProperties(nodeId, kind, jarId, className, methodName, methodDesc, "", -1, -1, sourceFlags, 0), properties)
         );
     }
 
@@ -590,7 +590,8 @@ public final class QueryResultProjector {
                 node.getCallSiteKey(),
                 node.getLineNumber(),
                 node.getCallIndex(),
-                node.getSourceFlags()
+                node.getSourceFlags(),
+                node.getMethodSemanticFlags()
         );
     }
 
@@ -603,7 +604,8 @@ public final class QueryResultProjector {
                                                               String callSiteKey,
                                                               int lineNumber,
                                                               int callIndex,
-                                                              int sourceFlags) {
+                                                              int sourceFlags,
+                                                              int methodSemanticFlags) {
         LinkedHashMap<String, Object> out = new LinkedHashMap<>();
         putIfPresent(out, "node_id", nodeId > 0L ? nodeId : null);
         putIfPresent(out, "kind", kind);
@@ -616,6 +618,9 @@ public final class QueryResultProjector {
         putIfPresent(out, "call_index", callIndex >= 0 ? callIndex : null);
         if (sourceFlags >= 0) {
             out.put("source_flags", sourceFlags);
+        }
+        if (methodSemanticFlags > 0) {
+            out.put("method_semantic_flags", methodSemanticFlags);
         }
         return QueryDisplayModel.projectNodeProperties(out);
     }
@@ -639,6 +644,7 @@ public final class QueryResultProjector {
         if (edge != null) {
             putIfPresent(out, "alias_kind", edge.getAliasKind());
             putIfPresent(out, "op_code", edge.getOpCode() >= 0 ? edge.getOpCode() : null);
+            putIfPresent(out, "edge_semantic_flags", edge.getSemanticFlags() > 0 ? edge.getSemanticFlags() : null);
             putIfPresent(out, "call_site_key", edge.getCallSiteKey());
             putIfPresent(out, "line_number", edge.getLineNumber() >= 0 ? edge.getLineNumber() : null);
             putIfPresent(out, "call_index", edge.getCallIndex() >= 0 ? edge.getCallIndex() : null);

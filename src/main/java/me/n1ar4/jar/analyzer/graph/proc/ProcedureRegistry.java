@@ -13,14 +13,17 @@ package me.n1ar4.jar.analyzer.graph.proc;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
+import me.n1ar4.jar.analyzer.graph.flow.GraphGadgetEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphPrunedPathEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
 import me.n1ar4.jar.analyzer.graph.flow.TraversalMode;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
+import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 
 import java.util.ArrayDeque;
@@ -29,6 +32,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -67,8 +71,14 @@ public final class ProcedureRegistry {
         if ("ja.path.from_to_pruned".equals(name)) {
             return fromTo(argExprs, params, effectiveOptions, snapshot, budget, true);
         }
+        if ("ja.path.gadget".equals(name)) {
+            return pathGadget(argExprs, params, effectiveOptions, snapshot, budget);
+        }
         if ("ja.taint.track".equals(name)) {
             return taintTrack(argExprs, params, effectiveOptions, snapshot, budget);
+        }
+        if ("ja.gadget.track".equals(name)) {
+            return gadgetTrack(argExprs, params, effectiveOptions, snapshot, budget);
         }
         throw new IllegalArgumentException("cypher_feature_not_supported");
     }
@@ -311,6 +321,184 @@ public final class ProcedureRegistry {
         }
         boolean truncated = taintResults.size() > rows.size()
                 || taintRun.stats().getTruncation().truncated();
+        return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
+    }
+
+    private QueryResult pathGadget(List<String> argExprs,
+                                   Map<String, Object> params,
+                                   QueryOptions options,
+                                   GraphSnapshot snapshot,
+                                   QueryBudget budget) {
+        long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
+        long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
+        int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
+        int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 4)));
+
+        GraphGadgetEngine.Run run = new GraphGadgetEngine().search(
+                snapshot,
+                new GraphGadgetEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                new BudgetedGadgetController(budget)
+        );
+        ensureWithinBudget(budget);
+
+        if (run.candidates().isEmpty()) {
+            return new QueryResult(
+                    DEFAULT_COLUMNS,
+                    List.of(),
+                    buildGadgetWarnings(run.stats(), "path_not_found", traversalMode, null),
+                    false
+            );
+        }
+
+        List<List<Object>> rows = new ArrayList<>();
+        int pathId = 1;
+        for (GraphGadgetEngine.Candidate candidate : run.candidates()) {
+            rows.add(toRow(
+                    pathId++,
+                    new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
+                    safe(candidate.confidence()),
+                    gadgetEvidence("ja.path.gadget", candidate, traversalMode)
+            ));
+        }
+        return new QueryResult(
+                DEFAULT_COLUMNS,
+                rows,
+                buildGadgetWarnings(run.stats(), null, traversalMode, null),
+                run.truncated()
+        );
+    }
+
+    private QueryResult gadgetTrack(List<String> argExprs,
+                                    Map<String, Object> params,
+                                    QueryOptions options,
+                                    GraphSnapshot snapshot,
+                                    QueryBudget budget) {
+        String sourceClass = normalizeClass(toString(resolveArg(argExprs, params, 0)));
+        String sourceMethod = toString(resolveArg(argExprs, params, 1));
+        String sourceDesc = normalizeDesc(toString(resolveArg(argExprs, params, 2)));
+        String sinkClass = normalizeClass(toString(resolveArg(argExprs, params, 3)));
+        String sinkMethod = toString(resolveArg(argExprs, params, 4));
+        String sinkDesc = normalizeDesc(toString(resolveArg(argExprs, params, 5)));
+        int depth = toInt(resolveArg(argExprs, params, 6), options.getMaxHops());
+        Integer maxPathsArg = toNullableInt(resolveArg(argExprs, params, 7));
+        boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 8), false);
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 9)));
+
+        if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
+            throw new IllegalArgumentException("missing_param");
+        }
+        if (!searchAllSources
+                && (sourceClass.isEmpty() || sourceMethod.isEmpty() || sourceDesc.isEmpty())) {
+            throw new IllegalArgumentException("missing_param");
+        }
+
+        int maxPaths = options.getMaxPaths();
+        if (maxPathsArg != null && maxPathsArg > 0) {
+            maxPaths = Math.min(maxPaths, maxPathsArg);
+        }
+
+        long sinkNodeId = resolveMethodNodeRef(snapshot, sinkClass, sinkMethod, sinkDesc);
+        List<Long> sourceNodeIds;
+        if (searchAllSources) {
+            sourceNodeIds = resolveGadgetSourceNodes(snapshot);
+        } else {
+            long sourceNodeId = resolveMethodNodeRef(snapshot, sourceClass, sourceMethod, sourceDesc);
+            sourceNodeIds = sourceNodeId > 0L ? List.of(sourceNodeId) : List.of();
+        }
+
+        int sourceCandidates = sourceNodeIds.size();
+        if (sinkNodeId <= 0L || sourceNodeIds.isEmpty()) {
+            return new QueryResult(
+                    DEFAULT_COLUMNS,
+                    List.of(),
+                    buildGadgetWarnings(null, "path_not_found", traversalMode, searchAllSources ? sourceCandidates : null),
+                    false
+            );
+        }
+
+        List<List<Object>> rows = new ArrayList<>();
+        Set<String> emitted = new LinkedHashSet<>();
+        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        int totalNodeVisits = 0;
+        int totalExpandedEdges = 0;
+        int totalStateCuts = 0;
+        int totalDistanceCuts = 0;
+        long totalElapsedMs = 0L;
+        Map<String, Integer> routeCounts = new LinkedHashMap<>();
+        boolean truncated = false;
+        int pathId = 1;
+
+        for (Long sourceNodeId : sourceNodeIds) {
+            if (sourceNodeId == null || sourceNodeId <= 0L || rows.size() >= maxPaths) {
+                break;
+            }
+            int remainingPaths = Math.max(1, maxPaths - rows.size());
+            GraphGadgetEngine.Run run = new GraphGadgetEngine().search(
+                    snapshot,
+                    new GraphGadgetEngine.SearchRequest(
+                            sourceNodeId,
+                            sinkNodeId,
+                            depth,
+                            remainingPaths,
+                            traversalMode,
+                            Set.of(),
+                            "low"
+                    ),
+                    new BudgetedGadgetController(budget)
+            );
+            ensureWithinBudget(budget);
+
+            GraphGadgetEngine.Stats stats = run.stats();
+            if (stats != null) {
+                totalNodeVisits += stats.nodeVisits();
+                totalExpandedEdges += stats.expandedEdges();
+                totalStateCuts += stats.prunedByState();
+                totalDistanceCuts += stats.prunedByDistance();
+                totalElapsedMs += stats.elapsedMs();
+                for (Map.Entry<String, Integer> entry : stats.routeCounts().entrySet()) {
+                    routeCounts.merge(entry.getKey(), entry.getValue(), Integer::sum);
+                }
+            }
+
+            for (GraphGadgetEngine.Candidate candidate : run.candidates()) {
+                String key = joinLongs(candidate.nodeIds());
+                if (!emitted.add(key)) {
+                    continue;
+                }
+                rows.add(toRow(
+                        pathId++,
+                        new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
+                        safe(candidate.confidence()),
+                        gadgetEvidence("ja.gadget.track", candidate, traversalMode)
+                ));
+                if (rows.size() >= maxPaths) {
+                    break;
+                }
+            }
+            if (run.truncated()) {
+                truncated = true;
+            }
+        }
+
+        GraphGadgetEngine.Stats aggregateStats = new GraphGadgetEngine.Stats(
+                totalNodeVisits,
+                totalExpandedEdges,
+                rows.size(),
+                totalStateCuts,
+                totalDistanceCuts,
+                totalElapsedMs,
+                routeCounts
+        );
+        warnings.addAll(buildGadgetWarnings(
+                aggregateStats,
+                rows.isEmpty() ? "path_not_found" : null,
+                traversalMode,
+                searchAllSources ? sourceCandidates : null
+        ));
+        if (rows.size() >= maxPaths && sourceCandidates > 1) {
+            truncated = true;
+        }
         return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
     }
 
@@ -756,6 +944,36 @@ public final class ProcedureRegistry {
         return new ArrayList<>(warnings);
     }
 
+    private static List<String> buildGadgetWarnings(GraphGadgetEngine.Stats stats,
+                                                    String extra,
+                                                    TraversalMode traversalMode,
+                                                    Integer sourceCandidates) {
+        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        if (extra != null && !extra.isBlank()) {
+            warnings.add(extra);
+        }
+        if (sourceCandidates != null) {
+            warnings.add("gadget_source_candidates=" + Math.max(0, sourceCandidates));
+        }
+        if (stats != null) {
+            warnings.add("gadget_node_visits=" + stats.nodeVisits());
+            warnings.add("gadget_expanded_edges=" + stats.expandedEdges());
+            warnings.add("gadget_state_cuts=" + stats.prunedByState());
+            warnings.add("gadget_distance_cuts=" + stats.prunedByDistance());
+            warnings.add("gadget_elapsed_ms=" + stats.elapsedMs());
+            for (Map.Entry<String, Integer> entry : stats.routeCounts().entrySet()) {
+                if (entry.getKey() == null || entry.getKey().isBlank()) {
+                    continue;
+                }
+                warnings.add("gadget_route_" + entry.getKey().replace('-', '_') + "=" + Math.max(0, entry.getValue()));
+            }
+        }
+        if (traversalMode != null && traversalMode.includesAlias()) {
+            warnings.add("gadget_traversal_mode=" + traversalMode.displayName());
+        }
+        return new ArrayList<>(warnings);
+    }
+
     private static String prunedEvidence(String name, GraphPrunedPathEngine.Candidate candidate, TraversalMode traversalMode) {
         StringBuilder sb = new StringBuilder(safe(name));
         if (candidate != null && candidate.proven()) {
@@ -768,6 +986,20 @@ public final class ProcedureRegistry {
             sb.append(" traversal=").append(traversalMode.displayName());
         }
         return sb.toString().trim();
+    }
+
+    private static String gadgetEvidence(String name, GraphGadgetEngine.Candidate candidate, TraversalMode traversalMode) {
+        StringBuilder sb = new StringBuilder(safe(name));
+        if (candidate != null && !safe(candidate.route()).isBlank()) {
+            sb.append(" route=").append(candidate.route());
+        }
+        if (candidate != null && candidate.constraints() != null && !candidate.constraints().isEmpty()) {
+            sb.append(" constraints=").append(String.join(",", candidate.constraints()));
+        }
+        if (candidate != null && candidate.lowConfidence()) {
+            sb.append(" low-confidence");
+        }
+        return evidenceWithTraversal(sb.toString().trim(), traversalMode);
     }
 
     private static String evidenceWithTraversal(String evidence, TraversalMode traversalMode) {
@@ -882,6 +1114,56 @@ public final class ProcedureRegistry {
             }
         }
         return -1L;
+    }
+
+    private static long resolveMethodNodeRef(GraphSnapshot snapshot,
+                                             String className,
+                                             String methodName,
+                                             String methodDesc) {
+        if (snapshot == null) {
+            return -1L;
+        }
+        String clazz = normalizeClass(className);
+        String name = safe(methodName);
+        String desc = normalizeDesc(methodDesc);
+        if (clazz.isEmpty() || name.isEmpty() || desc.isEmpty()) {
+            return -1L;
+        }
+        if (!"*".equals(desc)) {
+            return snapshot.findMethodNodeId(clazz, name, desc, null);
+        }
+        long matched = -1L;
+        for (GraphNode node : snapshot.getNodesByClassNameView(clazz)) {
+            if (!GraphTraversalRules.isMethodNode(node)) {
+                continue;
+            }
+            if (!name.equals(node.getMethodName())) {
+                continue;
+            }
+            if (matched > 0L) {
+                return -1L;
+            }
+            matched = node.getNodeId();
+        }
+        return matched;
+    }
+
+    private static List<Long> resolveGadgetSourceNodes(GraphSnapshot snapshot) {
+        if (snapshot == null) {
+            return List.of();
+        }
+        List<Long> out = new ArrayList<>();
+        for (GraphNode node : snapshot.getNodesView()) {
+            if (!GraphTraversalRules.isMethodNode(node)) {
+                continue;
+            }
+            if (!node.hasMethodSemanticFlag(MethodSemanticFlags.DESERIALIZATION_CALLBACK)) {
+                continue;
+            }
+            out.add(node.getNodeId());
+        }
+        out.sort(Long::compareTo);
+        return List.copyOf(out);
     }
 
     private static int toInt(Object value, int def) {
@@ -1114,6 +1396,45 @@ public final class ProcedureRegistry {
         private final QueryBudget budget;
 
         private BudgetedPrunedController(QueryBudget budget) {
+            this.budget = budget;
+        }
+
+        @Override
+        public void onNode() {
+        }
+
+        @Override
+        public void onExpand() {
+            if (budget != null) {
+                budget.onExpand();
+            }
+        }
+
+        @Override
+        public void onPath() {
+            if (budget != null) {
+                budget.onPath();
+            }
+        }
+
+        @Override
+        public void checkpoint() {
+            if (budget != null) {
+                budget.checkpoint();
+            }
+        }
+
+        @Override
+        public boolean shouldStop(int emittedPaths) {
+            checkpoint();
+            return false;
+        }
+    }
+
+    private static final class BudgetedGadgetController implements GraphGadgetEngine.Controller {
+        private final QueryBudget budget;
+
+        private BudgetedGadgetController(QueryBudget budget) {
             this.budget = budget;
         }
 
