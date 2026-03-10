@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="fixture.framework.mapper.UserMapper">
+    <select id="findByName" resultType="java.lang.String">
+        select * from users where name = ${name}
+    </select>
+</mapper>

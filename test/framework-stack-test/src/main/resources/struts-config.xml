@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<struts-config>
+    <action-mappings>
+        <action path="/login"
+                type="fixture.framework.struts.LoginAction"
+                method="execute"/>
+    </action-mappings>
+</struts-config>

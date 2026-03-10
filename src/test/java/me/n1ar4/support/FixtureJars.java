@@ -30,6 +30,8 @@ public final class FixtureJars {
     private static final Object LOCK = new Object();
     private static volatile Path springbootJar;
     private static volatile Path callbackJar;
+    private static volatile Path frameworkStackJar;
+    private static volatile Path gadgetFamilyJar;
 
     private FixtureJars() {
     }
@@ -40,22 +42,8 @@ public final class FixtureJars {
             return cached;
         }
         synchronized (LOCK) {
-            cached = springbootJar;
-            if (cached != null && Files.exists(cached)) {
-                return cached;
-            }
-            Path projectDir = Paths.get("test", "springboot-test");
-            Path targetDir = projectDir.resolve("target");
-            Path jar = findMainJar(targetDir);
-            if (jar == null) {
-                runMavenPackage(projectDir);
-                jar = findMainJar(targetDir);
-            }
-            if (jar == null) {
-                Assertions.fail("fixture jar not found under: " + targetDir.toAbsolutePath());
-            }
-            springbootJar = jar;
-            return jar;
+            springbootJar = resolveFixtureJar(Paths.get("test", "springboot-test"));
+            return springbootJar;
         }
     }
 
@@ -65,23 +53,47 @@ public final class FixtureJars {
             return cached;
         }
         synchronized (LOCK) {
-            cached = callbackJar;
-            if (cached != null && Files.exists(cached)) {
-                return cached;
-            }
-            Path projectDir = Paths.get("test", "callback-test");
-            Path targetDir = projectDir.resolve("target");
-            Path jar = findMainJar(targetDir);
-            if (jar == null || isRebuildRequired(projectDir, jar)) {
-                runMavenPackage(projectDir);
-                jar = findMainJar(targetDir);
-            }
-            if (jar == null) {
-                Assertions.fail("fixture jar not found under: " + targetDir.toAbsolutePath());
-            }
-            callbackJar = jar;
-            return jar;
+            callbackJar = resolveFixtureJar(Paths.get("test", "callback-test"));
+            return callbackJar;
         }
+    }
+
+    public static Path frameworkStackTestJar() {
+        Path cached = frameworkStackJar;
+        if (cached != null && Files.exists(cached)) {
+            return cached;
+        }
+        synchronized (LOCK) {
+            frameworkStackJar = resolveFixtureJar(Paths.get("test", "framework-stack-test"));
+            return frameworkStackJar;
+        }
+    }
+
+    public static Path gadgetFamilyTestJar() {
+        Path cached = gadgetFamilyJar;
+        if (cached != null && Files.exists(cached)) {
+            return cached;
+        }
+        synchronized (LOCK) {
+            gadgetFamilyJar = resolveFixtureJar(Paths.get("test", "gadget-family-test"));
+            return gadgetFamilyJar;
+        }
+    }
+
+    private static Path resolveFixtureJar(Path projectDir) {
+        if (projectDir == null) {
+            Assertions.fail("fixture project dir is null");
+        }
+        Path targetDir = projectDir.resolve("target");
+        Path jar = findMainJar(targetDir);
+        if (jar == null || isRebuildRequired(projectDir, jar)) {
+            runMavenPackage(projectDir);
+            jar = findMainJar(targetDir);
+        }
+        if (jar == null) {
+            Assertions.fail("fixture jar not found under: " + targetDir.toAbsolutePath());
+        }
+        return jar;
     }
 
     private static boolean isRebuildRequired(Path projectDir, Path jar) {

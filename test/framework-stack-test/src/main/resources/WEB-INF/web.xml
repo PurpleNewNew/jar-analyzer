@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app>
+    <servlet>
+        <servlet-name>xml</servlet-name>
+        <servlet-class>fixture.framework.web.XmlServlet</servlet-class>
+    </servlet>
+    <filter>
+        <filter-name>audit</filter-name>
+        <filter-class>fixture.framework.web.AuditFilter</filter-class>
+    </filter>
+    <listener>
+        <listener-class>fixture.framework.web.BootstrapListener</listener-class>
+    </listener>
+</web-app>
