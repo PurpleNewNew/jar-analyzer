@@ -259,7 +259,7 @@ public final class Neo4jBulkImportService {
                         -1,
                         -1,
                         sourceFlags,
-                        methodLabels(sourceFlags)
+                        methodLabels()
                 );
                 methodNodeByKey.put(key, nodeId);
                 registerLooseMethodNode(
@@ -652,24 +652,8 @@ public final class Neo4jBulkImportService {
         return String.valueOf(value);
     }
 
-    private static String methodLabels(int sourceFlags) {
-        StringBuilder labels = new StringBuilder("JANode;Method");
-        if ((sourceFlags & GraphNode.SOURCE_FLAG_ANY) != 0) {
-            labels.append(";Source");
-        }
-        if ((sourceFlags & GraphNode.SOURCE_FLAG_WEB) != 0) {
-            labels.append(";SourceWeb");
-        }
-        if ((sourceFlags & GraphNode.SOURCE_FLAG_MODEL) != 0) {
-            labels.append(";SourceModel");
-        }
-        if ((sourceFlags & GraphNode.SOURCE_FLAG_ANNOTATION) != 0) {
-            labels.append(";SourceAnno");
-        }
-        if ((sourceFlags & GraphNode.SOURCE_FLAG_RPC) != 0) {
-            labels.append(";SourceRpc");
-        }
-        return labels.toString();
+    private static String methodLabels() {
+        return "JANode;Method";
     }
 
     private static SourceMarkerIndex buildSourceMarkerIndex(GraphPayloadData graphPayloadData) {
@@ -700,7 +684,7 @@ public final class Neo4jBulkImportService {
                 }
             }
         }
-        if (isServletEntry(name, desc)) {
+        if (SourceRuleSupport.isServletEntry(name, desc)) {
             flags |= GraphNode.SOURCE_FLAG_WEB;
         }
         if (flags != 0) {
@@ -780,24 +764,6 @@ public final class Neo4jBulkImportService {
             return "";
         }
         return value.replace('.', '/');
-    }
-
-    private static boolean isServletEntry(String methodName, String methodDesc) {
-        String name = safe(methodName);
-        String desc = safe(methodDesc);
-        if (name.isBlank() || desc.isBlank()) {
-            return false;
-        }
-        if (!("doGet".equals(name) || "doPost".equals(name) || "doPut".equals(name)
-                || "doDelete".equals(name) || "doHead".equals(name)
-                || "doOptions".equals(name) || "doTrace".equals(name)
-                || "service".equals(name))) {
-            return false;
-        }
-        return "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(desc)
-                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
-                || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
-                || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
     }
 
     private static void registerLooseMethodNode(Map<MethodLooseKey, Long> methodNodeByLooseKey,

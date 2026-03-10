@@ -8,9 +8,12 @@ export type FrameSelection =
 
 export type GraphFilter =
   | { kind: 'label'; value: string }
-  | { kind: 'relType'; value: string }
+  | { kind: 'relGroup'; value: string }
+  | { kind: 'relSubtype'; value: string }
   | { kind: 'neighbors'; nodeId: number; label: string; hops: 1 }
   | null
+
+export type GraphRelationMode = 'group' | 'detail'
 
 interface InspectorFrame {
   query: string
@@ -22,11 +25,12 @@ interface InspectorFrame {
   graph: GraphFramePayload | null
   selection: FrameSelection
   graphFilter: GraphFilter
+  graphRelationMode: GraphRelationMode
 }
 
 interface InspectorCallbacks {
   tr: (zh: string, en: string) => string
-  activateLegend: (kind: 'label' | 'relType', value: string) => void
+  activateLegend: (kind: 'label' | 'relGroup' | 'relSubtype', value: string) => void
   activateInspectorLink: (key: string, value: unknown, selected: Exclude<FrameSelection, null>) => void
   activateNeighborhoodFocus: (node: GraphNodePayload) => void
   clearGraphFilter: () => void
@@ -59,13 +63,19 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
       appendPropSection(container, tr('图概览', 'Graph Overview'))
       appendProp(container, tr('图节点', 'Graph Nodes'), String(frame.graph.nodes.length))
       appendProp(container, tr('图边', 'Graph Edges'), String(frame.graph.edges.length))
-      appendProp(container, tr('标签数', 'Label Types'), String(stats.labelCounts.length))
-      appendProp(container, tr('关系数', 'Rel Types'), String(stats.relTypeCounts.length))
-      appendCountSection(container, tr('节点标签', 'Node Labels'), stats.labelCounts, (key) => {
+      appendProp(container, tr('结构标签数', 'Structure Labels'), String(stats.structureLabelCounts.length))
+      appendProp(container, tr('语义摘要数', 'Semantic Badges'), String(stats.semanticCounts.length))
+      appendProp(container, tr('关系类别数', 'Rel Groups'), String(stats.relGroupCounts.length))
+      appendProp(container, tr('关系子类数', 'Rel Subtypes'), String(stats.relSubtypeCounts.length))
+      appendCountSection(container, tr('结构标签', 'Structure Labels'), stats.structureLabelCounts, (key) => {
         activateLegend('label', key)
       }, tr)
-      appendCountSection(container, tr('关系类型', 'Relationship Types'), stats.relTypeCounts, (key) => {
-        activateLegend('relType', key)
+      appendCountSection(container, tr('节点语义', 'Node Semantics'), stats.semanticCounts, undefined, tr)
+      appendCountSection(container, tr('关系类别', 'Relationship Groups'), stats.relGroupCounts, (key) => {
+        activateLegend('relGroup', key)
+      }, tr)
+      appendCountSection(container, tr('关系子类', 'Relationship Subtypes'), stats.relSubtypeCounts, (key) => {
+        activateLegend('relSubtype', key)
       }, tr)
     }
     if ((frame.graph?.warnings || frame.warnings).length > 0) {
@@ -111,9 +121,15 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
     appendLinkedProp(container, selected, activateInspectorLink, 'method_name', selected.data.methodName, tr)
     appendLinkedProp(container, selected, activateInspectorLink, 'method_desc', selected.data.methodDesc, tr)
     appendLinkedProp(container, selected, activateInspectorLink, 'jar_id', selected.data.jarId, tr)
+    appendLinkedProp(container, selected, activateInspectorLink, 'source_flags', selected.data.properties?.source_flags, tr)
+    appendLinkedProp(container, selected, activateInspectorLink, 'source_flags_effective', selected.data.properties?.source_flags_effective, tr)
+    appendLinkedProp(container, selected, activateInspectorLink, 'is_source', selected.data.properties?.is_source, tr)
+    appendLinkedProp(container, selected, activateInspectorLink, 'is_sink', selected.data.properties?.is_sink, tr)
+    appendLinkedProp(container, selected, activateInspectorLink, 'sink_kind', selected.data.properties?.sink_kind, tr)
     appendTagSection(container, tr('标签', 'Labels'), selected.data.labels, (label) => {
       activateInspectorLink('label', label, selected)
     }, tr)
+    appendTagSection(container, tr('当前语义', 'Current Semantics'), nodeSemanticBadges(selected.data), undefined, tr)
     appendMapSection(container, tr('属性', 'Properties'), selected.data.properties, (key, value) => {
       activateInspectorLink(key, value, selected)
     }, tr)
@@ -127,6 +143,8 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
   appendLinkedProp(container, selected, activateInspectorLink, 'edge_id', selected.data.id, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'source', selected.data.source, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'target', selected.data.target, tr)
+  appendLinkedProp(container, selected, activateInspectorLink, 'display_rel_type', edgeDisplayGroup(selected.data), tr)
+  appendLinkedProp(container, selected, activateInspectorLink, 'rel_subtype', edgeSubtype(selected.data), tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'rel_type', selected.data.relType, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'confidence', selected.data.confidence, tr)
   appendLinkedProp(container, selected, activateInspectorLink, 'evidence', selected.data.evidence, tr)
@@ -189,7 +207,13 @@ function formatGraphFilter(filter: GraphFilter, tr: InspectorCallbacks['tr']): s
   if (filter.kind === 'neighbors') {
     return `${tr('一跳邻居', '1-Hop')}: ${filter.label}`
   }
-  return `${filter.kind === 'label' ? tr('标签', 'Label') : tr('关系', 'Rel Type')}: ${filter.value}`
+  if (filter.kind === 'label') {
+    return `${tr('标签', 'Label')}: ${filter.value}`
+  }
+  if (filter.kind === 'relGroup') {
+    return `${tr('关系类别', 'Rel Group')}: ${filter.value}`
+  }
+  return `${tr('关系子类', 'Rel Subtype')}: ${filter.value}`
 }
 
 function appendActionRow(
@@ -378,11 +402,15 @@ function appendJsonSection(container: HTMLElement, title: string, value: unknown
 }
 
 function graphOverviewStats(graph: GraphFramePayload): {
-  labelCounts: Array<[string, number]>
-  relTypeCounts: Array<[string, number]>
+  structureLabelCounts: Array<[string, number]>
+  semanticCounts: Array<[string, number]>
+  relGroupCounts: Array<[string, number]>
+  relSubtypeCounts: Array<[string, number]>
 } {
   const labelCounter = new Map<string, number>()
-  const relCounter = new Map<string, number>()
+  const semanticCounter = new Map<string, number>()
+  const relGroupCounter = new Map<string, number>()
+  const relSubtypeCounter = new Map<string, number>()
   for (const node of graph.nodes || []) {
     const labels = Array.isArray(node.labels) && node.labels.length > 0 ? node.labels : [node.kind || 'node']
     labels.forEach((label) => {
@@ -391,14 +419,21 @@ function graphOverviewStats(graph: GraphFramePayload): {
       }
       labelCounter.set(label, (labelCounter.get(label) || 0) + 1)
     })
+    for (const badge of nodeSemanticBadges(node)) {
+      semanticCounter.set(badge, (semanticCounter.get(badge) || 0) + 1)
+    }
   }
   for (const edge of graph.edges || []) {
-    const type = edge.relType || 'REL'
-    relCounter.set(type, (relCounter.get(type) || 0) + 1)
+    const group = edgeDisplayGroup(edge) || 'REL'
+    const subtype = edgeSubtype(edge) || 'rel'
+    relGroupCounter.set(group, (relGroupCounter.get(group) || 0) + 1)
+    relSubtypeCounter.set(subtype, (relSubtypeCounter.get(subtype) || 0) + 1)
   }
   return {
-    labelCounts: sortCountEntries(labelCounter),
-    relTypeCounts: sortCountEntries(relCounter)
+    structureLabelCounts: sortCountEntries(labelCounter),
+    semanticCounts: sortCountEntries(semanticCounter),
+    relGroupCounts: sortCountEntries(relGroupCounter),
+    relSubtypeCounts: sortCountEntries(relSubtypeCounter)
   }
 }
 
@@ -431,5 +466,88 @@ function graphNeighborhood(
     neighborCount: neighbors.size,
     incomingCount,
     outgoingCount
+  }
+}
+
+function nodeSemanticBadges(node: GraphNodePayload): string[] {
+  const props = isRecord(node?.properties) ? node.properties : {}
+  const out = new Set<string>()
+  if (props.is_source === true) {
+    out.add('Source')
+  }
+  if (props.is_sink === true) {
+    out.add('Sink')
+  }
+  const sourceBadges = props.source_badges
+  if (Array.isArray(sourceBadges)) {
+    for (const badge of sourceBadges) {
+      const text = toCell(badge)
+      if (text && text !== 'Source') {
+        out.add(text)
+      }
+    }
+  }
+  const sinkKind = toCell(props.sink_kind)
+  if (sinkKind) {
+    out.add(`Sink:${sinkKind}`)
+  }
+  return Array.from(out)
+}
+
+export function edgeDisplayGroup(edge: GraphEdgePayload): string {
+  const props = isRecord(edge?.properties) ? edge.properties : {}
+  const explicit = toCell(props.display_rel_type)
+  if (explicit) {
+    return explicit
+  }
+  return deriveRelationGroup(edge?.relType)
+}
+
+export function edgeSubtype(edge: GraphEdgePayload): string {
+  const props = isRecord(edge?.properties) ? edge.properties : {}
+  const explicit = toCell(props.rel_subtype)
+  if (explicit) {
+    return explicit
+  }
+  return deriveRelationSubtype(edge?.relType)
+}
+
+function deriveRelationGroup(relType: unknown): string {
+  const raw = toCell(relType).trim()
+  if (!raw) {
+    return ''
+  }
+  if (raw.startsWith('CALLS_')) {
+    return 'CALL'
+  }
+  return raw.toUpperCase()
+}
+
+function deriveRelationSubtype(relType: unknown): string {
+  const raw = toCell(relType).trim()
+  if (!raw) {
+    return ''
+  }
+  switch (raw) {
+    case 'CALLS_DIRECT':
+      return 'direct'
+    case 'CALLS_DISPATCH':
+      return 'dispatch'
+    case 'CALLS_REFLECTION':
+      return 'reflection'
+    case 'CALLS_CALLBACK':
+      return 'callback'
+    case 'CALLS_OVERRIDE':
+      return 'override'
+    case 'CALLS_INDY':
+      return 'invoke_dynamic'
+    case 'CALLS_METHOD_HANDLE':
+      return 'method_handle'
+    case 'CALLS_FRAMEWORK':
+      return 'framework'
+    case 'CALLS_PTA':
+      return 'pta'
+    default:
+      return raw.toLowerCase()
   }
 }

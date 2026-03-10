@@ -179,9 +179,10 @@ API 面向自动化与集成（脚本、CI、外部平台等）：
 4. DFS / Taint 异步任务使用有界队列；队列打满时会返回 `503 job_queue_full`
 5. `ja.*` 查询固定按 Neo4j 原生 Procedure/UDF 执行；内置 Workbench/MCP 脚本统一使用严格的 `CALL ... YIELD ... RETURN ...` 原生语法，不再兼容旧式 `CALL ... RETURN *`
 6. Cypher Workbench / API 默认暴露一组本地实现的只读 `apoc.*` 兼容函数白名单，仅覆盖 `coll/text/map` 小集合；可通过 `jar.analyzer.cypher.apoc.whitelist` 调整，支持 `default|none|all|coll,text,map|apoc.text.join,...`
-7. Cypher Workbench 的 `Graph` 视图现在会直接识别普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果；纯节点结果也可直接图形化查看
-8. Workbench 左侧内置 project-agnostic 查询模板（方法、调用、短路径、source/sink、规则校验），右侧 inspector 按 `Overview / Node / Edge` 展示 labels、properties 和原始 JSON
-9. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的 label / relType legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
+7. Cypher Workbench 的 `Graph` 视图现在会直接识别普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果；纯节点结果也可直接图形化查看。方法节点默认只保留结构标签（`JANode;Method`），`Source/SourceWeb` 这类安全语义不再作为图标签扩散
+8. 安全语义查询口径固定为动态 `ja.*`：推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`、`MATCH (n:Method) WHERE ja.isSink(n) RETURN n`、`RETURN ja.sinkKind(n)`；不再推荐依赖 `:Source/:SourceWeb` 这类静态标签
+9. Workbench 左侧内置 project-agnostic 查询模板（方法、调用、短路径、source/sink、规则校验），右侧 inspector 按 `Overview / Node / Edge` 展示结构标签、当前语义摘要、properties 和原始 JSON；边默认聚合显示为 `CALL`，可切换到细分模式查看 `DIRECT/DISPATCH/...`
+10. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
 
 ### MCP（内置）
 

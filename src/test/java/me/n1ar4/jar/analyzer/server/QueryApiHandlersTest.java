@@ -105,6 +105,8 @@ class QueryApiHandlersTest {
         assertTrue(ruleValidation.containsKey("modelSource"));
         assertTrue(ruleValidation.containsKey("sink"));
         assertTrue(data.getJSONArray("functions").contains("ja.isSink"));
+        assertTrue(data.getJSONArray("functions").contains("ja.relGroup"));
+        assertTrue(data.getJSONArray("functions").contains("ja.relSubtype"));
         assertTrue(data.getJSONArray("functions").contains("ja.ruleValidation"));
         assertTrue(data.getJSONArray("functions").contains("ja.ruleValidationIssues"));
         assertTrue(data.getJSONArray("procedures").contains("ja.path.from_to_pruned"));
@@ -245,6 +247,15 @@ class QueryApiHandlersTest {
         assertEquals(Boolean.TRUE, udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(6));
         Object sinkIssueCount = udfJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).get(7);
         assertTrue(sinkIssueCount instanceof Number);
+
+        JSONObject relBody = new JSONObject();
+        relBody.put("query",
+                "MATCH (:JANode)-[r]->(:JANode) " +
+                        "RETURN ja.relGroup(type(r)) AS relGroup, ja.relSubtype(type(r)) AS relSubtype LIMIT 1");
+        JSONObject relJson = JSON.parseObject(api.postJson("/api/query/cypher", relBody.toJSONString()));
+        assertEquals(true, relJson.getBoolean("ok"));
+        assertEquals("CALL", relJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(0));
+        assertEquals("direct", relJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(1));
 
         JSONObject explainBody = new JSONObject();
         explainBody.put("query",

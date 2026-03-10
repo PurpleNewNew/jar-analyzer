@@ -38,4 +38,61 @@ public enum GraphRelationType {
             default -> CALLS_DIRECT;
         };
     }
+
+    public static GraphRelationType tryParse(String relationType) {
+        if (relationType == null) {
+            return null;
+        }
+        String normalized = relationType.trim();
+        if (normalized.isBlank()) {
+            return null;
+        }
+        try {
+            return GraphRelationType.valueOf(normalized.toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    public static String relationGroup(String relationType) {
+        GraphRelationType parsed = tryParse(relationType);
+        if (parsed != null) {
+            return parsed.displayGroup();
+        }
+        String normalized = relationType == null ? "" : relationType.trim();
+        if (normalized.isBlank()) {
+            return "";
+        }
+        return normalized.toUpperCase();
+    }
+
+    public static String relationSubtype(String relationType) {
+        GraphRelationType parsed = tryParse(relationType);
+        if (parsed != null) {
+            return parsed.displaySubtype();
+        }
+        String normalized = relationType == null ? "" : relationType.trim();
+        if (normalized.isBlank()) {
+            return "";
+        }
+        return normalized.toLowerCase();
+    }
+
+    public String displayGroup() {
+        return "CALL";
+    }
+
+    public String displaySubtype() {
+        return switch (this) {
+            case CALLS_DIRECT -> "direct";
+            case CALLS_DISPATCH -> "dispatch";
+            case CALLS_REFLECTION -> "reflection";
+            case CALLS_CALLBACK -> "callback";
+            case CALLS_OVERRIDE -> "override";
+            case CALLS_INDY -> "invoke_dynamic";
+            case CALLS_METHOD_HANDLE -> "method_handle";
+            case CALLS_FRAMEWORK -> "framework";
+            case CALLS_PTA -> "pta";
+        };
+    }
 }

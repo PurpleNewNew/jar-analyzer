@@ -232,7 +232,7 @@
   - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
-  - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
+  - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
   - 只读 `apoc.*` whitelist 默认包含：
     `apoc.coll.contains` `apoc.coll.containsAll` `apoc.coll.toSet` `apoc.coll.intersection` `apoc.coll.subtract` `apoc.coll.flatten`
     `apoc.map.fromPairs` `apoc.map.fromLists` `apoc.map.values` `apoc.map.merge` `apoc.map.mergeList` `apoc.map.get` `apoc.map.removeKeys`
@@ -257,8 +257,10 @@
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
-  - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置
-  - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的 label / relType legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
+  - 方法节点默认只保留结构标签（`JANode;Method`）；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
+  - 边底层仍存 `CALLS_*`，但 Workbench 默认按聚合关系显示为 `CALL`；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别和关系子类
+  - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `ja.relGroup(type(r)) = ...` / `ja.relSubtype(type(r)) = ...`
+  - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
 
 - `GET /api/security/rule-validation`
   直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。

@@ -9,10 +9,16 @@
  */
 package me.n1ar4.jar.analyzer.rules;
 
+import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.WebEntryMethodSpec;
+import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -74,6 +80,65 @@ public final class SourceRuleSupport {
         return flags;
     }
 
+    public static ActiveSourceResolution resolveCurrentSourceFlags(String className,
+                                                                  String methodName,
+                                                                  String methodDesc,
+                                                                  Integer jarId) {
+        String cls = safe(className).replace('.', '/');
+        String name = safe(methodName);
+        String desc = safe(methodDesc);
+        int normalizedJarId = jarId == null ? -1 : jarId;
+        if (cls.isBlank() || name.isBlank() || desc.isBlank()) {
+            return new ActiveSourceResolution(0, false);
+        }
+
+        int flags = 0;
+        boolean resolved = false;
+        RuleSnapshot snapshot = snapshotCurrentRules();
+        List<MethodReference> methods = DatabaseManager.getMethodReferencesByClass(cls);
+        if (methods != null && !methods.isEmpty()) {
+            resolved = true;
+            for (MethodReference method : methods) {
+                if (!matchesMethod(method, cls, name, desc, normalizedJarId)) {
+                    continue;
+                }
+                flags |= resolveRuleFlags(method, snapshot);
+            }
+        }
+        int explicitFlags = resolveExplicitProjectFlags(cls, name, desc);
+        if (explicitFlags != 0) {
+            flags |= explicitFlags;
+            resolved = true;
+        }
+        if (flags != 0) {
+            flags |= GraphNode.SOURCE_FLAG_ANY;
+        }
+        return new ActiveSourceResolution(flags, resolved);
+    }
+
+    public static List<String> describeFlags(int flags) {
+        if (flags <= 0) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        if ((flags & GraphNode.SOURCE_FLAG_ANY) != 0) {
+            out.add("Source");
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_WEB) != 0) {
+            out.add("Web");
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_MODEL) != 0) {
+            out.add("Model");
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_ANNOTATION) != 0) {
+            out.add("Annotation");
+        }
+        if ((flags & GraphNode.SOURCE_FLAG_RPC) != 0) {
+            out.add("Rpc");
+        }
+        return List.copyOf(out);
+    }
+
     public static String normalizeSourceModelDesc(String desc) {
         String value = safe(desc);
         if (value.isBlank() || "null".equalsIgnoreCase(value)) {
@@ -117,6 +182,24 @@ public final class SourceRuleSupport {
                 || value.contains("webservice");
     }
 
+    public static boolean isServletEntry(String methodName, String methodDesc) {
+        String name = safe(methodName);
+        String desc = safe(methodDesc);
+        if (name.isBlank() || desc.isBlank()) {
+            return false;
+        }
+        if (!("doGet".equals(name) || "doPost".equals(name) || "doPut".equals(name)
+                || "doDelete".equals(name) || "doHead".equals(name)
+                || "doOptions".equals(name) || "doTrace".equals(name)
+                || "service".equals(name))) {
+            return false;
+        }
+        return "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/http/HttpServletRequest;Ljakarta/servlet/http/HttpServletResponse;)V".equals(desc)
+                || "(Ljavax/servlet/ServletRequest;Ljavax/servlet/ServletResponse;)V".equals(desc)
+                || "(Ljakarta/servlet/ServletRequest;Ljakarta/servlet/ServletResponse;)V".equals(desc);
+    }
+
     private static boolean isWebAnnotation(String annotation) {
         String value = safe(annotation).toLowerCase(Locale.ROOT);
         return value.contains("/springframework/web/")
@@ -129,6 +212,110 @@ public final class SourceRuleSupport {
         return value.contains("/dubbo/")
                 || value.contains("/grpc/")
                 || value.contains("/jws/webservice;");
+    }
+
+    private static int resolveExplicitProjectFlags(String className,
+                                                   String methodName,
+                                                   String methodDesc) {
+        int flags = 0;
+        if (matchesSpringControllerMapping(className, methodName, methodDesc)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(DatabaseManager.getServlets(), className, methodName, methodDesc, WebEntryMethods.SERVLET_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(DatabaseManager.getFilters(), className, methodName, methodDesc, WebEntryMethods.FILTER_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(DatabaseManager.getSpringInterceptors(), className, methodName, methodDesc, WebEntryMethods.INTERCEPTOR_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (matchesWebEntryClass(DatabaseManager.getListeners(), className, methodName, methodDesc, WebEntryMethods.LISTENER_ENTRY_METHODS)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        if (isServletEntry(methodName, methodDesc)) {
+            flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        return flags;
+    }
+
+    private static boolean matchesMethod(MethodReference method,
+                                         String className,
+                                         String methodName,
+                                         String methodDesc,
+                                         int jarId) {
+        if (method == null) {
+            return false;
+        }
+        String owner = safe(method.getClassReference() == null ? null : method.getClassReference().getName()).replace('.', '/');
+        if (!className.equals(owner)) {
+            return false;
+        }
+        if (!methodName.equals(safe(method.getName())) || !methodDesc.equals(safe(method.getDesc()))) {
+            return false;
+        }
+        if (jarId < 0) {
+            return true;
+        }
+        Integer methodJarId = method.getJarId();
+        if (methodJarId == null || methodJarId < 0) {
+            return true;
+        }
+        return jarId == methodJarId;
+    }
+
+    private static boolean matchesSpringControllerMapping(String className,
+                                                          String methodName,
+                                                          String methodDesc) {
+        List<SpringController> controllers = DatabaseManager.getSpringControllers();
+        if (controllers == null || controllers.isEmpty()) {
+            return false;
+        }
+        for (SpringController controller : controllers) {
+            if (controller == null || controller.getMappings() == null) {
+                continue;
+            }
+            for (SpringMapping mapping : controller.getMappings()) {
+                MethodReference.Handle handle = mapping == null ? null : mapping.getMethodName();
+                String owner = safe(handle == null || handle.getClassReference() == null ? null : handle.getClassReference().getName()).replace('.', '/');
+                if (!className.equals(owner)) {
+                    continue;
+                }
+                if (methodName.equals(safe(handle.getName())) && methodDesc.equals(safe(handle.getDesc()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesWebEntryClass(Set<String> classes,
+                                                String className,
+                                                String methodName,
+                                                String methodDesc,
+                                                Set<WebEntryMethodSpec> specs) {
+        if (classes == null || classes.isEmpty() || specs == null || specs.isEmpty()) {
+            return false;
+        }
+        boolean classMatched = false;
+        for (String candidate : classes) {
+            if (className.equals(safe(candidate).replace('.', '/'))) {
+                classMatched = true;
+                break;
+            }
+        }
+        if (!classMatched) {
+            return false;
+        }
+        for (WebEntryMethodSpec spec : specs) {
+            if (spec == null) {
+                continue;
+            }
+            if (methodName.equals(safe(spec.name())) && methodDesc.equals(safe(spec.desc()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String safe(String value) {
@@ -181,5 +368,8 @@ public final class SourceRuleSupport {
     }
 
     public record MethodRuleKey(String className, String methodName, String methodDesc) {
+    }
+
+    public record ActiveSourceResolution(int flags, boolean resolved) {
     }
 }

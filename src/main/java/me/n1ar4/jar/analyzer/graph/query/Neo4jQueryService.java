@@ -91,6 +91,8 @@ public final class Neo4jQueryService {
         out.put("functions", List.of(
                 "ja.isSink",
                 "ja.isSource",
+                "ja.relGroup",
+                "ja.relSubtype",
                 "ja.sinkKind",
                 "ja.ruleVersion",
                 "ja.rulesFingerprint",

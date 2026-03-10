@@ -14,4 +14,12 @@ class GraphRelationTypeTest {
         assertEquals(GraphRelationType.CALLS_FRAMEWORK, GraphRelationType.fromEdgeType(MethodCallMeta.TYPE_FRAMEWORK));
         assertEquals(GraphRelationType.CALLS_PTA, GraphRelationType.fromEdgeType(MethodCallMeta.TYPE_PTA));
     }
+
+    @Test
+    void shouldExposeDisplayGroupAndSubtype() {
+        assertEquals("CALL", GraphRelationType.relationGroup("CALLS_DIRECT"));
+        assertEquals("dispatch", GraphRelationType.relationSubtype("CALLS_DISPATCH"));
+        assertEquals("PATH", GraphRelationType.relationGroup("PATH"));
+        assertEquals("path", GraphRelationType.relationSubtype("PATH"));
+    }
 }

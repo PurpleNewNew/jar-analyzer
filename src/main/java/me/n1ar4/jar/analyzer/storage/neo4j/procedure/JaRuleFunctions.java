@@ -33,6 +33,18 @@ public final class JaRuleFunctions {
         return JaNativeBridge.sinkKind(target);
     }
 
+    @UserFunction(name = "ja.relGroup")
+    @Description("Resolve the display relation group for the provided relationship type or relationship object.")
+    public String relGroup(@Name("target") Object target) {
+        return JaNativeBridge.relGroup(target);
+    }
+
+    @UserFunction(name = "ja.relSubtype")
+    @Description("Resolve the relation subtype for the provided relationship type or relationship object.")
+    public String relSubtype(@Name("target") Object target) {
+        return JaNativeBridge.relSubtype(target);
+    }
+
     @UserFunction(name = "ja.ruleVersion")
     @Description("Return the current effective rule version.")
     public Long ruleVersion() {

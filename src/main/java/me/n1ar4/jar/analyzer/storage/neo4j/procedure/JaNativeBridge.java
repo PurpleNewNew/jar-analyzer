@@ -12,15 +12,19 @@ package me.n1ar4.jar.analyzer.storage.neo4j.procedure;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
+import me.n1ar4.jar.analyzer.graph.model.GraphRelationType;
 import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
+import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.RuleValidationViews;
+import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 import org.neo4j.graphdb.Node;
+import org.neo4j.graphdb.Relationship;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -74,8 +78,17 @@ public final class JaNativeBridge {
 
     public static boolean isSource(Object target) {
         NodeHandle handle = resolveNodeHandle(target);
-        if (handle == null) {
+        if (handle == null || !"method".equalsIgnoreCase(handle.kind)) {
             return false;
+        }
+        SourceRuleSupport.ActiveSourceResolution resolution = SourceRuleSupport.resolveCurrentSourceFlags(
+                handle.className,
+                handle.methodName,
+                handle.methodDesc,
+                handle.jarId
+        );
+        if (resolution.resolved()) {
+            return resolution.flags() != 0;
         }
         return handle.sourceFlags != 0;
     }
@@ -96,6 +109,14 @@ public final class JaNativeBridge {
         );
         String kind = ModelRegistry.resolveSinkKind(method);
         return kind == null ? "" : kind;
+    }
+
+    public static String relGroup(Object target) {
+        return GraphRelationType.relationGroup(resolveRelationType(target));
+    }
+
+    public static String relSubtype(Object target) {
+        return GraphRelationType.relationSubtype(resolveRelationType(target));
     }
 
     public static long ruleVersion() {
@@ -168,6 +189,43 @@ public final class JaNativeBridge {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private static String resolveRelationType(Object target) {
+        if (target == null) {
+            return "";
+        }
+        if (target instanceof Relationship relationship) {
+            return relationship.getType().name();
+        }
+        if (target instanceof GraphEdge edge) {
+            return stringValue(edge.getRelType());
+        }
+        if (target instanceof Map<?, ?> map) {
+            Object properties = map.get("properties");
+            if (properties instanceof Map<?, ?> props) {
+                return firstNonBlank(
+                        stringValue(map.get("rel_type")),
+                        stringValue(map.get("type")),
+                        stringValue(props.get("rel_type")),
+                        stringValue(props.get("type"))
+                );
+            }
+            return firstNonBlank(stringValue(map.get("rel_type")), stringValue(map.get("type")));
+        }
+        return stringValue(target);
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private static String normalizeClass(String value) {

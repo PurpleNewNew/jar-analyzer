@@ -5,7 +5,15 @@ import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { sql } from '@codemirror/lang-sql'
 import { bridgeCall, extractBridgeError, safeBridgeCall } from './bridge'
-import { buildGraphFilterBar, renderInspector, type FrameSelection, type GraphFilter } from './inspector'
+import {
+  buildGraphFilterBar,
+  edgeDisplayGroup,
+  edgeSubtype,
+  renderInspector,
+  type FrameSelection,
+  type GraphFilter,
+  type GraphRelationMode
+} from './inspector'
 import {
   CHANNEL_QUERY_CAPABILITIES,
   CHANNEL_QUERY_EXECUTE,
@@ -67,6 +75,7 @@ interface FrameState {
   tableFocus: { rowIndex: number; colIndex: number } | null
   graphFocus: { nodeIds: number[]; edgeIds: number[] } | null
   graphFilter: GraphFilter
+  graphRelationMode: GraphRelationMode
   graphViewport: GraphViewport | null
   graphPinnedNodeIds: number[]
   graphNodePositions: Record<number, GraphNodePosition>
@@ -506,6 +515,7 @@ async function runExplain(): Promise<void> {
       tableFocus: null,
       graphFocus: null,
       graphFilter: null,
+      graphRelationMode: 'group',
       graphViewport: null,
       graphPinnedNodeIds: [],
       graphNodePositions: {}
@@ -544,6 +554,7 @@ function toFrameState(frame: QueryFramePayload): FrameState {
     tableFocus: null,
     graphFocus: null,
     graphFilter: null,
+    graphRelationMode: 'group',
     graphViewport: null,
     graphPinnedNodeIds: [],
     graphNodePositions: {}
@@ -627,6 +638,7 @@ function buildErrorFrame(query: string, code: string, message: string): FrameSta
     tableFocus: null,
     graphFocus: null,
     graphFilter: null,
+    graphRelationMode: 'group',
     graphViewport: null,
     graphPinnedNodeIds: [],
     graphNodePositions: {},
@@ -871,6 +883,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
   const height = Math.max(260, stage.clientHeight || container.clientHeight || 420)
   const controls = document.createElement('div')
   controls.className = 'graph-zoom-controls'
+  const displayControls = document.createElement('div')
+  displayControls.className = 'graph-display-controls'
   const zoomReadout = document.createElement('div')
   zoomReadout.className = 'graph-zoom-readout'
   const zoomInButton = document.createElement('button')
@@ -890,6 +904,34 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
   fitButton.title = tr('重置视图', 'Reset view')
   controls.append(zoomReadout, zoomInButton, zoomOutButton, fitButton)
   stage.appendChild(controls)
+  const groupModeButton = document.createElement('button')
+  groupModeButton.className = `graph-display-btn${frame.graphRelationMode === 'group' ? ' active' : ''}`
+  groupModeButton.type = 'button'
+  groupModeButton.textContent = tr('聚合', 'Grouped')
+  groupModeButton.title = tr('显示关系类别，如 CALL', 'Show grouped relation labels such as CALL')
+  groupModeButton.addEventListener('click', () => {
+    if (frame.graphRelationMode === 'group') {
+      return
+    }
+    persistGraphNodePositions(frame, simNodes)
+    frame.graphRelationMode = 'group'
+    renderFrames()
+  })
+  const detailModeButton = document.createElement('button')
+  detailModeButton.className = `graph-display-btn${frame.graphRelationMode === 'detail' ? ' active' : ''}`
+  detailModeButton.type = 'button'
+  detailModeButton.textContent = tr('细分', 'Detailed')
+  detailModeButton.title = tr('显示关系子类，如 DIRECT / DISPATCH', 'Show relation subtypes such as DIRECT / DISPATCH')
+  detailModeButton.addEventListener('click', () => {
+    if (frame.graphRelationMode === 'detail') {
+      return
+    }
+    persistGraphNodePositions(frame, simNodes)
+    frame.graphRelationMode = 'detail'
+    renderFrames()
+  })
+  displayControls.append(groupModeButton, detailModeButton)
+  stage.appendChild(displayControls)
 
   const hint = document.createElement('div')
   hint.className = 'graph-zoom-hint'
@@ -1056,7 +1098,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     .data(simEdges)
     .enter()
     .append('text')
-    .text((item) => truncateTextByWidth(item.relType || '', 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
+    .text((item) => truncateTextByWidth(edgeDisplayLabel(item, frame.graphRelationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
     .attr('font-size', 9)
     .attr('font-weight', 700)
     .attr('fill', '#5f6b78')
@@ -1231,7 +1273,14 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
     edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>> = new Map()
   ): void {
     const visibleNodeLabelIds = computeVisibleNodeLabelIds(simNodes, focus, hoveredNodeId, currentTransform.k)
-    const visibleEdgeLabelIds = computeVisibleEdgeLabelIds(simEdges, edgeGeometry, focus, hoveredEdgeId, currentTransform.k)
+    const visibleEdgeLabelIds = computeVisibleEdgeLabelIds(
+      simEdges,
+      edgeGeometry,
+      focus,
+      hoveredEdgeId,
+      currentTransform.k,
+      frame.graphRelationMode
+    )
     links
       .attr('stroke', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? '#2f81f7' : '#8e98a6'))
       .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? 2.8 : 1.4))
@@ -1271,6 +1320,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState): void {
         return 0
       })
     edgeLabels
+      .text((item) => truncateTextByWidth(edgeDisplayLabel(item, frame.graphRelationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
       .attr('opacity', (item) => {
         if (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id) {
           return 0.96
@@ -1419,7 +1469,12 @@ function applyGraphFilter(
       edges
     }
   }
-  const edges = graph.edges.filter((edge) => edge.relType === filter.value)
+  const edges = graph.edges.filter((edge) => {
+    if (filter.kind === 'relGroup') {
+      return edgeDisplayGroup(edge) === filter.value
+    }
+    return edgeSubtype(edge) === filter.value
+  })
   const nodeIds = new Set<number>()
   edges.forEach((edge) => {
     nodeIds.add(edge.source)
@@ -1494,7 +1549,7 @@ function activateInspectorLink(
   renderFrames()
 }
 
-function activateLegend(frame: FrameState, kind: 'label' | 'relType', value: string): void {
+function activateLegend(frame: FrameState, kind: 'label' | 'relGroup' | 'relSubtype', value: string): void {
   const nextValue = String(value || '').trim()
   if (!nextValue) {
     return
@@ -1505,7 +1560,10 @@ function activateLegend(frame: FrameState, kind: 'label' | 'relType', value: str
     frame.graphFilter = { kind, value: nextValue }
   }
   frame.view = 'graph'
-  const fragment = buildInspectorFragment(kind === 'label' ? 'label' : 'rel_type', nextValue)
+  const fragment = buildInspectorFragment(
+    kind === 'label' ? 'label' : kind === 'relGroup' ? 'display_rel_type' : 'rel_subtype',
+    nextValue
+  )
   if (fragment) {
     insertQueryFragment(fragment)
   }
@@ -2053,28 +2111,51 @@ function estimateNodeLabelBox(node: GraphNodePayload, label: string): { left: nu
   }
 }
 
+function edgeDisplayLabel(edge: GraphEdgePayload, mode: GraphRelationMode): string {
+  if (mode === 'detail') {
+    return displayRelationSubtypeLabel(edgeSubtype(edge))
+  }
+  return edgeDisplayGroup(edge)
+}
+
+function displayRelationSubtypeLabel(subtype: string): string {
+  const normalized = String(subtype || '').trim()
+  if (!normalized) {
+    return ''
+  }
+  switch (normalized) {
+    case 'invoke_dynamic':
+      return 'INDY'
+    case 'method_handle':
+      return 'HANDLE'
+    default:
+      return normalized.replace(/-/g, '_').toUpperCase()
+  }
+}
+
 function computeVisibleEdgeLabelIds(
   edges: GraphEdgeSim[],
   edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>>,
   focus: ReturnType<typeof graphHighlightState>,
   hoveredEdgeId: number,
-  zoomScale: number
+  zoomScale: number,
+  relationMode: GraphRelationMode
 ): Set<number> {
   const out = new Set<number>()
   const accepted: Array<{ left: number; right: number; top: number; bottom: number }> = []
   const relTypeCounts = new Map<string, number>()
   for (const edge of edges) {
-    const key = String(edge.relType || '').trim() || '__unknown__'
+    const key = edgeDisplayLabel(edge, relationMode) || '__unknown__'
     relTypeCounts.set(key, (relTypeCounts.get(key) || 0) + 1)
   }
   const baseLimit = zoomScale >= 1.6 ? 28 : zoomScale >= 1.25 ? 18 : zoomScale >= 0.95 ? 12 : 7
   const sorted = [...edges].sort((left, right) => {
-    return edgeLabelPriority(right, relTypeCounts, focus, hoveredEdgeId)
-      - edgeLabelPriority(left, relTypeCounts, focus, hoveredEdgeId)
+    return edgeLabelPriority(right, relTypeCounts, focus, hoveredEdgeId, relationMode)
+      - edgeLabelPriority(left, relTypeCounts, focus, hoveredEdgeId, relationMode)
   })
   for (const edge of sorted) {
-    const priority = edgeLabelPriority(edge, relTypeCounts, focus, hoveredEdgeId)
-    const label = truncateTextByWidth(edge.relType || '', 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace')
+    const priority = edgeLabelPriority(edge, relTypeCounts, focus, hoveredEdgeId, relationMode)
+    const label = truncateTextByWidth(edgeDisplayLabel(edge, relationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace')
     if (!label) {
       continue
     }
@@ -2102,7 +2183,8 @@ function edgeLabelPriority(
   edge: GraphEdgeSim,
   relTypeCounts: Map<string, number>,
   focus: ReturnType<typeof graphHighlightState>,
-  hoveredEdgeId: number
+  hoveredEdgeId: number,
+  relationMode: GraphRelationMode
 ): number {
   if (focus.edgeIds.has(edge.id)) {
     return 6
@@ -2110,12 +2192,12 @@ function edgeLabelPriority(
   if (hoveredEdgeId === edge.id) {
     return 5
   }
-  const relType = String(edge.relType || '').trim() || '__unknown__'
+  const relType = edgeDisplayLabel(edge, relationMode) || '__unknown__'
   const count = relTypeCounts.get(relType) || 1
   if (count === 1) {
     return 4
   }
-  if (relType === 'CALL') {
+  if (relType === 'CALL' || relType === 'DIRECT' || relType === 'DISPATCH') {
     return 3
   }
   return 2
@@ -2300,6 +2382,21 @@ function buildInspectorFragment(key: string, value: unknown): string {
   }
   if (safeKey === 'rel_type') {
     return `:${String(textValue).trim()}`
+  }
+  if (safeKey === 'display_rel_type' || safeKey === 'rel_group') {
+    return `ja.relGroup(type(r)) = ${toCypherLiteral(textValue)}`
+  }
+  if (safeKey === 'rel_subtype') {
+    return `ja.relSubtype(type(r)) = ${toCypherLiteral(textValue)}`
+  }
+  if (safeKey === 'is_source' && textValue === true) {
+    return 'ja.isSource(n)'
+  }
+  if (safeKey === 'is_sink' && textValue === true) {
+    return 'ja.isSink(n)'
+  }
+  if (safeKey === 'sink_kind') {
+    return `ja.sinkKind(n) = ${toCypherLiteral(textValue)}`
   }
   return `${quoteCypherIdentifier(safeKey)} = ${toCypherLiteral(textValue)}`
 }

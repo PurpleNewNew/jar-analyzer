@@ -35,6 +35,8 @@ class QueryResultProjectorTest {
         Assertions.assertEquals(2, graph.nodes().size());
         Assertions.assertEquals(1, graph.edges().size());
         Assertions.assertEquals("CALLS_DIRECT", graph.edges().get(0).relType());
+        Assertions.assertEquals("CALL", graph.edges().get(0).properties().get("display_rel_type"));
+        Assertions.assertEquals("direct", graph.edges().get(0).properties().get("rel_subtype"));
         Assertions.assertTrue(graph.nodes().get(0).labels().contains("JANode"));
         Assertions.assertTrue(graph.edges().get(0).properties().containsKey("confidence"));
     }
@@ -123,7 +125,35 @@ class QueryResultProjectorTest {
         Assertions.assertEquals(2, graph.nodes().size());
         Assertions.assertEquals(1, graph.edges().size());
         Assertions.assertEquals("CALLS_DIRECT", graph.edges().get(0).relType());
+        Assertions.assertEquals("CALL", graph.edges().get(0).properties().get("display_rel_type"));
         Assertions.assertEquals("native-query", graph.edges().get(0).properties().get("evidence"));
+    }
+
+    @Test
+    void shouldStripSemanticSourceLabelsFromDisplayNodes() {
+        QueryResultProjector projector = new QueryResultProjector();
+        QueryResult result = new QueryResult(
+                List.of("n"),
+                List.of(List.of(Map.of(
+                        "id", 901L,
+                        "node_id", 1L,
+                        "labels", List.of("JANode", "Method", "Source", "SourceWeb"),
+                        "properties", Map.of(
+                                "kind", "method",
+                                "jar_id", 1,
+                                "class_name", "a/A",
+                                "method_name", "a",
+                                "method_desc", "()V",
+                                "source_flags", 3
+                        )))),
+                List.of(),
+                false
+        );
+
+        QueryFramePayload frame = projector.toFrame("frame-clean-labels", "MATCH (n) RETURN n", result, 4, buildSnapshot());
+        GraphFramePayload graph = frame.graph();
+        Assertions.assertNotNull(graph);
+        Assertions.assertEquals(List.of("JANode", "Method"), graph.nodes().get(0).labels());
     }
 
     @Test
