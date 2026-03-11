@@ -105,7 +105,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；未知 profile/engine 会回落到默认 `balanced`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条隐藏调用图主路径
+3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；未知 profile/engine 会回落到默认 `balanced`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并对超出阈值的多目标点只记录 `imprecise-threshold` 诊断而不是静默扩边；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条隐藏调用图主路径
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
 5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `bytecode:semantic-v1`、`bytecode:fast-v1`、`bytecode:balanced-v1`、`bytecode:precision-v1` 或 `disabled-no-target`
 
@@ -193,6 +193,7 @@ API 面向自动化与集成（脚本、CI、外部平台等）：
 12. `ja.path.gadget` / `ja.gadget.track` 现在会直接消费建库期稳定事实 `method_semantic_flags` 与 `edge_semantic_flags`，按内置 gadget 状态机收敛 `Serializable / DeserializationCallback / CollectionContainer / InvocationHandler / Reflection / Callback / DynamicCall / ToString|HashCode|Equals trigger` 约束，并在 `evidence/warnings` 中输出命中的 `route`、约束摘要和 `direction`；当前内置路线包含 `container-callback` `proxy-dynamic` `container-trigger` `reflection-trigger` 等代表家族
 13. inspector 属性、table 行、Graph 选中现在是双向联动的：可点击属性会定位 table 并向编辑器插入条件片段；table 行会反向高亮 graph 节点/边；Overview 的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步插入查询片段
 14. `/api/query/cypher` 返回的 `Node/Relationship/Path` 值也会按同一套公开模型投影：节点 `labels` 默认只暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`，并保留建库期稳定事实 `method_semantic_flags/method_semantic_badges`；调用边会额外保留 `edge_semantic_flags/edge_semantic_badges`，用于表达 framework/callback/reflection/pta 等稳定证据位；原始 Cypher 关系模式支持直接写逻辑类型 `:CALL`，`WHERE type(r) = 'CALL' / 'CALL' = type(r) / IN ['CALL','ALIAS']` 这类筛选会自动展开到底层关系，参数化写法如 `type(r) = $relType`、`type(r) IN $relTypes` 也按同一逻辑语义生效
+15. reflection / method-handle 边的 `edgeEvidence` 现在会回显 `tier=const|log|cast|unknown`；当某个反射点在限定阈值内扩成多个候选时会追加 `imprecise=1`，超过阈值则只在构建指标中累计 `reflection_hint_threshold_exceeded_sites`，不会把大量低质量边直接写进图里
 
 官方查询口径：
 1. `MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50`

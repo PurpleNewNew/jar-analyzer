@@ -136,6 +136,20 @@ public class CallbackEntry {
         clazz.getDeclaredMethod(method, new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
     }
 
+    public void reflectViaCastFallback(String className) throws Exception {
+        Class<?> clazz = Class.forName(className);
+        Object receiver = clazz.getDeclaredConstructor().newInstance();
+        ReflectionTarget typed = (ReflectionTarget) receiver;
+        clazz.getDeclaredMethod("target", helperUnknownParamTypes()).invoke(typed, new Object[0]);
+    }
+
+    public void reflectViaImpreciseThreshold(String className) throws Exception {
+        Class<?> clazz = Class.forName(className);
+        Object receiver = clazz.getDeclaredConstructor().newInstance();
+        ReflectionTarget typed = (ReflectionTarget) receiver;
+        clazz.getDeclaredMethod("overloaded", helperUnknownParamTypes()).invoke(typed, new Object[0]);
+    }
+
     public void methodHandleViaHelperFlow() throws Throwable {
         ClassLoader loader = helperLoader();
         Class<?> clazz = Class.forName(helperClassPrefix() + helperClassSuffix(), true, loader);
@@ -184,5 +198,9 @@ public class CallbackEntry {
 
     private String helperMethodSignature() {
         return "target()V";
+    }
+
+    private Class<?>[] helperUnknownParamTypes() {
+        return new Class[0];
     }
 }

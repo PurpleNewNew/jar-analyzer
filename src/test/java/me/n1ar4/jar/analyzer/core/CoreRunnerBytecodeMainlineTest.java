@@ -55,6 +55,10 @@ class CoreRunnerBytecodeMainlineTest {
         assertTrue(((Number) details.get("callback_edges")).intValue() > 0);
         assertTrue(((Number) details.get("reflection_edges")).intValue() > 0);
         assertTrue(((Number) details.get("method_handle_edges")).intValue() > 0);
+        assertTrue(((Number) details.get("reflection_hint_const_sites")).intValue() > 0);
+        assertTrue(((Number) details.get("reflection_hint_cast_sites")).intValue() > 0);
+        assertTrue(((Number) details.get("reflection_hint_imprecise_sites")).intValue() > 0);
+        assertTrue(((Number) details.get("reflection_hint_threshold_exceeded_sites")).intValue() > 0);
         assertTrue(((Number) details.get("pta_edges")).intValue() > 0);
         assertTrue(((Number) details.get("instantiated_classes")).intValue() > 0);
 
@@ -172,6 +176,20 @@ class CoreRunnerBytecodeMainlineTest {
                 0,
                 Integer.MAX_VALUE
         );
+        ArrayList<MethodCallResult> reflectCastFallbackEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "reflectViaCastFallback",
+                "(Ljava/lang/String;)V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> reflectImpreciseThresholdEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "reflectViaImpreciseThreshold",
+                "(Ljava/lang/String;)V",
+                0,
+                Integer.MAX_VALUE
+        );
         assertFalse(fieldDispatchEdges.isEmpty());
         assertFalse(noiseDispatchEdges.isEmpty());
         assertFalse(arrayDispatchEdges.isEmpty());
@@ -238,8 +256,13 @@ class CoreRunnerBytecodeMainlineTest {
         assertEdge(reflectLoaderChainEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "for_name");
         assertEdge(reflectLoadClassApiEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "class_local+for_name");
         assertEdge(reflectHelperFlowEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "class_local+for_name");
+        assertEdge(reflectCastFallbackEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "tier=cast");
         assertEdge(methodHandleEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");
         assertEdge(methodHandleHelperFlowEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");
+        assertTrue(reflectImpreciseThresholdEdges.stream().noneMatch(edge ->
+                "me/n1ar4/cb/ReflectionTarget".equals(edge.getCalleeClassName())
+                        && "overloaded".equals(edge.getCalleeMethodName())
+                        && "reflection".equals(edge.getEdgeType())));
     }
 
     @Test

@@ -323,11 +323,13 @@ public record BuildFactSnapshot(ArchiveFacts archives,
 
     public record MethodReflectionHints(Map<Integer, MethodInvokeHint> classNewInstanceHints,
                                         Map<Integer, MethodInvokeHint> reflectionInvokeHints,
-                                        Map<Integer, MethodInvokeHint> methodHandleInvokeHints) {
+                                        Map<Integer, MethodInvokeHint> methodHandleInvokeHints,
+                                        List<ReflectionHintDiagnostic> diagnostics) {
         public MethodReflectionHints {
             classNewInstanceHints = immutableMap(classNewInstanceHints);
             reflectionInvokeHints = immutableMap(reflectionInvokeHints);
             methodHandleInvokeHints = immutableMap(methodHandleInvokeHints);
+            diagnostics = immutableList(diagnostics);
         }
 
         public MethodInvokeHint classNewInstanceHint(int insnIndex) {
@@ -345,11 +347,12 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         public boolean isEmpty() {
             return classNewInstanceHints.isEmpty()
                     && reflectionInvokeHints.isEmpty()
-                    && methodHandleInvokeHints.isEmpty();
+                    && methodHandleInvokeHints.isEmpty()
+                    && diagnostics.isEmpty();
         }
 
         public static MethodReflectionHints empty() {
-            return new MethodReflectionHints(Map.of(), Map.of(), Map.of());
+            return new MethodReflectionHints(Map.of(), Map.of(), Map.of(), List.of());
         }
 
         private static <K, V> Map<K, V> immutableMap(Map<K, V> values) {
@@ -365,14 +368,59 @@ public record BuildFactSnapshot(ArchiveFacts archives,
             }
             return out.isEmpty() ? Map.of() : Map.copyOf(out);
         }
+
+        private static <T> List<T> immutableList(List<T> values) {
+            return values == null || values.isEmpty() ? List.of() : List.copyOf(values);
+        }
     }
 
     public record MethodInvokeHint(int insnIndex,
                                    List<MethodReference.Handle> targets,
-                                   String reason) {
+                                   String reason,
+                                   ReflectionHintTier tier,
+                                   boolean imprecise) {
         public MethodInvokeHint {
             targets = targets == null || targets.isEmpty() ? List.of() : List.copyOf(targets);
             reason = reason == null ? "" : reason;
+            tier = tier == null ? ReflectionHintTier.fromReason(reason) : tier;
+        }
+    }
+
+    public record ReflectionHintDiagnostic(int insnIndex,
+                                           String kind,
+                                           ReflectionHintTier tier,
+                                           String reason,
+                                           int candidateCount,
+                                           boolean thresholdExceeded) {
+        public ReflectionHintDiagnostic {
+            kind = kind == null ? "" : kind;
+            tier = tier == null ? ReflectionHintTier.fromReason(reason) : tier;
+            reason = reason == null ? "" : reason;
+            candidateCount = Math.max(0, candidateCount);
+        }
+    }
+
+    public enum ReflectionHintTier {
+        CONST,
+        LOG,
+        CAST,
+        UNKNOWN;
+
+        public static ReflectionHintTier fromReason(String reason) {
+            String normalized = reason == null ? "" : reason.trim().toLowerCase(java.util.Locale.ROOT);
+            if (normalized.isEmpty()) {
+                return UNKNOWN;
+            }
+            if (normalized.contains("cast")) {
+                return CAST;
+            }
+            if (normalized.contains("log") || normalized.contains("tamiflex")) {
+                return LOG;
+            }
+            if ("unknown".equals(normalized)) {
+                return UNKNOWN;
+            }
+            return CONST;
         }
     }
 

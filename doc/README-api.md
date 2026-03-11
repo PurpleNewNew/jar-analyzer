@@ -18,7 +18,7 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
-- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。未知 profile/engine 会回落到默认 `balanced`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
+- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。未知 profile/engine 会回落到默认 `balanced`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
 - 调用图能力统一由字节码主链提供；对外只保留 `profile` 和 `engine` 两个配置面。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
@@ -237,6 +237,8 @@
   - `ja.taint.track(..., direction='backward', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
   - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。现在还支持显式 `direction='forward|backward|bidirectional'`，并会在 `evidence/warnings` 中回显当前搜索方向。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
+  - reflection / method-handle 边的 `edgeEvidence` 会回显 `tier=const|log|cast|unknown`；在阈值内扩成多目标时会追加 `imprecise=1`
+  - `build_meta.callgraph.details` 会额外暴露 `reflection_hint_const_sites` `reflection_hint_log_sites` `reflection_hint_cast_sites` `reflection_hint_unknown_sites` `reflection_hint_imprecise_sites` `reflection_hint_threshold_exceeded_sites`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
   - 只读 `apoc.*` whitelist 默认包含：

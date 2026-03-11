@@ -114,6 +114,12 @@ public final class BytecodeMainlineCallGraphRunner {
                 dispatchExpansionEdges,
                 reflectionResult.reflectionEdges(),
                 reflectionResult.methodHandleEdges(),
+                reflectionResult.hintConstSites(),
+                reflectionResult.hintLogSites(),
+                reflectionResult.hintCastSites(),
+                reflectionResult.hintUnknownSites(),
+                reflectionResult.hintImpreciseSites(),
+                reflectionResult.hintThresholdExceededSites(),
                 semanticResult.callbackEdges(),
                 semanticResult.frameworkEdges(),
                 semanticResult.threadStartEdges(),
@@ -251,6 +257,12 @@ public final class BytecodeMainlineCallGraphRunner {
                          int dispatchExpansionEdges,
                          int reflectionEdges,
                          int methodHandleEdges,
+                         int reflectionHintConstSites,
+                         int reflectionHintLogSites,
+                         int reflectionHintCastSites,
+                         int reflectionHintUnknownSites,
+                         int reflectionHintImpreciseSites,
+                         int reflectionHintThresholdExceededSites,
                          int callbackEdges,
                          int frameworkEdges,
                          int threadStartEdges,
@@ -271,7 +283,7 @@ public final class BytecodeMainlineCallGraphRunner {
                          long totalEdges) {
         static Result empty() {
             return new Result(
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0L
             );

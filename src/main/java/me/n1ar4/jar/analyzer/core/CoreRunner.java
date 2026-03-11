@@ -636,7 +636,7 @@ public class CoreRunner {
                     callGraphPlan.bytecodeSettings()
             );
             facts.edges().copyInto(context);
-            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                     msSince(stageStartNs),
                     callGraphModeMeta,
                     callGraphPlan.bytecodeSettings().precisionMode(),
@@ -648,6 +648,12 @@ public class CoreRunner {
                     bytecodeResult.dispatchExpansionEdges(),
                     bytecodeResult.reflectionEdges(),
                     bytecodeResult.methodHandleEdges(),
+                    bytecodeResult.reflectionHintConstSites(),
+                    bytecodeResult.reflectionHintLogSites(),
+                    bytecodeResult.reflectionHintCastSites(),
+                    bytecodeResult.reflectionHintUnknownSites(),
+                    bytecodeResult.reflectionHintImpreciseSites(),
+                    bytecodeResult.reflectionHintThresholdExceededSites(),
                     bytecodeResult.callbackEdges(),
                     bytecodeResult.frameworkEdges(),
                     bytecodeResult.triggerBridgeEdges(),
@@ -683,6 +689,12 @@ public class CoreRunner {
             callGraphMetrics.put("dispatch_expansion_edges", bytecodeResult.dispatchExpansionEdges());
             callGraphMetrics.put("reflection_edges", bytecodeResult.reflectionEdges());
             callGraphMetrics.put("method_handle_edges", bytecodeResult.methodHandleEdges());
+            callGraphMetrics.put("reflection_hint_const_sites", bytecodeResult.reflectionHintConstSites());
+            callGraphMetrics.put("reflection_hint_log_sites", bytecodeResult.reflectionHintLogSites());
+            callGraphMetrics.put("reflection_hint_cast_sites", bytecodeResult.reflectionHintCastSites());
+            callGraphMetrics.put("reflection_hint_unknown_sites", bytecodeResult.reflectionHintUnknownSites());
+            callGraphMetrics.put("reflection_hint_imprecise_sites", bytecodeResult.reflectionHintImpreciseSites());
+            callGraphMetrics.put("reflection_hint_threshold_exceeded_sites", bytecodeResult.reflectionHintThresholdExceededSites());
             callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
             callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
             callGraphMetrics.put("trigger_bridge_edges", bytecodeResult.triggerBridgeEdges());

@@ -73,6 +73,7 @@ final class BytecodeMainlineReflectionResolver {
     private static final String REASON_VALUE_OF = "value_of";
     private static final String REASON_STRING_API = "string_api";
     private static final String REASON_LOCAL = "local";
+    private static final String REASON_CAST = "cast";
     private static final String REASON_USER_METHOD = "user_method";
     private static final String REASON_CLASS_CONST = "class_const";
     private static final String REASON_FOR_NAME = "for_name";
@@ -81,6 +82,7 @@ final class BytecodeMainlineReflectionResolver {
     private static final String REASON_METHOD_HANDLE = "method_handle";
     private static final String REASON_LAMBDA = "lambda";
     private static final String REASON_UNKNOWN = "unknown";
+    private static final int IMPRECISE_TARGET_THRESHOLD = 4;
 
     private BytecodeMainlineReflectionResolver() {
     }
@@ -109,6 +111,7 @@ final class BytecodeMainlineReflectionResolver {
         int reflectionEdges = 0;
         int methodHandleEdges = 0;
         int invokeDynamicEdges = 0;
+        HintStats hintStats = HintStats.empty();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
             if (parsedClass == null || parsedClass.classNode() == null) {
                 continue;
@@ -149,6 +152,7 @@ final class BytecodeMainlineReflectionResolver {
                     );
                     reflectionEdges += hintResult.reflectionEdges();
                     methodHandleEdges += hintResult.methodHandleEdges();
+                    hintStats = hintStats.merge(summarizeHints(constraints.reflectionHints()));
                     if (!constraints.reflectionHints().isEmpty()) {
                         continue;
                     }
@@ -171,7 +175,17 @@ final class BytecodeMainlineReflectionResolver {
                 logger.warn("bytecode-mainline reflection edge build failed: {}", ex.toString());
             }
         }
-        return new Result(reflectionEdges, methodHandleEdges, invokeDynamicEdges);
+        return new Result(
+                reflectionEdges,
+                methodHandleEdges,
+                invokeDynamicEdges,
+                hintStats.constSites(),
+                hintStats.logSites(),
+                hintStats.castSites(),
+                hintStats.unknownSites(),
+                hintStats.impreciseSites(),
+                hintStats.thresholdExceededSites()
+        );
     }
 
     static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
@@ -242,6 +256,7 @@ final class BytecodeMainlineReflectionResolver {
             LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> classNewInstanceHints = new LinkedHashMap<>();
             LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> reflectionInvokeHints = new LinkedHashMap<>();
             LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> methodHandleInvokeHints = new LinkedHashMap<>();
+            ArrayList<BuildFactSnapshot.ReflectionHintDiagnostic> diagnostics = new ArrayList<>();
             for (int i = 0, n = mn.instructions.size(); i < n; i++) {
                 AbstractInsnNode insn = mn.instructions.get(i);
                 if (!(insn instanceof MethodInsnNode invoke)) {
@@ -272,7 +287,9 @@ final class BytecodeMainlineReflectionResolver {
                                 new BuildFactSnapshot.MethodInvokeHint(
                                         i,
                                         List.of(target),
-                                        REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason
+                                        REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason,
+                                        BuildFactSnapshot.ReflectionHintTier.fromReason(REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason),
+                                        false
                                 )
                         );
                     }
@@ -295,10 +312,14 @@ final class BytecodeMainlineReflectionResolver {
                     if (creator == null) {
                         continue;
                     }
-                    TargetResolve resolved = resolveTarget(creator, ctx, methodMap);
+                    TargetResolve resolved = resolveTarget(creator, invoke, ctx, methodMap);
                     BuildFactSnapshot.MethodInvokeHint hint = toInvokeHint(i, resolved);
                     if (hint != null) {
                         reflectionInvokeHints.put(i, hint);
+                    }
+                    BuildFactSnapshot.ReflectionHintDiagnostic diagnostic = toDiagnostic(i, "reflection_invoke", resolved);
+                    if (diagnostic != null) {
+                        diagnostics.add(diagnostic);
                     }
                     continue;
                 }
@@ -323,11 +344,16 @@ final class BytecodeMainlineReflectionResolver {
                 if (hint != null) {
                     methodHandleInvokeHints.put(i, hint);
                 }
+                BuildFactSnapshot.ReflectionHintDiagnostic diagnostic = toDiagnostic(i, "method_handle", resolved);
+                if (diagnostic != null) {
+                    diagnostics.add(diagnostic);
+                }
             }
             return new BuildFactSnapshot.MethodReflectionHints(
                     classNewInstanceHints,
                     reflectionInvokeHints,
-                    methodHandleInvokeHints
+                    methodHandleInvokeHints,
+                    diagnostics
             );
         } catch (Exception ex) {
             logger.warn("bytecode-mainline reflection facts collect failed: {}.{}", classNode.name, mn.name);
@@ -428,7 +454,89 @@ final class BytecodeMainlineReflectionResolver {
         if (resolved == null || resolved.targets() == null || resolved.targets().isEmpty()) {
             return null;
         }
-        return new BuildFactSnapshot.MethodInvokeHint(insnIndex, resolved.targets(), resolved.reason());
+        return new BuildFactSnapshot.MethodInvokeHint(
+                insnIndex,
+                resolved.targets(),
+                resolved.reason(),
+                resolved.tier(),
+                resolved.imprecise()
+        );
+    }
+
+    private static BuildFactSnapshot.ReflectionHintDiagnostic toDiagnostic(int insnIndex,
+                                                                           String kind,
+                                                                           TargetResolve resolved) {
+        if (resolved == null || !resolved.thresholdExceeded()) {
+            return null;
+        }
+        return new BuildFactSnapshot.ReflectionHintDiagnostic(
+                insnIndex,
+                kind,
+                resolved.tier(),
+                resolved.reason(),
+                resolved.candidateCount(),
+                true
+        );
+    }
+
+    private static HintStats summarizeHints(BuildFactSnapshot.MethodReflectionHints hints) {
+        if (hints == null || hints.isEmpty()) {
+            return HintStats.empty();
+        }
+        int constSites = 0;
+        int logSites = 0;
+        int castSites = 0;
+        int unknownSites = 0;
+        int impreciseSites = 0;
+        for (BuildFactSnapshot.MethodInvokeHint hint : collectAllHints(hints)) {
+            if (hint == null) {
+                continue;
+            }
+            switch (hint.tier()) {
+                case CONST -> constSites++;
+                case LOG -> logSites++;
+                case CAST -> castSites++;
+                case UNKNOWN -> unknownSites++;
+            }
+            if (hint.imprecise()) {
+                impreciseSites++;
+            }
+        }
+        int thresholdExceededSites = 0;
+        for (BuildFactSnapshot.ReflectionHintDiagnostic diagnostic : hints.diagnostics()) {
+            if (diagnostic == null) {
+                continue;
+            }
+            switch (diagnostic.tier()) {
+                case CONST -> constSites++;
+                case LOG -> logSites++;
+                case CAST -> castSites++;
+                case UNKNOWN -> unknownSites++;
+            }
+            if (diagnostic.thresholdExceeded()) {
+                thresholdExceededSites++;
+                impreciseSites++;
+            }
+        }
+        return new HintStats(
+                constSites,
+                logSites,
+                castSites,
+                unknownSites,
+                impreciseSites,
+                thresholdExceededSites
+        );
+    }
+
+    private static List<BuildFactSnapshot.MethodInvokeHint> collectAllHints(BuildFactSnapshot.MethodReflectionHints hints) {
+        if (hints == null) {
+            return List.of();
+        }
+        ArrayList<BuildFactSnapshot.MethodInvokeHint> out = new ArrayList<>();
+        out.addAll(hints.classNewInstanceHints().values());
+        out.addAll(hints.reflectionInvokeHints().values());
+        out.addAll(hints.methodHandleInvokeHints().values());
+        return out;
     }
 
     private static MethodResolveResult applyHintEdges(MethodReference.Handle caller,
@@ -518,12 +626,25 @@ final class BytecodeMainlineReflectionResolver {
                     callTarget,
                     edgeType,
                     MethodCallMeta.CONF_LOW,
-                    hint.reason()
+                    appendHintEvidence(hint)
             )) {
                 added++;
             }
         }
         return added;
+    }
+
+    private static String appendHintEvidence(BuildFactSnapshot.MethodInvokeHint hint) {
+        if (hint == null) {
+            return "";
+        }
+        String reason = safe(hint.reason());
+        String tier = hint.tier() == null ? "unknown" : hint.tier().name().toLowerCase(Locale.ROOT);
+        String evidence = reason.isBlank() ? "tier=" + tier : reason + ";tier=" + tier;
+        if (hint.imprecise()) {
+            evidence += ";imprecise=1";
+        }
+        return evidence;
     }
 
     private static MethodResolveResult resolveInMethod(MethodReference.Handle caller,
@@ -603,11 +724,11 @@ final class BytecodeMainlineReflectionResolver {
                     if (creator == null) {
                         continue;
                     }
-                    TargetResolve resolved = resolveTarget(creator, ctx, methodMap);
-                    if (resolved == null || resolved.targets == null || resolved.targets.isEmpty()) {
+                    TargetResolve resolved = resolveTarget(creator, invoke, ctx, methodMap);
+                    if (resolved == null || resolved.targets() == null || resolved.targets().isEmpty()) {
                         continue;
                     }
-                    for (MethodReference.Handle target : resolved.targets) {
+                    for (MethodReference.Handle target : resolved.targets()) {
                         MethodReference.Handle callTarget =
                                 withSyntheticOpcode(target, methodMap, Opcodes.INVOKEVIRTUAL);
                         if (addEdge(
@@ -617,7 +738,7 @@ final class BytecodeMainlineReflectionResolver {
                                 callTarget,
                                 MethodCallMeta.TYPE_REFLECTION,
                                 MethodCallMeta.CONF_LOW,
-                                resolved.reason
+                                resolved.reason()
                         )) {
                             reflectionEdges++;
                         }
@@ -835,6 +956,7 @@ final class BytecodeMainlineReflectionResolver {
     }
 
     private static TargetResolve resolveTarget(MethodInsnNode creator,
+                                               MethodInsnNode invoke,
                                                ResolveContext ctx,
                                                Map<MethodReference.Handle, MethodReference> methodMap) {
         int idx = ctx.instructions.indexOf(creator);
@@ -852,6 +974,9 @@ final class BytecodeMainlineReflectionResolver {
             return null;
         }
         ResolvedString classInfo = resolveClassNameForReflection(frame.getStack(objIndex), ctx);
+        if ((classInfo == null || classInfo.value == null) && invoke != null) {
+            classInfo = resolveReceiverTypeAtInvoke(invoke, ctx);
+        }
         if (classInfo == null || classInfo.value == null) {
             return null;
         }
@@ -876,12 +1001,9 @@ final class BytecodeMainlineReflectionResolver {
         }
         String reason = buildReflectionReason(classInfo, nameInfo);
         List<MethodReference.Handle> targets = params == null
-                ? findUniqueMethodByName(methodMap, classInfo.value, methodName)
+                ? findMethodsByName(methodMap, classInfo.value, methodName)
                 : findMethods(methodMap, classInfo.value, methodName, params);
-        if (targets == null || targets.isEmpty()) {
-            return null;
-        }
-        return new TargetResolve(targets, reason);
+        return buildTargetResolve(targets, reason);
     }
 
     private static TargetResolve resolveHandleTarget(MethodInsnNode creator,
@@ -948,10 +1070,7 @@ final class BytecodeMainlineReflectionResolver {
             }
             out.add(handle);
         }
-        if (out.isEmpty()) {
-            return null;
-        }
-        return new TargetResolve(out, REASON_METHOD_HANDLE);
+        return buildTargetResolve(out, REASON_METHOD_HANDLE);
     }
 
     private static boolean isGetMethod(MethodInsnNode mi) {
@@ -1022,13 +1141,13 @@ final class BytecodeMainlineReflectionResolver {
         return out.isEmpty() ? null : out;
     }
 
-    private static List<MethodReference.Handle> findUniqueMethodByName(Map<MethodReference.Handle, MethodReference> methodMap,
-                                                                       String className,
-                                                                       String methodName) {
+    private static List<MethodReference.Handle> findMethodsByName(Map<MethodReference.Handle, MethodReference> methodMap,
+                                                                  String className,
+                                                                  String methodName) {
         if (className == null || methodName == null) {
             return null;
         }
-        MethodReference.Handle found = null;
+        ArrayList<MethodReference.Handle> out = new ArrayList<>();
         for (MethodReference.Handle handle : methodMap.keySet()) {
             if (handle == null || handle.getClassReference() == null) {
                 continue;
@@ -1037,12 +1156,9 @@ final class BytecodeMainlineReflectionResolver {
                     || !methodName.equals(handle.getName())) {
                 continue;
             }
-            if (found != null && !found.equals(handle)) {
-                return null;
-            }
-            found = handle;
+            out.add(handle);
         }
-        return found == null ? null : Collections.singletonList(found);
+        return out.isEmpty() ? null : out;
     }
 
     private static MethodReference.Handle findUniqueMethod(Map<MethodReference.Handle, MethodReference> methodMap,
@@ -1272,7 +1388,10 @@ final class BytecodeMainlineReflectionResolver {
         }
         if (src instanceof TypeInsnNode typeInsn) {
             if (typeInsn.desc != null && !typeInsn.desc.isBlank()) {
-                return new ResolvedString(typeInsn.desc, REASON_CONST);
+                String reason = typeInsn.getOpcode() == Opcodes.CHECKCAST
+                        ? REASON_CAST
+                        : REASON_CONST;
+                return new ResolvedString(typeInsn.desc, reason);
             }
             return null;
         }
@@ -2175,6 +2294,59 @@ final class BytecodeMainlineReflectionResolver {
             sb.append("name_").append(nameReason);
         }
         return sb.isEmpty() ? REASON_UNKNOWN : sb.toString();
+    }
+
+    private static TargetResolve buildTargetResolve(List<MethodReference.Handle> targets,
+                                                    String reason) {
+        if (targets == null || targets.isEmpty()) {
+            return null;
+        }
+        BuildFactSnapshot.ReflectionHintTier tier =
+                BuildFactSnapshot.ReflectionHintTier.fromReason(reason);
+        int candidateCount = targets.size();
+        if (candidateCount > IMPRECISE_TARGET_THRESHOLD) {
+            return new TargetResolve(List.of(), reason, tier, true, true, candidateCount);
+        }
+        return new TargetResolve(
+                List.copyOf(targets),
+                reason,
+                tier,
+                candidateCount > 1,
+                false,
+                candidateCount
+        );
+    }
+
+    private static ResolvedString resolveReceiverTypeAtInvoke(MethodInsnNode invoke,
+                                                              ResolveContext ctx) {
+        if (invoke == null || ctx == null || ctx.instructions == null || ctx.frames == null) {
+            return null;
+        }
+        int idx = ctx.instructions.indexOf(invoke);
+        if (idx < 0 || idx >= ctx.frames.length) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[idx];
+        if (frame == null) {
+            return null;
+        }
+        int argSlots = 0;
+        for (Type type : Type.getArgumentTypes(invoke.desc)) {
+            argSlots += type.getSize();
+        }
+        int receiverArgIndex = frame.getStackSize() - argSlots;
+        if (receiverArgIndex < 0 || receiverArgIndex >= frame.getStackSize()) {
+            return null;
+        }
+        ResolvedString receiverType = resolveRuntimeObjectType(frame.getStack(receiverArgIndex), ctx, 0);
+        if (receiverType == null
+                || receiverType.value == null
+                || receiverType.reason == null
+                || !receiverType.reason.contains(REASON_CAST)) {
+            return null;
+        }
+        String normalized = normalizeClassName(receiverType.value);
+        return normalized == null ? null : new ResolvedString(normalized, receiverType.reason);
     }
 
     private static List<Type> resolveClassArray(SourceValue value,
@@ -3514,9 +3686,15 @@ final class BytecodeMainlineReflectionResolver {
 
     record Result(int reflectionEdges,
                   int methodHandleEdges,
-                  int invokeDynamicEdges) {
+                  int invokeDynamicEdges,
+                  int hintConstSites,
+                  int hintLogSites,
+                  int hintCastSites,
+                  int hintUnknownSites,
+                  int hintImpreciseSites,
+                  int hintThresholdExceededSites) {
         static Result empty() {
-            return new Result(0, 0, 0);
+            return new Result(0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -3552,7 +3730,12 @@ final class BytecodeMainlineReflectionResolver {
     private record ResolvedString(String value, String reason) {
     }
 
-    private record TargetResolve(List<MethodReference.Handle> targets, String reason) {
+    private record TargetResolve(List<MethodReference.Handle> targets,
+                                 String reason,
+                                 BuildFactSnapshot.ReflectionHintTier tier,
+                                 boolean imprecise,
+                                 boolean thresholdExceeded,
+                                 int candidateCount) {
     }
 
     private record MethodTypeInfo(Type returnType, List<Type> paramTypes) {
@@ -3562,6 +3745,31 @@ final class BytecodeMainlineReflectionResolver {
                                        int methodHandleEdges) {
         private static MethodResolveResult empty() {
             return new MethodResolveResult(0, 0);
+        }
+    }
+
+    private record HintStats(int constSites,
+                             int logSites,
+                             int castSites,
+                             int unknownSites,
+                             int impreciseSites,
+                             int thresholdExceededSites) {
+        private static HintStats empty() {
+            return new HintStats(0, 0, 0, 0, 0, 0);
+        }
+
+        private HintStats merge(HintStats other) {
+            if (other == null) {
+                return this;
+            }
+            return new HintStats(
+                    constSites + other.constSites,
+                    logSites + other.logSites,
+                    castSites + other.castSites,
+                    unknownSites + other.unknownSites,
+                    impreciseSites + other.impreciseSites,
+                    thresholdExceededSites + other.thresholdExceededSites
+            );
         }
     }
 

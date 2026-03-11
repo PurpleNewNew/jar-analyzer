@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReflectionConstraintFactModeTest {
@@ -55,6 +56,8 @@ class ReflectionConstraintFactModeTest {
                 hint != null && hint.targets().stream().anyMatch(target -> "<init>".equals(target.getName()))));
         assertTrue(reflectHint != null);
         assertTrue(reflectHint.reason().contains("for_name"));
+        assertEquals(BuildFactSnapshot.ReflectionHintTier.CONST, reflectHint.tier());
+        assertFalse(reflectHint.imprecise());
 
         MethodReference.Handle methodHandleHelper = new MethodReference.Handle(
                 new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
@@ -72,6 +75,46 @@ class ReflectionConstraintFactModeTest {
         assertEquals("me/n1ar4/cb/ReflectionTarget", methodHandleHint.targets().get(0).getClassReference().getName());
         assertEquals("target", methodHandleHint.targets().get(0).getName());
         assertEquals("()V", methodHandleHint.targets().get(0).getDesc());
+        assertEquals(BuildFactSnapshot.ReflectionHintTier.CONST, methodHandleHint.tier());
+        assertFalse(methodHandleHint.imprecise());
+
+        MethodReference.Handle castFallback = new MethodReference.Handle(
+                new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
+                "reflectViaCastFallback",
+                "(Ljava/lang/String;)V"
+        );
+        BuildFactSnapshot.MethodConstraintFacts castFacts = snapshot.constraints().methodConstraints(castFallback);
+        BuildFactSnapshot.MethodInvokeHint castHint = castFacts.reflectionHints().reflectionInvokeHints()
+                .values()
+                .stream()
+                .filter(hint -> hint != null
+                        && hint.targets().stream().anyMatch(target ->
+                        "me/n1ar4/cb/ReflectionTarget".equals(target.getClassReference().getName())
+                                && "target".equals(target.getName())
+                                && "()V".equals(target.getDesc())))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(castHint);
+        assertEquals(BuildFactSnapshot.ReflectionHintTier.CAST, castHint.tier());
+        assertFalse(castHint.imprecise());
+        assertTrue(castHint.reason().contains("cast"));
+
+        MethodReference.Handle imprecise = new MethodReference.Handle(
+                new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
+                "reflectViaImpreciseThreshold",
+                "(Ljava/lang/String;)V"
+        );
+        BuildFactSnapshot.MethodConstraintFacts impreciseFacts = snapshot.constraints().methodConstraints(imprecise);
+        assertTrue(impreciseFacts.reflectionHints().reflectionInvokeHints().isEmpty());
+        BuildFactSnapshot.ReflectionHintDiagnostic diagnostic = impreciseFacts.reflectionHints().diagnostics()
+                .stream()
+                .filter(item -> item != null && item.thresholdExceeded())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(diagnostic);
+        assertEquals(BuildFactSnapshot.ReflectionHintTier.CAST, diagnostic.tier());
+        assertTrue(diagnostic.reason().contains("cast"));
+        assertEquals(5, diagnostic.candidateCount());
     }
 
     private static BuildFactSnapshot buildCallbackSnapshot() {
