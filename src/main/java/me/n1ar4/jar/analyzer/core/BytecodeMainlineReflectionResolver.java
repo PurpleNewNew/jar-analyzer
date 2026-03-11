@@ -431,7 +431,7 @@ final class BytecodeMainlineReflectionResolver {
                         callTarget,
                         MethodCallMeta.TYPE_INDY,
                         MethodCallMeta.CONF_MEDIUM,
-                        REASON_LAMBDA
+                        lambda.reason()
                 )) {
                     added++;
                 }
@@ -450,7 +450,7 @@ final class BytecodeMainlineReflectionResolver {
                         callTarget,
                         MethodCallMeta.TYPE_INDY,
                         MethodCallMeta.CONF_MEDIUM,
-                        REASON_LAMBDA
+                        lambda.reason()
                 )) {
                     added++;
                 }
@@ -832,6 +832,7 @@ final class BytecodeMainlineReflectionResolver {
             return null;
         }
         return new LambdaTarget(
+                lambdaReason(impl),
                 fiType.getInternalName(),
                 indy.name,
                 samType.getDescriptor(),
@@ -962,6 +963,14 @@ final class BytecodeMainlineReflectionResolver {
             if (!(normalized instanceof MethodInsnNode mi)) {
                 continue;
             }
+            MethodInsnNode adapted = resolveHandleAdapterCreator(mi, ctx, depth + 1);
+            if (adapted != null) {
+                if (found != null && found != adapted) {
+                    return null;
+                }
+                found = adapted;
+                continue;
+            }
             if (!isLookupFind(mi)) {
                 continue;
             }
@@ -1088,7 +1097,7 @@ final class BytecodeMainlineReflectionResolver {
             }
             out.add(handle);
         }
-        return buildTargetResolve(out, REASON_METHOD_HANDLE);
+        return buildTargetResolve(out, REASON_METHOD_HANDLE + "_" + lookupName.toLowerCase(Locale.ROOT));
     }
 
     private static boolean isGetMethod(MethodInsnNode mi) {
@@ -1123,6 +1132,74 @@ final class BytecodeMainlineReflectionResolver {
         }
         return "findConstructor".equals(mi.name)
                 && "(Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;".equals(mi.desc);
+    }
+
+    private static MethodInsnNode resolveHandleAdapterCreator(MethodInsnNode adapter,
+                                                              ResolveContext ctx,
+                                                              int depth) {
+        if (adapter == null || ctx == null || depth > MAX_CONST_DEPTH || !isMethodHandleAdapter(adapter)) {
+            return null;
+        }
+        int idx = ctx.instructions.indexOf(adapter);
+        if (idx < 0 || idx >= ctx.frames.length) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[idx];
+        if (frame == null || frame.getStackSize() <= 0) {
+            return null;
+        }
+        SourceValue baseHandle = resolveAdapterBaseHandle(adapter, frame);
+        if (baseHandle == null) {
+            return null;
+        }
+        return findSingleHandleCreator(baseHandle, ctx, depth + 1);
+    }
+
+    private static boolean isMethodHandleAdapter(MethodInsnNode mi) {
+        if (mi == null || mi.desc == null || !mi.desc.endsWith(")Ljava/lang/invoke/MethodHandle;")) {
+            return false;
+        }
+        if (MH_OWNER.equals(mi.owner)) {
+            return "bindTo".equals(mi.name)
+                    || "asType".equals(mi.name)
+                    || "asCollector".equals(mi.name)
+                    || "asSpreader".equals(mi.name)
+                    || "asVarargsCollector".equals(mi.name);
+        }
+        if ("java/lang/invoke/MethodHandles".equals(mi.owner)) {
+            return "insertArguments".equals(mi.name)
+                    || "explicitCastArguments".equals(mi.name)
+                    || "dropArguments".equals(mi.name)
+                    || "permuteArguments".equals(mi.name);
+        }
+        return false;
+    }
+
+    private static SourceValue resolveAdapterBaseHandle(MethodInsnNode adapter,
+                                                        Frame<SourceValue> frame) {
+        if (adapter == null || frame == null) {
+            return null;
+        }
+        Type[] argTypes = Type.getArgumentTypes(adapter.desc);
+        int argSlots = 0;
+        for (Type type : argTypes) {
+            argSlots += type.getSize();
+        }
+        if (MH_OWNER.equals(adapter.owner)) {
+            int receiverIndex = frame.getStackSize() - argSlots - 1;
+            if (receiverIndex < 0 || receiverIndex >= frame.getStackSize()) {
+                return null;
+            }
+            return frame.getStack(receiverIndex);
+        }
+        if (!"java/lang/invoke/MethodHandles".equals(adapter.owner)) {
+            return null;
+        }
+        int base = frame.getStackSize() - argSlots;
+        if (base < 0 || base >= frame.getStackSize()) {
+            return null;
+        }
+        return frame.getStack(base);
     }
 
     private static List<MethodReference.Handle> findMethods(Map<MethodReference.Handle, MethodReference> methodMap,
@@ -3844,7 +3921,8 @@ final class BytecodeMainlineReflectionResolver {
         }
     }
 
-    private record LambdaTarget(String samOwner,
+    private record LambdaTarget(String reason,
+                                String samOwner,
                                 String samName,
                                 String samDesc,
                                 String implOwner,
@@ -3917,6 +3995,21 @@ final class BytecodeMainlineReflectionResolver {
                     thresholdExceededSites + other.thresholdExceededSites
             );
         }
+    }
+
+    private static String lambdaReason(Handle impl) {
+        if (impl == null) {
+            return REASON_LAMBDA;
+        }
+        return switch (impl.getTag()) {
+            case Opcodes.H_NEWINVOKESPECIAL -> REASON_LAMBDA + "_constructor_ref";
+            case Opcodes.H_INVOKESTATIC -> impl.getName() != null && impl.getName().startsWith("lambda$")
+                    ? REASON_LAMBDA + "_body"
+                    : REASON_LAMBDA + "_static_ref";
+            case Opcodes.H_INVOKEVIRTUAL, Opcodes.H_INVOKEINTERFACE -> REASON_LAMBDA + "_virtual_ref";
+            case Opcodes.H_INVOKESPECIAL -> REASON_LAMBDA + "_special_ref";
+            default -> REASON_LAMBDA;
+        };
     }
 
     private static final ResolvedConst UNRESOLVED_CONST = new ResolvedConst(null, REASON_UNKNOWN);

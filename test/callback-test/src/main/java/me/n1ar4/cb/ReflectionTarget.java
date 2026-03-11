@@ -1,7 +1,19 @@
 package me.n1ar4.cb;
 
 public class ReflectionTarget {
+    public ReflectionTarget() {
+        // no-op
+    }
+
     public void target() {
+        // no-op
+    }
+
+    private void specialTarget() {
+        // no-op
+    }
+
+    public static void staticTarget() {
         // no-op
     }
 

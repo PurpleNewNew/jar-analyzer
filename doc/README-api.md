@@ -18,7 +18,7 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
-- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。未知 profile/engine 会回落到默认 `balanced`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
+- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。未知 profile/engine 会回落到默认 `balanced`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 和 lambda 的 static/constructor reference 都走这条主链；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
 - 调用图能力统一由字节码主链提供；对外只保留 `profile` 和 `engine` 两个配置面。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`

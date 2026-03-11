@@ -183,9 +183,51 @@ class CoreRunnerBytecodeMainlineTest {
                 0,
                 Integer.MAX_VALUE
         );
+        ArrayList<MethodCallResult> methodHandleStaticEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "methodHandleFindStatic",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> methodHandleCtorEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "methodHandleFindConstructor",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> methodHandleBindToEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "methodHandleBindToReceiver",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> methodHandleSpecialEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "methodHandleFindSpecial",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
         ArrayList<MethodCallResult> methodHandleHelperFlowEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleViaHelperFlow",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> indyStaticRefEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "invokeDynamicStaticMethodRef",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> indyCtorRefEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "invokeDynamicConstructorRef",
                 "()V",
                 0,
                 Integer.MAX_VALUE
@@ -274,7 +316,13 @@ class CoreRunnerBytecodeMainlineTest {
         assertEdge(reflectArrayCopyAliasEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "array_fact");
         assertEdge(reflectCastFallbackEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "tier=cast");
         assertEdge(methodHandleEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");
+        assertEdge(methodHandleStaticEdges, "me/n1ar4/cb/ReflectionTarget", "staticTarget", "()V", "method_handle_findstatic");
+        assertEdge(methodHandleCtorEdges, "me/n1ar4/cb/ReflectionTarget", "<init>", "()V", "method_handle_findconstructor");
+        assertEdge(methodHandleBindToEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle_findvirtual");
+        assertEdge(methodHandleSpecialEdges, "me/n1ar4/cb/ReflectionTarget", "specialTarget", "()V", "method_handle_findspecial");
         assertEdge(methodHandleHelperFlowEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");
+        assertEdge(indyStaticRefEdges, "me/n1ar4/cb/ReflectionTarget", "staticTarget", "()V", "lambda_static_ref");
+        assertEdge(indyCtorRefEdges, "me/n1ar4/cb/ReflectionTarget", "<init>", "()V", "lambda_constructor_ref");
         assertTrue(reflectImpreciseThresholdEdges.stream().noneMatch(edge ->
                 "me/n1ar4/cb/ReflectionTarget".equals(edge.getCalleeClassName())
                         && "overloaded".equals(edge.getCalleeMethodName())

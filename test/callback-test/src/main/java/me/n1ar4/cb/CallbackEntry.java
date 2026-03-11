@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 public class CallbackEntry {
     private static final class TaskBox {
@@ -182,6 +183,57 @@ public class CallbackEntry {
                 MethodType.methodType(void.class)
         );
         mh.invoke(new ReflectionTarget());
+    }
+
+    public void methodHandleFindStatic() throws Throwable {
+        MethodHandle mh = MethodHandles.lookup().findStatic(
+                ReflectionTarget.class,
+                "staticTarget",
+                MethodType.methodType(void.class)
+        );
+        mh.invokeExact();
+    }
+
+    public void methodHandleFindConstructor() throws Throwable {
+        MethodHandle mh = MethodHandles.lookup().findConstructor(
+                ReflectionTarget.class,
+                MethodType.methodType(void.class)
+        );
+        Object receiver = (Object) mh.invokeExact();
+        if (receiver == null) {
+            throw new IllegalStateException("constructor method handle returned null");
+        }
+    }
+
+    public void methodHandleBindToReceiver() throws Throwable {
+        MethodHandle mh = MethodHandles.lookup()
+                .findVirtual(ReflectionTarget.class, "target", MethodType.methodType(void.class))
+                .bindTo(new ReflectionTarget());
+        mh.invokeWithArguments();
+    }
+
+    public void methodHandleFindSpecial() throws Throwable {
+        MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(
+                ReflectionTarget.class,
+                MethodHandles.lookup()
+        );
+        MethodHandle mh = lookup.findSpecial(
+                ReflectionTarget.class,
+                "specialTarget",
+                MethodType.methodType(void.class),
+                ReflectionTarget.class
+        );
+        mh.invoke(new ReflectionTarget());
+    }
+
+    public void invokeDynamicStaticMethodRef() {
+        Runnable action = ReflectionTarget::staticTarget;
+        action.run();
+    }
+
+    public void invokeDynamicConstructorRef() {
+        Supplier<ReflectionTarget> supplier = ReflectionTarget::new;
+        supplier.get();
     }
 
     private ClassLoader helperLoader() {

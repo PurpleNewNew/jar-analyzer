@@ -85,6 +85,39 @@ class ReflectionConstraintFactModeTest {
         assertEquals(BuildFactSnapshot.ReflectionHintTier.CONST, methodHandleHint.tier());
         assertFalse(methodHandleHint.imprecise());
 
+        assertMethodHandleHint(
+                snapshot,
+                "methodHandleFindStatic",
+                "()V",
+                "me/n1ar4/cb/ReflectionTarget",
+                "staticTarget",
+                "()V"
+        );
+        assertMethodHandleHint(
+                snapshot,
+                "methodHandleFindConstructor",
+                "()V",
+                "me/n1ar4/cb/ReflectionTarget",
+                "<init>",
+                "()V"
+        );
+        assertMethodHandleHint(
+                snapshot,
+                "methodHandleBindToReceiver",
+                "()V",
+                "me/n1ar4/cb/ReflectionTarget",
+                "target",
+                "()V"
+        );
+        assertMethodHandleHint(
+                snapshot,
+                "methodHandleFindSpecial",
+                "()V",
+                "me/n1ar4/cb/ReflectionTarget",
+                "specialTarget",
+                "()V"
+        );
+
         MethodReference.Handle castFallback = new MethodReference.Handle(
                 new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
                 "reflectViaCastFallback",
@@ -171,5 +204,33 @@ class ReflectionConstraintFactModeTest {
                 symbolResult.getLocalVars(),
                 workspace
         );
+    }
+
+    private static void assertMethodHandleHint(BuildFactSnapshot snapshot,
+                                               String methodName,
+                                               String methodDesc,
+                                               String targetOwner,
+                                               String targetName,
+                                               String targetDesc) {
+        MethodReference.Handle handle = new MethodReference.Handle(
+                new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
+                methodName,
+                methodDesc
+        );
+        BuildFactSnapshot.MethodConstraintFacts facts = snapshot.constraints().methodConstraints(handle);
+        BuildFactSnapshot.MethodInvokeHint hint = facts.reflectionHints().methodHandleInvokeHints()
+                .values()
+                .stream()
+                .filter(item -> item != null
+                        && item.targets().stream().anyMatch(target ->
+                        targetOwner.equals(target.getClassReference().getName())
+                                && targetName.equals(target.getName())
+                                && targetDesc.equals(target.getDesc())))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(hint);
+        assertTrue(hint.reason().contains("method_handle_find"));
+        assertEquals(BuildFactSnapshot.ReflectionHintTier.CONST, hint.tier());
+        assertFalse(hint.imprecise());
     }
 }
