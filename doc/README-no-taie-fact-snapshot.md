@@ -8,6 +8,8 @@
 
 本文档的作用是给 `JA-NT-103 ~ JA-NT-106` 提供统一输入模型，避免后续每迁一个 resolver 就再发明一套上下文。
 
+`JA-NT-106` 的单次解析与 facts 收敛路线见 [README-no-taie-bytecode-fact-runner.md](/Users/veritas/Documents/projects/jar-analyzer/doc/README-no-taie-bytecode-fact-runner.md)。
+
 ## 1. 结论
 
 结论先行：
@@ -22,6 +24,23 @@
 - `BuildContext` 是构建现场
 - `BuildFactSnapshot` 是输入契约
 - `BuildEdgeAccumulator` 是输出契约
+
+### 1.1 当前实现状态（2026-03-11）
+
+当前主干已经落地以下骨架：
+
+- `src/main/java/me/n1ar4/jar/analyzer/core/facts/BuildFactSnapshot.java`
+- `src/main/java/me/n1ar4/jar/analyzer/core/facts/BuildFactAssembler.java`
+- `src/main/java/me/n1ar4/jar/analyzer/core/facts/BytecodeFactRunner.java`
+- `src/main/java/me/n1ar4/jar/analyzer/core/edge/BuildEdgeAccumulator.java`
+
+当前实现口径：
+
+- `BuildFactAssembler.from(...)` 已成为 `BuildContext -> BuildFactSnapshot` 的主适配入口
+- `BuildEdgeAccumulator` 已承接 `methodCalls / methodCallMeta`
+- `BuildFactAssembler.legacyView(...)` 仍保留桥接，用于迁移期兼容现有消费者
+- `BytecodeFacts` 当前不再只是“原始 class bytes 的访问入口”，而是显式携带单次解析后的 `BuildBytecodeWorkspace`
+- `ConstraintFacts` 目前仍是占位结构，Phase 0 允许先空实现；真正的唯一 owner 收敛放到下一阶段继续推进
 
 ## 2. 为什么当前 `BuildContext` 不够
 
@@ -243,16 +262,20 @@ record BuildFactSnapshot(
 - 提供统一 class bytes / parsed node 访问
 - 避免多个 resolver 自己各扫一遍
 
-最低字段建议：
+当前实现字段：
 
-- `classFilesByHandle`
-- `bytecodeSupplier`
-- `classNodeCache`
+- `classFiles`
+- `workspace`
 
-目标不是把 ASM tree 全量常驻，而是给 resolver 提供统一入口：
+其中 `workspace` 指向：
 
-- 按需解析
-- 解析一次后在 build 期缓存
+- `src/main/java/me/n1ar4/jar/analyzer/core/bytecode/BuildBytecodeWorkspace.java`
+
+当前行为已经收敛为：
+
+- `CoreRunner` 在前端阶段先统一解析出 `BuildBytecodeWorkspace`
+- `DiscoveryRunner / ClassAnalysisRunner / BytecodeSymbolRunner / bytecode-mainline` 复用这份 workspace
+- `ParsedMethod.sourceFrames()` 作为共享 frame cache，避免多个消费者各自重复 `Analyzer<SourceValue>`
 
 ### 4.8 `ConstraintFacts`
 
@@ -271,8 +294,8 @@ record BuildFactSnapshot(
 - `exceptionThrowEdges`
 - `nativeModelHints`
 
-这层是 `JA-NT-106 BytecodeFactRunner` 的核心交付之一。  
-在它落地前，`ContextSensitivePtaEngine` 仍可临时自提约束，但那只能是迁移期过渡。
+这层仍然是下一阶段必须补齐的唯一 owner。
+截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 还是空骨架，这不再阻塞 Phase 0 关闭，但它仍然是 Phase 1 的直接收口目标。
 
 ## 5. `BuildEdgeAccumulator` 的目标结构
 
@@ -304,12 +327,22 @@ final class BuildEdgeAccumulator {
 - [MethodCallMeta.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/MethodCallMeta.java) 仍然可复用
 - Neo4j 导入层和 `GraphSnapshot` 不需要因为底层引擎迁移而变更消费协议
 
+当前实现已经落地到：
+
+- `src/main/java/me/n1ar4/jar/analyzer/core/edge/BuildEdgeAccumulator.java`
+
 ## 6. 从当前 `BuildContext` 到 `BuildFactSnapshot` 的适配
 
 迁移期不需要一上来重写所有 runner，先做一个 assembler 即可：
 
 ```java
-BuildFactSnapshot snapshot = BuildFactAssembler.from(context, scopeSummary, localVars);
+BuildFactSnapshot snapshot = BuildFactAssembler.from(
+    context,
+    scopeSummary,
+    jarOriginsById,
+    localVars,
+    workspace
+);
 BuildEdgeAccumulator edges = BuildEdgeAccumulator.empty();
 ```
 

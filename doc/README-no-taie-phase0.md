@@ -26,6 +26,24 @@ Phase 0 不做“去 Tai-e 切换”，只做两件事：
 - 我们能稳定回答“现在到底慢在哪里、重在哪里、哪些能力必须保住”
 - 我们能明确回答“先迁什么、后迁什么、每一步怎么验收”
 
+### 1.1 当前状态（2026-03-11）
+
+截至 2026 年 3 月 11 日，Phase 0 已满足关闭条件，可以结束。
+
+当前已经落地的收口结果：
+
+- `JA-NT-001 ~ JA-NT-006`：基线 harness、质量门禁、冻结报告已经形成，可直接回看 `doc/benchmarks/no-taie-baseline-20260311.md`
+- `JA-NT-101 ~ JA-NT-105`：`dev` 白名单、facts 模型、dispatch/reflection/PTA 迁移边界和代码主链已经建立
+- `JA-NT-106`：单次解析前端已经接入主建库链，`BuildBytecodeWorkspace + BuildFactSnapshot + BuildEdgeAccumulator + BytecodeFactRunner` 已落地
+- `JA-NT-107`：profile 切换已经写成代码契约，`jar.analyzer.callgraph.profile` 与兼容 `engine` 入口都可用
+- `JA-NT-108`：迁移最小回归包和对应契约测试已经落地
+
+Phase 0 之后的工作边界也已经明确：
+
+- 默认主链仍未切到 bytecode profile
+- Tai-e 仍是默认 build 的调用图引擎
+- 下一阶段应该直接进入“默认 profile 切换 + Tai-e 退场”，而不是继续扩写 Phase 0
+
 ## 2. 当前可复用资产
 
 ### 2.1 现有回归与 bench
@@ -518,11 +536,26 @@ Issue 命名格式建议：
 
 - `BytecodeFactRunner` 的目标输出模型
 - 单次解析与按需 frame 分析的切分策略
+- 当前设计文档：`doc/README-no-taie-bytecode-fact-runner.md`
 
 验收：
 
 - 明确旧 runner 哪些会被吸收
 - 明确新 facts 对 `dispatch/reflection/PTA` 的供给关系
+
+当前状态：
+
+- 已完成
+- 当前设计与实现说明：`doc/README-no-taie-bytecode-fact-runner.md`
+- 当前主链接线：
+  - `src/main/java/me/n1ar4/jar/analyzer/core/bytecode/BuildBytecodeWorkspace.java`
+  - `src/main/java/me/n1ar4/jar/analyzer/core/facts/BuildFactSnapshot.java`
+  - `src/main/java/me/n1ar4/jar/analyzer/core/facts/BuildFactAssembler.java`
+  - `src/main/java/me/n1ar4/jar/analyzer/core/facts/BytecodeFactRunner.java`
+- 验收测试：
+  - `BuildBytecodeWorkspaceTest`
+  - `BuildFactAssemblerTest`
+  - `CoreRunnerBytecodeMainlineTest`
 
 依赖：
 
@@ -548,6 +581,17 @@ Issue 命名格式建议：
 
 - 能明确说出默认 build 未来走哪条路
 - Tai-e 的角色被限定为可选模式
+
+当前状态：
+
+- 已完成
+- 文档口径：`doc/README-no-taie-profile-switch.md`
+- 代码入口：
+  - `src/main/java/me/n1ar4/jar/analyzer/core/CallGraphPlan.java`
+  - `src/main/java/me/n1ar4/jar/analyzer/core/CoreRunner.java`
+- 验收测试：
+  - `CallGraphPlanTest`
+  - `CoreRunnerCallGraphProfileTest`
 
 依赖：
 
@@ -577,6 +621,13 @@ Issue 命名格式建议：
 验收：
 
 - 所有后续迁移 issue 都绑定具体验收测试
+
+当前状态：
+
+- 已完成
+- 文档口径：`doc/README-no-taie-regression-pack.md`
+- 代码入口：`src/test/java/me/n1ar4/jar/analyzer/qa/NoTaieMigrationRegressionPack.java`
+- 契约测试：`NoTaieMigrationRegressionPackTest`
 
 依赖：
 
@@ -608,14 +659,19 @@ Issue 命名格式建议：
 - 再把“迁什么”写清楚
 - 最后再开始真正的代码迁移
 
+截至 2026 年 3 月 11 日，上述顺序已经执行到 `JA-NT-108`，Phase 0 不再停留在“计划态”。
+
 ## 9. Phase 0 完成判定
 
-只有同时满足以下条件，Phase 0 才算完成：
+截至 2026 年 3 月 11 日，以下条件均已满足：
 
-- 现有 ASM+Tai-e 主线有一份冻结基线
-- 样本矩阵、命令、输出报告都固定
-- `dev` 内核迁移白名单与依赖关系明确
-- `BytecodeFactRunner` 与 `bytecode-mainline` profile 的目标模型写清楚
-- 后续每个迁移 issue 都有明确验收回归
+- 现有 ASM+Tai-e 主线已有冻结基线
+- 样本矩阵、命令、输出报告已固定
+- `dev` 内核迁移白名单与依赖关系已明确
+- `BytecodeFactRunner` 与 `bytecode-mainline` profile 的目标模型已经写清，并接入当前代码
+- 后续每个迁移 issue 都已有明确验收回归
 
-如果这些条件没满足，就不应进入默认主链切换阶段。
+结论：
+
+- Phase 0 可以关闭
+- 下一步直接进入默认主链切换阶段，不再继续扩写 Phase 0 issue

@@ -10,12 +10,24 @@
 
 `ContextSensitivePtaEngine` 最小可迁子集设计见 [README-no-taie-pta-subset.md](/Users/veritas/Documents/projects/jar-analyzer/doc/README-no-taie-pta-subset.md)。
 
+单次解析前端收口说明见 [README-no-taie-bytecode-fact-runner.md](/Users/veritas/Documents/projects/jar-analyzer/doc/README-no-taie-bytecode-fact-runner.md)。
+
 结论先行：
 
 - 不建议继续让 Tai-e 作为默认建库主干。
 - 不建议 fork/裁剪 Tai-e 后自行维护其核心前端、World、IR、PTA 体系。
 - 建议采用 `dev` 分支已有的 ASM/字节码自研能力作为迁移种子，重建一条面向当前 Neo4j 项目模型的单主链建库体系。
 - Tai-e 应降级为可选的 `precision/oracle` 引擎，只用于对照、回归和疑难样本精化，不再参与默认 build。
+
+## 0. 当前状态（2026-03-11）
+
+截至 2026 年 3 月 11 日，Phase 0 已完成，当前主干状态如下：
+
+- 默认 build 仍然是 Tai-e；如果未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图仍回到 Tai-e
+- `fast / balanced / precision / oracle-taie` 的 profile 契约已经落地，见 `doc/README-no-taie-profile-switch.md`
+- 单次解析前端收口已经进入主建库链：`BuildBytecodeWorkspace + BuildFactSnapshot + BuildEdgeAccumulator + BytecodeFactRunner`
+- bytecode-mainline 已经能在 callback、framework-stack 等真实样本上跑通主链并进入回归包
+- 下一阶段不再是“补 Phase 0 文档”，而是“默认 profile 切换 + Tai-e 退场”
 
 ## 1. 背景与问题定义
 
@@ -34,7 +46,7 @@
 
 ### 1.1 当前主链的结构性问题
 
-当前 `CoreRunner` 会先完成 discovery/class-analysis/framework-entry/method-semantic/bytecode-symbol，再进入 `taie-callgraph` 阶段。进入 Tai-e 阶段前会直接清空 `context.methodCalls` 和 `context.methodCallMeta`，然后完全用 Tai-e 的调用图结果回填。
+如果不显式切到 bytecode profile，当前默认 `CoreRunner` 仍会先完成 discovery/class-analysis/framework-entry/method-semantic/bytecode-symbol，再进入默认的 Tai-e 调用图阶段。进入调用图阶段前会直接清空 `context.methodCalls` 和 `context.methodCallMeta`，然后由选中的调用图引擎回填。
 
 这意味着：
 
@@ -447,8 +459,8 @@ flowchart TD
 
 只增加必要的 build meta：
 
-- `callGraphEngine=bytecode-mainline`
-- `callGraphMode=bytecode:semantic-v1`
+- `callGraphEngine=bytecode-mainline` 或 `bytecode-mainline+pta-refine`
+- `callGraphMode=bytecode:fast-v1|bytecode:balanced-v1|bytecode:precision-v1|bytecode:semantic-v1`
 - 可选 `ptaRefinedCallSites/semanticEdgeCount/dispatchEdgeCount`
 
 ## 7. 与 Tai-e 的关系重定义

@@ -32,16 +32,22 @@ Release 目录结构（由 `build.py` 生成）仅保留一个包：
 
 ## 从源码构建
 
-构建核心（fat jar）：
+构建完整可运行产物（fat jar）：
 
 ```bash
-mvn -B clean package -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true
+mvn -B clean package -DskipTests
+```
+
+仅验证后端编译时，可跳过前端构建：
+
+```bash
+mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile
 ```
 
 PowerShell 请使用带引号的参数形式，避免 `-D...` 被误解析：
 
 ```powershell
-mvn -B clean package "-DskipTests" "-Dskip.npm=true" "-Dskip.installnodenpm=true"
+mvn -B clean package "-DskipTests"
 ```
 
 产物：
@@ -99,9 +105,9 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：默认使用 Tai-e（默认 `balanced` 档位），默认保留 APP 可达子图（APP + 可达 LIBRARY caller）；实验期可通过 `-Djar.analyzer.callgraph.engine=bytecode-mainline` 切到字节码主线内核（当前覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`）
+3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认仍使用 Tai-e（默认 `jar.analyzer.analysis.profile=balanced`），并保留 APP 可达子图（APP + 可达 LIBRARY caller）；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision|oracle-taie` 切换，其中 `fast/balanced/precision` 走字节码主链，`oracle-taie` 把 Tai-e 限定为对照模式。兼容入口 `jar.analyzer.callgraph.engine=taie|bytecode-mainline|bytecode-mainline+pta-refine|oracle-taie` 仍可使用；当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
-5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `taie:<profile>`、`bytecode:semantic-v1` 或 `disabled-no-target`
+5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `taie:<profile>`、`oracle-taie:<profile>`、`bytecode:semantic-v1`、`bytecode:fast-v1`、`bytecode:balanced-v1`、`bytecode:precision-v1` 或 `disabled-no-target`
 
 ### 3) 查询与定位（审计日常）
 
@@ -234,16 +240,19 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 2. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
 
 默认行为：
-1. 调用图引擎固定为 Tai-e（默认 `jar.analyzer.analysis.profile=balanced`）
-2. 若输入全部命中 common library，默认 `jar.analyzer.all-common.policy=continue-no-callgraph`
-3. 非 all-common 场景不再回退 bytecode 调用图
-4. 项目库写入始终走 staging + atomic swap；失败不会先删旧库
+1. 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 Tai-e，Tai-e profile 仍由 `jar.analyzer.analysis.profile` 控制（默认 `balanced`）
+2. 若设置 `jar.analyzer.callgraph.profile=fast|balanced|precision|oracle-taie`，分别走 `bytecode-mainline`、`bytecode-mainline+pta-refine`、`bytecode-mainline+pta-refine`、`oracle-taie`
+3. 若输入全部命中 common library，默认 `jar.analyzer.all-common.policy=continue-no-callgraph`
+4. 非 all-common 场景不再回退 bytecode 调用图
+5. 项目库写入始终走 staging + atomic swap；失败不会先删旧库
 
 常用系统属性：
-1. `jar.analyzer.analysis.profile`: `balanced|high|fast`
-2. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
-3. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
-4. `jar.analyzer.taie.edge.policy`: `app-caller|reachable-app|non-sdk-caller|full`（默认 `reachable-app`）
+1. `jar.analyzer.callgraph.profile`: `fast|balanced|precision|oracle-taie`
+2. `jar.analyzer.callgraph.engine`: `taie|bytecode-mainline|bytecode-mainline+pta-refine|oracle-taie`（兼容入口，显式设置时优先于 profile）
+3. `jar.analyzer.analysis.profile`: `balanced|high|fast`（仅 Tai-e / oracle-taie 使用）
+4. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
+5. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
+6. `jar.analyzer.taie.edge.policy`: `app-caller|reachable-app|non-sdk-caller|full`（默认 `reachable-app`）
 
 ### 启动 GUI + API
 
