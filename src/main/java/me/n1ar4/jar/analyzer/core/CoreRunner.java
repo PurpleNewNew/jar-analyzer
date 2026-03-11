@@ -31,7 +31,7 @@ import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.rules.MethodSemanticSupport;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
@@ -61,6 +61,7 @@ import java.util.function.IntConsumer;
 public class CoreRunner {
     private static final Logger logger = LogManager.getLogger();
     private static final Neo4jBulkImportService GRAPH_BUILD_SERVICE = new Neo4jBulkImportService();
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final IntConsumer NOOP_PROGRESS = p -> {
     };
     private static final ThreadLocal<String> BUILD_STAGE = ThreadLocal.withInitial(() -> "idle");
@@ -1139,7 +1140,7 @@ public class CoreRunner {
     }
 
     private static Path resolveStorePath(String projectKey) {
-        return Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
+        return PROJECT_STORE.resolveProjectHome(projectKey);
     }
 
     private static String formatSizeInMB(long fileSizeBytes) {

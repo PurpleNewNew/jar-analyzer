@@ -35,7 +35,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
@@ -68,6 +68,7 @@ import java.util.stream.Stream;
 public class CoreEngine {
     private static final Logger logger = LogManager.getLogger();
     private static final int PAGE_SIZE = 100;
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
 
     private final GraphStore graphStore = new GraphStore();
     private final Map<String, List<LineMappingEntity>> lineMappings = new ConcurrentHashMap<>();
@@ -79,7 +80,7 @@ public class CoreEngine {
                 return false;
             }
             String projectKey = ActiveProjectContext.getActiveProjectKey();
-            Path home = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
+            Path home = PROJECT_STORE.resolveProjectHome(projectKey);
             if (home == null || !Files.exists(home) || !Files.isDirectory(home)) {
                 return false;
             }

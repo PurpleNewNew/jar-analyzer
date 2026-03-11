@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.neo4j.graphdb.Direction;
-import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Relationship;
@@ -36,18 +35,20 @@ public final class Neo4jGraphSnapshotLoader {
     private static final Label NODE_LABEL = Label.label("JANode");
     private static final Label META_LABEL = Label.label("JAMeta");
     private static final String META_KEY = "build_meta";
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
+    private static final long BUILD_SEQ_TIMEOUT_MS = 30_000L;
+    private static final long SNAPSHOT_LOAD_TIMEOUT_MS = 120_000L;
 
     private static final Map<String, CachedSnapshot> CACHE = new ConcurrentHashMap<>();
 
     public GraphSnapshot load(String projectKey) {
         String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        GraphDatabaseService database = Neo4jProjectStore.getInstance().database(key);
-        long buildSeq = resolveBuildSeq(database);
+        long buildSeq = PROJECT_STORE.read(key, BUILD_SEQ_TIMEOUT_MS, Neo4jGraphSnapshotLoader::resolveBuildSeq);
         CachedSnapshot cached = CACHE.get(key);
         if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
             return cached.snapshot;
         }
-        LoadedSnapshot loaded = loadSnapshot(database);
+        LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, Neo4jGraphSnapshotLoader::loadSnapshot);
         CACHE.put(key, new CachedSnapshot(loaded.buildSeq, loaded.snapshot));
         return loaded.snapshot;
     }
@@ -65,8 +66,8 @@ public final class Neo4jGraphSnapshotLoader {
         CACHE.clear();
     }
 
-    private static LoadedSnapshot loadSnapshot(GraphDatabaseService database) {
-        if (database == null) {
+    private static LoadedSnapshot loadSnapshot(Transaction tx) {
+        if (tx == null) {
             return new LoadedSnapshot(-1L, GraphSnapshot.empty());
         }
         Map<Long, GraphNode> nodeMap = new LinkedHashMap<>();
@@ -74,8 +75,7 @@ public final class Neo4jGraphSnapshotLoader {
         Map<Long, List<GraphEdge>> incoming = new HashMap<>();
         Map<String, List<GraphNode>> labelIndex = new HashMap<>();
 
-        try (Transaction tx = database.beginTx();
-             ResourceIterator<Node> it = tx.findNodes(NODE_LABEL)) {
+        try (ResourceIterator<Node> it = tx.findNodes(NODE_LABEL)) {
             long buildSeq = resolveBuildSeq(tx);
             while (it.hasNext()) {
                 Node node = it.next();
@@ -140,25 +140,10 @@ public final class Neo4jGraphSnapshotLoader {
                     incoming.computeIfAbsent(dstId, ignore -> new ArrayList<>()).add(edge);
                 }
             }
-            tx.commit();
             return new LoadedSnapshot(buildSeq, GraphSnapshot.of(buildSeq, nodeMap, outgoing, incoming, labelIndex));
         } catch (Exception ex) {
             logger.warn("load neo4j graph snapshot fail: {}", ex.toString());
             return new LoadedSnapshot(-1L, GraphSnapshot.empty());
-        }
-    }
-
-    private static long resolveBuildSeq(GraphDatabaseService database) {
-        if (database == null) {
-            return -1L;
-        }
-        try (Transaction tx = database.beginTx()) {
-            long seq = resolveBuildSeq(tx);
-            tx.commit();
-            return seq;
-        } catch (Exception ex) {
-            logger.debug("resolve neo4j build seq fail: {}", ex.toString());
-            return -1L;
         }
     }
 

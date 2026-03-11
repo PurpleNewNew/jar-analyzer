@@ -46,6 +46,7 @@ import java.util.UUID;
 public final class ProjectRegistryService {
     private static final Logger logger = LogManager.getLogger();
     private static final Path REGISTRY_FILE = Paths.get(".jar-analyzer-projects.json");
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final ProjectRegistryService INSTANCE = new ProjectRegistryService();
 
     private final Object lock = new Object();
@@ -212,7 +213,7 @@ public final class ProjectRegistryService {
                         ActiveProjectContext.temporaryProjectAlias(),
                         () -> {
                             try {
-                                Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+                                PROJECT_STORE.deleteProjectStore(temporaryKey);
                             } catch (Exception ex) {
                                 logger.debug("cleanup temporary project store fail: {}", ex.toString());
                             }
@@ -221,7 +222,7 @@ public final class ProjectRegistryService {
                 );
             } else {
                 try {
-                    Neo4jProjectStore.getInstance().deleteProjectStore(temporaryKey);
+                    PROJECT_STORE.deleteProjectStore(temporaryKey);
                 } catch (Exception ex) {
                     logger.debug("cleanup temporary project store fail: {}", ex.toString());
                 }
@@ -529,7 +530,7 @@ public final class ProjectRegistryService {
             }
             if (deleteStore && !removedProjectKey.isBlank()) {
                 try {
-                    Neo4jProjectStore.getInstance().deleteProjectStore(removedProjectKey);
+                    PROJECT_STORE.deleteProjectStore(removedProjectKey);
                 } catch (Exception ex) {
                     logger.debug("delete removed project store fail: key={} err={}",
                             safe(removedProjectKey), ex.toString());
@@ -779,7 +780,7 @@ public final class ProjectRegistryService {
             }
             try {
                 if (previousProjectKey != null && !previousProjectKey.isBlank()) {
-                    Neo4jProjectStore.getInstance().closeProject(previousProjectKey);
+                    PROJECT_STORE.closeProject(previousProjectKey);
                 }
             } catch (Exception ex) {
                 logger.debug("close previous project runtime fail: {}", ex.toString());
@@ -805,7 +806,7 @@ public final class ProjectRegistryService {
             }
             ActiveProjectContext.bumpProjectEpoch();
             try {
-                Neo4jProjectStore.getInstance().closeProject(projectKey);
+                PROJECT_STORE.closeProject(projectKey);
             } catch (Exception ex) {
                 logger.debug("close current project runtime fail: {}", ex.toString());
             }
@@ -826,7 +827,7 @@ public final class ProjectRegistryService {
     private CoreEngine createProjectEngine(String projectKey) {
         try {
             ConfigFile cfg = new ConfigFile();
-            cfg.setDbPath(Neo4jProjectStore.getInstance()
+            cfg.setDbPath(PROJECT_STORE
                     .resolveProjectHome(projectKey)
                     .toString());
             cfg.setTempPath(Const.tempDir);
@@ -1169,7 +1170,7 @@ public final class ProjectRegistryService {
 
     private static void ensureProjectStore(String projectKey) {
         try {
-            Neo4jProjectStore.getInstance().database(projectKey);
+            PROJECT_STORE.database(projectKey);
         } catch (Exception ex) {
             logger.error("ensure project store fail: key={} err={}",
                     safe(projectKey), ex.toString(), ex);
@@ -1179,7 +1180,7 @@ public final class ProjectRegistryService {
 
     private static boolean projectStoreExists(String projectKey) {
         try {
-            Path home = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
+            Path home = PROJECT_STORE.resolveProjectHome(projectKey);
             return home != null && Files.exists(home);
         } catch (Exception ex) {
             logger.debug("resolve project store home fail: key={} err={}", safe(projectKey), ex.toString());
@@ -1192,7 +1193,7 @@ public final class ProjectRegistryService {
             return;
         }
         try {
-            Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
+            PROJECT_STORE.deleteProjectStore(projectKey);
         } catch (Exception ex) {
             logger.debug("cleanup prepared project store fail: key={} err={}", safe(projectKey), ex.toString());
         }

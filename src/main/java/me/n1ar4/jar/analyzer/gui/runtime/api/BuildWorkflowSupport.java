@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
@@ -233,7 +233,7 @@ final class BuildWorkflowSupport {
 
         ProjectRegistryService projectRegistryService();
 
-        Neo4jProjectStore projectStore();
+        ProjectGraphStoreFacade projectStore();
 
         static Services system() {
             return new Services() {
@@ -248,8 +248,8 @@ final class BuildWorkflowSupport {
                 }
 
                 @Override
-                public Neo4jProjectStore projectStore() {
-                    return Neo4jProjectStore.getInstance();
+                public ProjectGraphStoreFacade projectStore() {
+                    return ProjectGraphStoreFacade.getInstance();
                 }
             };
         }

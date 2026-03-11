@@ -13,11 +13,10 @@ package me.n1ar4.jar.analyzer.graph.query;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.rules.RuleValidationViews;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.storage.neo4j.procedure.ApocWhitelist;
 import me.n1ar4.jar.analyzer.storage.neo4j.procedure.NativeJaQueryContext;
 import org.neo4j.graphdb.ExecutionPlanDescription;
-import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.QueryExecutionException;
@@ -30,7 +29,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,7 +37,7 @@ public final class Neo4jQueryService {
             "(?is)\\b(create|merge|delete|detach\\s+delete|remove|drop|load\\s+csv|schema)\\b");
     private static final Pattern SET_TOKEN_PATTERN = Pattern.compile("(?is)\\bset\\b");
 
-    private final Neo4jProjectStore projectStore = Neo4jProjectStore.getInstance();
+    private final ProjectGraphStoreFacade projectStore = ProjectGraphStoreFacade.getInstance();
 
     public QueryResult execute(String query, Map<String, Object> params, QueryOptions options) throws Exception {
         return execute(query, params, options, null);
@@ -121,30 +119,10 @@ public final class Neo4jQueryService {
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         DatabaseManager.ensureProjectReadable(resolvedProject);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
-            GraphDatabaseService db = projectStore.activeDatabase();
             List<String> warnings = new ArrayList<>();
             try {
-                return NativeJaQueryContext.with(options, resolvedProject, () -> {
-                    try (Transaction tx = db.beginTx(options.getMaxMs(), TimeUnit.MILLISECONDS);
-                         Result result = tx.execute(query, params)) {
-                        List<String> columns = result.columns();
-                        List<List<Object>> rows = new ArrayList<>();
-                        int maxRows = options.getMaxRows();
-                        while (result.hasNext()) {
-                            if (rows.size() >= maxRows) {
-                                return new QueryResult(columns, rows, warnings, true);
-                            }
-                            Map<String, Object> row = result.next();
-                            List<Object> values = new ArrayList<>(columns.size());
-                            for (String column : columns) {
-                                values.add(convertValue(row.get(column)));
-                            }
-                            rows.add(values);
-                        }
-                        tx.commit();
-                        return new QueryResult(columns, rows, warnings, false);
-                    }
-                });
+                return NativeJaQueryContext.with(options, resolvedProject, () ->
+                        projectStore.read(resolvedProject, options.getMaxMs(), tx -> executeReadQuery(tx, query, params, options, warnings)));
             } catch (QueryExecutionException ex) {
                 String msg = safe(ex.getMessage()).toLowerCase(Locale.ROOT);
                 if (msg.contains("write") || msg.contains("creating") || msg.contains("updating")) {
@@ -171,21 +149,9 @@ public final class Neo4jQueryService {
         String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         DatabaseManager.ensureProjectReadable(resolvedProject);
         return ActiveProjectContext.withProject(resolvedProject, () -> {
-            GraphDatabaseService db = projectStore.activeDatabase();
             try {
-                return NativeJaQueryContext.with(QueryOptions.defaults(), resolvedProject, () -> {
-                    try (Transaction tx = db.beginTx();
-                         Result result = tx.execute("EXPLAIN " + query)) {
-                        ExecutionPlanDescription plan = result.getExecutionPlanDescription();
-                        Map<String, Object> out = new LinkedHashMap<>();
-                        out.put("engine", "neo4j");
-                        out.put("kind", "read");
-                        out.put("operators", flattenOperators(plan));
-                        out.put("arguments", plan == null ? Map.of() : plan.getArguments());
-                        tx.commit();
-                        return out;
-                    }
-                });
+                return NativeJaQueryContext.with(QueryOptions.defaults(), resolvedProject, () ->
+                        projectStore.read(resolvedProject, QueryOptions.defaults().getMaxMs(), tx -> explainQuery(tx, query)));
             } catch (IllegalArgumentException ex) {
                 throw ex;
             } catch (Exception ex) {
@@ -196,6 +162,42 @@ public final class Neo4jQueryService {
                 throw new IllegalArgumentException(msg, ex);
             }
         });
+    }
+
+    private static QueryResult executeReadQuery(Transaction tx,
+                                                String query,
+                                                Map<String, Object> params,
+                                                QueryOptions options,
+                                                List<String> warnings) {
+        try (Result result = tx.execute(query, params)) {
+            List<String> columns = result.columns();
+            List<List<Object>> rows = new ArrayList<>();
+            int maxRows = options.getMaxRows();
+            while (result.hasNext()) {
+                if (rows.size() >= maxRows) {
+                    return new QueryResult(columns, rows, warnings, true);
+                }
+                Map<String, Object> row = result.next();
+                List<Object> values = new ArrayList<>(columns.size());
+                for (String column : columns) {
+                    values.add(convertValue(row.get(column)));
+                }
+                rows.add(values);
+            }
+            return new QueryResult(columns, rows, warnings, false);
+        }
+    }
+
+    private static Map<String, Object> explainQuery(Transaction tx, String query) {
+        try (Result result = tx.execute("EXPLAIN " + query)) {
+            ExecutionPlanDescription plan = result.getExecutionPlanDescription();
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("engine", "neo4j");
+            out.put("kind", "read");
+            out.put("operators", flattenOperators(plan));
+            out.put("arguments", plan == null ? Map.of() : plan.getArguments());
+            return out;
+        }
     }
 
     private static boolean containsWriteClause(String query) {

@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 public final class ProjectMetadataSnapshotStore {
     private static final Logger logger = LogManager.getLogger();
     private static final ProjectMetadataSnapshotStore INSTANCE = new ProjectMetadataSnapshotStore();
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final String SNAPSHOT_FILE = "runtime-metadata.json";
     private static final String UNAVAILABLE_FILE = "runtime-metadata.unavailable";
     private static final String ASSET_DIR = "runtime-assets";
@@ -439,12 +440,12 @@ public final class ProjectMetadataSnapshotStore {
 
     Path resolveSnapshotFile(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        return resolveSnapshotFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
+        return resolveSnapshotFile(PROJECT_STORE.resolveProjectHome(normalized));
     }
 
     Path resolveUnavailableFile(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        return resolveUnavailableFile(Neo4jProjectStore.getInstance().resolveProjectHome(normalized));
+        return resolveUnavailableFile(PROJECT_STORE.resolveProjectHome(normalized));
     }
 
     Path resolveSnapshotFile(Path projectHome) {

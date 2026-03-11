@@ -72,6 +72,8 @@ public final class Neo4jBulkImportService {
     private static final String THREADS_PROP = "jar.analyzer.neo4j.bulk.threads";
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
+    private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
+
     public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
                                                      long buildSeq,
                                                      boolean quickMode,
@@ -83,8 +85,7 @@ public final class Neo4jBulkImportService {
                                                      Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier,
                                                      Map<String, Object> buildMeta) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        Neo4jProjectStore store = Neo4jProjectStore.getInstance();
-        Path projectHome = store.resolveProjectHome(normalized);
+        Path projectHome = PROJECT_STORE.resolveProjectHome(normalized);
         Path stagingHome = resolveStagingHome(projectHome, buildSeq);
         Path stagingDir = stagingHome
                 .resolve("import-staging")
@@ -111,7 +112,7 @@ public final class Neo4jBulkImportService {
                     csvResult.callSiteEdges(),
                     heapUsage());
 
-            store.beginProjectImport(normalized);
+            PROJECT_STORE.beginProjectImport(normalized);
             importLockHeld = true;
             runFullImport(stagingHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
             logger.info("neo4j bulk import finished: key={} buildSeq={} heap={}",
@@ -140,7 +141,7 @@ public final class Neo4jBulkImportService {
                 Neo4jGraphSnapshotLoader.invalidate(normalized);
             }
 
-            store.endProjectImport(normalized);
+            PROJECT_STORE.endProjectImport(normalized);
             importLockHeld = false;
 
             if (csvResult.edgeCount() > Integer.MAX_VALUE) {
@@ -164,7 +165,7 @@ public final class Neo4jBulkImportService {
                     : new IllegalStateException("neo4j_bulk_import_failed", ex);
         } finally {
             if (importLockHeld) {
-                store.endProjectImport(normalized);
+                PROJECT_STORE.endProjectImport(normalized);
             }
             deleteRecursively(backupHome);
             if (!keepStaging && buildSucceeded) {
@@ -186,24 +187,22 @@ public final class Neo4jBulkImportService {
             return;
         }
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        GraphDatabaseService database = Neo4jProjectStore.getInstance().database(normalized);
-        if (database == null) {
-            throw new IllegalStateException("neo4j_live_database_missing");
-        }
-        try (Transaction tx = database.beginTx()) {
-            Node meta;
-            try (var it = tx.findNodes(Label.label("JAMeta"), "key", "build_meta")) {
-                if (it.hasNext()) {
-                    meta = it.next();
-                } else {
-                    meta = tx.createNode(Label.label("JAMeta"));
-                    meta.setProperty("key", "build_meta");
-                    meta.setProperty("build_seq", buildSeq);
+        try {
+            PROJECT_STORE.write(normalized, 30_000L, tx -> {
+                Node meta;
+                try (var it = tx.findNodes(Label.label("JAMeta"), "key", "build_meta")) {
+                    if (it.hasNext()) {
+                        meta = it.next();
+                    } else {
+                        meta = tx.createNode(Label.label("JAMeta"));
+                        meta.setProperty("key", "build_meta");
+                        meta.setProperty("build_seq", buildSeq);
+                    }
                 }
-            }
-            meta.setProperty("updated_at", System.currentTimeMillis());
-            applyExtraBuildMeta(meta, extraMeta);
-            tx.commit();
+                meta.setProperty("updated_at", System.currentTimeMillis());
+                applyExtraBuildMeta(meta, extraMeta);
+                return null;
+            });
         } catch (Exception ex) {
             throw new IllegalStateException("neo4j_build_meta_update_failed", ex);
         }
