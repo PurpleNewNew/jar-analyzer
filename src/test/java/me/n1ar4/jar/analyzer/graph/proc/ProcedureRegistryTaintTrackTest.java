@@ -119,6 +119,28 @@ class ProcedureRegistryTaintTrackTest {
     }
 
     @Test
+    void taintTrackShouldAllowExplicitBackwardDirectionOverride() {
+        PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.taint.track",
+                List.of(
+                        fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc(),
+                        fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
+                        "8", "15000", "20",
+                        "source", "false", "false", "call-only", "backward"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                fixture.snapshot()
+        );
+
+        assertEquals(1, result.getRows().size());
+        assertEquals("1,2,6,10,14", result.getRows().get(0).get(2));
+        assertTrue(String.valueOf(result.getRows().get(0).get(6)).contains("direction=backward"));
+        assertTrue(result.getWarnings().contains("taint_search_direction=backward"));
+    }
+
+    @Test
     void taintTrackShouldSupportSinkModeSearchingAllSources() {
         PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
         QueryResult result = new ProcedureRegistry().execute(
@@ -177,6 +199,28 @@ class ProcedureRegistryTaintTrackTest {
         assertEquals("1,2,3,4", aliasEnabled.getRows().get(0).get(2));
         assertTrue(String.valueOf(aliasEnabled.getRows().get(0).get(6)).contains("traversal=call+alias"));
         assertTrue(aliasEnabled.getWarnings().contains("taint_traversal_mode=call+alias"));
+    }
+
+    @Test
+    void taintTrackShouldSupportBidirectionalDirection() {
+        GraphSnapshot snapshot = buildLinearSnapshot();
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.taint.track",
+                List.of(
+                        "app/Source", "entry", "(Ljava/lang/String;)V",
+                        "app/Sink", "sink", "()V",
+                        "6", "15000", "10",
+                        "source", "false", "false", "call-only", "bidirectional"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(1, result.getRows().size());
+        assertEquals("1,2,3", result.getRows().get(0).get(2));
+        assertTrue(String.valueOf(result.getRows().get(0).get(6)).contains("direction=bidirectional"));
+        assertTrue(result.getWarnings().contains("taint_search_direction=bidirectional"));
     }
 
     private static GraphSnapshot buildLinearSnapshot() {

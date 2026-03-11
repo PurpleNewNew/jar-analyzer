@@ -132,6 +132,101 @@ public final class GraphGadgetEngine {
         );
     }
 
+    public Run searchBackward(GraphSnapshot snapshot, ReverseSearchRequest request, Controller controller) {
+        long startNs = System.nanoTime();
+        if (snapshot == null || request == null || request.sinkNodeId() <= 0L || request.sourceNodeId() <= 0L) {
+            return emptyRun(startNs, false);
+        }
+        Controller effectiveController = controller == null ? Controller.noop() : controller;
+        Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, request, effectiveController);
+        if (!fromSource.containsKey(request.sinkNodeId())) {
+            return emptyRun(startNs, false);
+        }
+
+        GraphNode sinkNode = snapshot.getNode(request.sinkNodeId());
+        if (!GraphTraversalRules.isMethodNode(sinkNode)) {
+            return emptyRun(startNs, false);
+        }
+
+        int nodeVisits = 1;
+        int expandedEdges = 0;
+        int prunedByState = 0;
+        int prunedByDistance = 0;
+        boolean truncated = false;
+        List<Candidate> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        List<Long> backwardNodePath = new ArrayList<>();
+        List<GraphEdge> backwardEdgePath = new ArrayList<>();
+        Set<Long> visited = new HashSet<>();
+        ArrayDeque<Frame> stack = new ArrayDeque<>();
+
+        GadgetState initialState = GadgetState.initial(sinkNode);
+        backwardNodePath.add(request.sinkNodeId());
+        visited.add(request.sinkNodeId());
+        ExpandResult initial = expandBackward(snapshot, request, effectiveController, request.sinkNodeId(),
+                initialState, 0, fromSource, visited, request.sourceNodeId());
+        expandedEdges += initial.expandedEdges();
+        prunedByState += initial.prunedByState();
+        prunedByDistance += initial.prunedByDistance();
+        stack.push(new Frame(request.sinkNodeId(), initialState, initial.expansions()));
+
+        while (!stack.isEmpty() && !effectiveController.shouldStop(out.size())) {
+            effectiveController.checkpoint();
+            Frame frame = stack.peek();
+            long current = frame.nodeId();
+            int hops = backwardNodePath.size() - 1;
+            Integer tail = fromSource.get(current);
+            if (tail == null || hops + tail > request.maxHops()) {
+                backtrack(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+            if (current == request.sourceNodeId()) {
+                String route = frame.state().route();
+                if (!route.isBlank()) {
+                    emitBackwardCandidate(out, seen, backwardNodePath, backwardEdgePath, frame.state(), route, effectiveController);
+                    if (out.size() >= request.maxPaths()) {
+                        truncated = !stack.isEmpty();
+                        break;
+                    }
+                }
+                backtrack(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+            if (hops >= request.maxHops() || frame.cursor() >= frame.expansions().size()) {
+                backtrack(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+
+            Expansion expansion = frame.expansions().get(frame.cursorAndAdvance());
+            long nextNodeId = expansion.edge().getSrcId();
+            if (visited.contains(nextNodeId)) {
+                continue;
+            }
+            visited.add(nextNodeId);
+            backwardNodePath.add(nextNodeId);
+            backwardEdgePath.add(expansion.edge());
+            nodeVisits++;
+            effectiveController.onNode();
+
+            ExpandResult next = expandBackward(snapshot, request, effectiveController, nextNodeId, expansion.state(),
+                    hops + 1, fromSource, visited, request.sourceNodeId());
+            expandedEdges += next.expandedEdges();
+            prunedByState += next.prunedByState();
+            prunedByDistance += next.prunedByDistance();
+            stack.push(new Frame(nextNodeId, expansion.state(), next.expansions()));
+        }
+
+        LinkedHashMap<String, Integer> routeStats = new LinkedHashMap<>();
+        for (Candidate candidate : out) {
+            routeStats.merge(candidate.route(), 1, Integer::sum);
+        }
+        return new Run(
+                out,
+                new Stats(nodeVisits, expandedEdges, out.size(), prunedByState, prunedByDistance, elapsedMs(startNs), routeStats),
+                truncated
+        );
+    }
+
     private static ExpandResult expand(GraphSnapshot snapshot,
                                        SearchRequest request,
                                        Controller controller,
@@ -163,6 +258,61 @@ public final class GraphGadgetEngine {
                 continue;
             }
             Integer tail = toTarget.get(nextNodeId);
+            if (tail == null || currentHops + 1 + tail > request.maxHops()) {
+                prunedByDistance++;
+                continue;
+            }
+            GraphNode nextNode = snapshot.getNode(nextNodeId);
+            if (!GraphTraversalRules.isMethodNode(nextNode)) {
+                prunedByState++;
+                continue;
+            }
+            GadgetState nextState = state.advance(nextNode, edge);
+            if (nextState == null || nextState.isEmpty()) {
+                prunedByState++;
+                continue;
+            }
+            out.add(new Expansion(
+                    edge,
+                    nextState,
+                    score(edge, nextState, nextNodeId == targetNodeId, tail)
+            ));
+        }
+        out.sort(Comparator.comparingInt(Expansion::score).thenComparingLong(expansion -> expansion.edge().getEdgeId()));
+        return new ExpandResult(out, expandedEdges, prunedByState, prunedByDistance);
+    }
+
+    private static ExpandResult expandBackward(GraphSnapshot snapshot,
+                                               ReverseSearchRequest request,
+                                               Controller controller,
+                                               long nodeId,
+                                               GadgetState state,
+                                               int currentHops,
+                                               Map<Long, Integer> fromSource,
+                                               Set<Long> visited,
+                                               long targetNodeId) {
+        if (currentHops >= request.maxHops()) {
+            return ExpandResult.empty();
+        }
+        List<Expansion> out = new ArrayList<>();
+        int expandedEdges = 0;
+        int prunedByState = 0;
+        int prunedByDistance = 0;
+        for (GraphEdge edge : snapshot.getIncomingView(nodeId)) {
+            controller.onExpand();
+            expandedEdges++;
+            if (!GraphTraversalRules.isTraversable(snapshot,
+                    edge,
+                    request.blacklist(),
+                    request.minEdgeConfidence(),
+                    request.traversalMode().includesAlias())) {
+                continue;
+            }
+            long nextNodeId = edge.getSrcId();
+            if (visited.contains(nextNodeId)) {
+                continue;
+            }
+            Integer tail = fromSource.get(nextNodeId);
             if (tail == null || currentHops + 1 + tail > request.maxHops()) {
                 prunedByDistance++;
                 continue;
@@ -221,6 +371,40 @@ public final class GraphGadgetEngine {
         return dist;
     }
 
+    private static Map<Long, Integer> boundedForwardDistance(GraphSnapshot snapshot,
+                                                             ReverseSearchRequest request,
+                                                             Controller controller) {
+        Map<Long, Integer> dist = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        dist.put(request.sourceNodeId(), 0);
+        queue.add(request.sourceNodeId());
+        while (!queue.isEmpty() && !controller.shouldStop(0)) {
+            controller.checkpoint();
+            long current = queue.poll();
+            int hops = dist.getOrDefault(current, 0);
+            if (hops >= request.maxHops()) {
+                continue;
+            }
+            for (GraphEdge edge : snapshot.getOutgoingView(current)) {
+                controller.onExpand();
+                long next = edge.getDstId();
+                if (!GraphTraversalRules.isTraversable(snapshot,
+                        edge,
+                        request.blacklist(),
+                        request.minEdgeConfidence(),
+                        request.traversalMode().includesAlias())) {
+                    continue;
+                }
+                if (dist.containsKey(next)) {
+                    continue;
+                }
+                dist.put(next, hops + 1);
+                queue.add(next);
+            }
+        }
+        return dist;
+    }
+
     private static void emitCandidate(List<Candidate> out,
                                       Set<String> seen,
                                       List<Long> nodePath,
@@ -238,6 +422,39 @@ public final class GraphGadgetEngine {
         out.add(new Candidate(
                 List.copyOf(nodePath),
                 List.copyOf(edgePath),
+                route,
+                state.constraintNames(),
+                state.lowConfidence(),
+                confidence(state, route)
+        ));
+        controller.onPath();
+    }
+
+    private static void emitBackwardCandidate(List<Candidate> out,
+                                              Set<String> seen,
+                                              List<Long> backwardNodePath,
+                                              List<GraphEdge> backwardEdgePath,
+                                              GadgetState state,
+                                              String route,
+                                              Controller controller) {
+        if (backwardNodePath == null || backwardNodePath.isEmpty()) {
+            return;
+        }
+        List<Long> nodePath = new ArrayList<>(backwardNodePath.size());
+        for (int i = backwardNodePath.size() - 1; i >= 0; i--) {
+            nodePath.add(backwardNodePath.get(i));
+        }
+        List<GraphEdge> edgePath = new ArrayList<>(backwardEdgePath.size());
+        for (int i = backwardEdgePath.size() - 1; i >= 0; i--) {
+            edgePath.add(backwardEdgePath.get(i));
+        }
+        String key = pathKey(nodePath);
+        if (!seen.add(key)) {
+            return;
+        }
+        out.add(new Candidate(
+                nodePath,
+                edgePath,
                 route,
                 state.constraintNames(),
                 state.lowConfidence(),
@@ -396,6 +613,22 @@ public final class GraphGadgetEngine {
                                 Set<String> blacklist,
                                 String minEdgeConfidence) {
         public SearchRequest {
+            maxHops = Math.max(1, maxHops);
+            maxPaths = Math.max(1, maxPaths);
+            traversalMode = traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode;
+            blacklist = blacklist == null ? Set.of() : Set.copyOf(blacklist);
+            minEdgeConfidence = GraphTraversalRules.normalizeConfidence(minEdgeConfidence);
+        }
+    }
+
+    public record ReverseSearchRequest(long sinkNodeId,
+                                       long sourceNodeId,
+                                       int maxHops,
+                                       int maxPaths,
+                                       TraversalMode traversalMode,
+                                       Set<String> blacklist,
+                                       String minEdgeConfidence) {
+        public ReverseSearchRequest {
             maxHops = Math.max(1, maxHops);
             maxPaths = Math.max(1, maxPaths);
             traversalMode = traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode;

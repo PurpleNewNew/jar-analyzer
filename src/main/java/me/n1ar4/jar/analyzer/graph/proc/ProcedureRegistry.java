@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.dfs.DFSResult;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphGadgetEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphPrunedPathEngine;
+import me.n1ar4.jar.analyzer.graph.flow.SearchDirection;
 import me.n1ar4.jar.analyzer.graph.flow.GraphTaintEngine;
 import me.n1ar4.jar.analyzer.graph.flow.TraversalMode;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
@@ -93,32 +94,46 @@ public final class ProcedureRegistry {
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 3)));
+        SearchDirection direction = SearchDirection.parse(
+                toString(resolveArg(argExprs, params, 4)),
+                pruned ? SearchDirection.FORWARD : SearchDirection.BIDIRECTIONAL
+        );
         if (pruned) {
-            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
-                    snapshot,
-                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, 1, traversalMode, Set.of(), "low"),
-                    new BudgetedPrunedController(budget)
-            );
+            PrunedRunSelection selection = selectPrunedShortest(snapshot, from, to, maxHops, traversalMode, direction, budget);
             ensureWithinBudget(budget);
-            if (run.candidates().isEmpty()) {
-                return new QueryResult(DEFAULT_COLUMNS, List.of(), buildPrunedWarnings(run.stats(), "path_not_found"), false);
+            if (selection.candidate() == null) {
+                return new QueryResult(
+                        DEFAULT_COLUMNS,
+                        List.of(),
+                        buildPrunedWarnings(selection.stats(), "path_not_found", direction),
+                        false
+                );
             }
-            GraphPrunedPathEngine.Candidate candidate = run.candidates().get(0);
+            GraphPrunedPathEngine.Candidate candidate = selection.candidate();
             List<Object> row = toRow(
                     1,
                     new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                     candidate.lowConfidence() ? "low" : "high",
-                    prunedEvidence("ja.path.shortest_pruned", candidate, traversalMode)
+                    prunedEvidence("ja.path.shortest_pruned", candidate, traversalMode, direction)
             );
-            return new QueryResult(DEFAULT_COLUMNS, List.of(row), buildPrunedWarnings(run.stats(), null), false);
+            return new QueryResult(DEFAULT_COLUMNS, List.of(row), buildPrunedWarnings(selection.stats(), null, direction), false);
         }
-        Path path = bidirectionalShortest(snapshot, from, to, maxHops, traversalMode, budget);
+        Path path = switch (direction) {
+            case FORWARD -> singleDirectionShortest(snapshot, from, to, maxHops, traversalMode, budget, false);
+            case BACKWARD -> singleDirectionShortest(snapshot, from, to, maxHops, traversalMode, budget, true);
+            case BIDIRECTIONAL -> bidirectionalShortest(snapshot, from, to, maxHops, traversalMode, budget);
+        };
         ensureWithinBudget(budget);
         if (path == null) {
-            return new QueryResult(DEFAULT_COLUMNS, List.of(), List.of("path_not_found"), false);
+            return new QueryResult(DEFAULT_COLUMNS, List.of(), List.of("path_not_found", "path_search_direction=" + direction.displayName()), false);
         }
         budget.onPath();
-        return new QueryResult(DEFAULT_COLUMNS, List.of(toRow(1, path, "high", evidenceWithTraversal("ja.path.shortest", traversalMode))), List.of(), false);
+        return new QueryResult(
+                DEFAULT_COLUMNS,
+                List.of(toRow(1, path, "high", evidenceWithTraversalAndDirection("ja.path.shortest", traversalMode, direction))),
+                List.of("path_search_direction=" + direction.displayName()),
+                false
+        );
     }
 
     private QueryResult fromTo(List<String> argExprs,
@@ -132,96 +147,46 @@ public final class ProcedureRegistry {
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 4)));
+        SearchDirection direction = SearchDirection.parse(
+                toString(resolveArg(argExprs, params, 5)),
+                SearchDirection.FORWARD
+        );
 
         if (pruned) {
-            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
-                    snapshot,
-                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
-                    new BudgetedPrunedController(budget)
-            );
+            PrunedRunSelection selection = runPrunedPaths(snapshot, from, to, maxHops, maxPaths, traversalMode, direction, budget);
             ensureWithinBudget(budget);
-            if (run.candidates().isEmpty()) {
-                return new QueryResult(DEFAULT_COLUMNS, List.of(), buildPrunedWarnings(run.stats(), "path_not_found"), false);
+            if (selection.candidates().isEmpty()) {
+                return new QueryResult(
+                        DEFAULT_COLUMNS,
+                        List.of(),
+                        buildPrunedWarnings(selection.stats(), "path_not_found", direction),
+                        false
+                );
             }
             List<List<Object>> rows = new ArrayList<>();
             int pathId = 1;
-            for (GraphPrunedPathEngine.Candidate candidate : run.candidates()) {
+            for (GraphPrunedPathEngine.Candidate candidate : selection.candidates()) {
                 rows.add(toRow(
                         pathId++,
                         new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                         candidate.lowConfidence() ? "low" : "high",
-                        prunedEvidence("ja.path.from_to_pruned", candidate, traversalMode)
+                        prunedEvidence("ja.path.from_to_pruned", candidate, traversalMode, direction)
                 ));
             }
-            boolean truncated = run.candidates().size() >= maxPaths;
-            return new QueryResult(DEFAULT_COLUMNS, rows, buildPrunedWarnings(run.stats(), null), truncated);
+            boolean truncated = selection.truncated();
+            return new QueryResult(DEFAULT_COLUMNS, rows, buildPrunedWarnings(selection.stats(), null, direction), truncated);
         }
-
-        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, maxHops, traversalMode, budget);
-        if (!toTarget.containsKey(from)) {
-            return new QueryResult(DEFAULT_COLUMNS, List.of(), List.of("path_not_found"), false);
-        }
-
-        List<Path> paths = new ArrayList<>();
-        List<Long> nodePath = new ArrayList<>();
-        List<Long> edgePath = new ArrayList<>();
-        Set<Long> visited = new HashSet<>();
-        ArrayDeque<DfsFrame> stack = new ArrayDeque<>();
-
-        nodePath.add(from);
-        visited.add(from);
-        List<GraphEdge> firstOutgoing = rankedOutgoing(snapshot, from, visited, to, 0, maxHops, toTarget, traversalMode, maxPaths, budget);
-        stack.push(new DfsFrame(from, firstOutgoing));
-
-        while (!stack.isEmpty() && paths.size() < maxPaths) {
-            checkBudget(budget);
-            DfsFrame frame = stack.peek();
-            long current = frame.nodeId;
-            int currentHops = nodePath.size() - 1;
-
-            Integer tail = toTarget.get(current);
-            if (tail == null || currentHops + tail > maxHops) {
-                backtrackFrame(stack, nodePath, edgePath, visited);
-                continue;
-            }
-
-            if (current == to) {
-                budget.onPath();
-                paths.add(new Path(new ArrayList<>(nodePath), new ArrayList<>(edgePath)));
-                backtrackFrame(stack, nodePath, edgePath, visited);
-                continue;
-            }
-
-            if (currentHops >= maxHops || frame.cursor >= frame.outgoing.size()) {
-                backtrackFrame(stack, nodePath, edgePath, visited);
-                continue;
-            }
-
-            GraphEdge edge = frame.outgoing.get(frame.cursor++);
-            long next = edge.getDstId();
-            if (visited.contains(next)) {
-                continue;
-            }
-            int nextHops = currentHops + 1;
-            Integer nextTail = toTarget.get(next);
-            if (nextTail == null || nextHops + nextTail > maxHops) {
-                continue;
-            }
-
-            visited.add(next);
-            nodePath.add(next);
-            edgePath.add(edge.getEdgeId());
-            List<GraphEdge> nextOutgoing = rankedOutgoing(snapshot, next, visited, to, nextHops, maxHops, toTarget, traversalMode, maxPaths, budget);
-            stack.push(new DfsFrame(next, nextOutgoing));
-        }
+        PathEnumeration enumeration = enumeratePaths(snapshot, from, to, maxHops, maxPaths, traversalMode, direction, budget);
 
         List<List<Object>> rows = new ArrayList<>();
         int pathId = 1;
-        for (Path path : paths) {
-            rows.add(toRow(pathId++, path, "medium", evidenceWithTraversal("ja.path.from_to", traversalMode)));
+        for (Path path : enumeration.paths()) {
+            rows.add(toRow(pathId++, path, "medium", evidenceWithTraversalAndDirection("ja.path.from_to", traversalMode, direction)));
         }
-        boolean truncated = paths.size() >= maxPaths && !stack.isEmpty();
-        return new QueryResult(DEFAULT_COLUMNS, rows, List.of(), truncated);
+        List<String> warnings = rows.isEmpty()
+                ? List.of("path_not_found", "path_search_direction=" + direction.displayName())
+                : List.of("path_search_direction=" + direction.displayName());
+        return new QueryResult(DEFAULT_COLUMNS, rows, warnings, enumeration.truncated());
     }
 
     private QueryResult taintTrack(List<String> argExprs,
@@ -239,15 +204,15 @@ public final class ProcedureRegistry {
         Integer timeoutMs = toNullableInt(resolveArg(argExprs, params, 7));
         Integer maxPaths = toNullableInt(resolveArg(argExprs, params, 8));
         String mode = toString(resolveArg(argExprs, params, 9));
-        boolean fromSink = resolveFromSink(mode);
         boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 10), false);
         boolean onlyFromWeb = searchAllSources && toBoolean(resolveArg(argExprs, params, 11), false);
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 12)));
+        SearchDirection direction = resolveTaintDirection(mode, toString(resolveArg(argExprs, params, 13)));
 
         if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
             throw new IllegalArgumentException("missing_param");
         }
-        if (searchAllSources && !fromSink) {
+        if (searchAllSources && direction != SearchDirection.BACKWARD) {
             throw new IllegalArgumentException("invalid_request");
         }
         if (!searchAllSources
@@ -265,7 +230,7 @@ public final class ProcedureRegistry {
         }
 
         FlowOptions flowOptions = FlowOptions.builder()
-                .fromSink(fromSink)
+                .direction(direction)
                 .searchAllSources(searchAllSources)
                 .depth(depth)
                 .timeoutMs(effectiveTimeoutMs)
@@ -296,7 +261,7 @@ public final class ProcedureRegistry {
             }
             rows.add(toRow(pathId++, mapped,
                     taintResult.isLowConfidence() ? "low" : "high",
-                    evidenceWithTraversal(safe(taintResult.getTaintText()), traversalMode)));
+                    evidenceWithTraversalAndDirection(safe(taintResult.getTaintText()), traversalMode, direction)));
             if (rows.size() >= options.getMaxRows()) {
                 break;
             }
@@ -316,6 +281,7 @@ public final class ProcedureRegistry {
         if (rows.stream().anyMatch(row -> String.valueOf(row.get(6)).contains("search backend: graph-pruned"))) {
             warnings.add("taint_search_backend=graph-pruned");
         }
+        warnings.add("taint_search_direction=" + direction.displayName());
         if (traversalMode.includesAlias()) {
             warnings.add("taint_traversal_mode=" + traversalMode.displayName());
         }
@@ -334,38 +300,35 @@ public final class ProcedureRegistry {
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 4)));
+        SearchDirection direction = SearchDirection.parse(toString(resolveArg(argExprs, params, 5)), SearchDirection.FORWARD);
 
-        GraphGadgetEngine.Run run = new GraphGadgetEngine().search(
-                snapshot,
-                new GraphGadgetEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
-                new BudgetedGadgetController(budget)
-        );
+        GadgetRunSelection selection = runGadgetSearch(snapshot, from, to, maxHops, maxPaths, traversalMode, direction, budget);
         ensureWithinBudget(budget);
 
-        if (run.candidates().isEmpty()) {
+        if (selection.candidates().isEmpty()) {
             return new QueryResult(
                     DEFAULT_COLUMNS,
                     List.of(),
-                    buildGadgetWarnings(run.stats(), "path_not_found", traversalMode, null),
+                    buildGadgetWarnings(selection.stats(), "path_not_found", traversalMode, direction, null),
                     false
             );
         }
 
         List<List<Object>> rows = new ArrayList<>();
         int pathId = 1;
-        for (GraphGadgetEngine.Candidate candidate : run.candidates()) {
+        for (GraphGadgetEngine.Candidate candidate : selection.candidates()) {
             rows.add(toRow(
                     pathId++,
                     new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                     safe(candidate.confidence()),
-                    gadgetEvidence("ja.path.gadget", candidate, traversalMode)
+                    gadgetEvidence("ja.path.gadget", candidate, traversalMode, direction)
             ));
         }
         return new QueryResult(
                 DEFAULT_COLUMNS,
                 rows,
-                buildGadgetWarnings(run.stats(), null, traversalMode, null),
-                run.truncated()
+                buildGadgetWarnings(selection.stats(), null, traversalMode, direction, null),
+                selection.truncated()
         );
     }
 
@@ -384,6 +347,7 @@ public final class ProcedureRegistry {
         Integer maxPathsArg = toNullableInt(resolveArg(argExprs, params, 7));
         boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 8), false);
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 9)));
+        SearchDirection direction = SearchDirection.parse(toString(resolveArg(argExprs, params, 10)), SearchDirection.FORWARD);
 
         if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
             throw new IllegalArgumentException("missing_param");
@@ -412,7 +376,7 @@ public final class ProcedureRegistry {
             return new QueryResult(
                     DEFAULT_COLUMNS,
                     List.of(),
-                    buildGadgetWarnings(null, "path_not_found", traversalMode, searchAllSources ? sourceCandidates : null),
+                    buildGadgetWarnings(null, "path_not_found", traversalMode, direction, searchAllSources ? sourceCandidates : null),
                     false
             );
         }
@@ -434,22 +398,19 @@ public final class ProcedureRegistry {
                 break;
             }
             int remainingPaths = Math.max(1, maxPaths - rows.size());
-            GraphGadgetEngine.Run run = new GraphGadgetEngine().search(
+            GadgetRunSelection selection = runGadgetSearch(
                     snapshot,
-                    new GraphGadgetEngine.SearchRequest(
-                            sourceNodeId,
-                            sinkNodeId,
-                            depth,
-                            remainingPaths,
-                            traversalMode,
-                            Set.of(),
-                            "low"
-                    ),
-                    new BudgetedGadgetController(budget)
+                    sourceNodeId,
+                    sinkNodeId,
+                    depth,
+                    remainingPaths,
+                    traversalMode,
+                    direction,
+                    budget
             );
             ensureWithinBudget(budget);
 
-            GraphGadgetEngine.Stats stats = run.stats();
+            GraphGadgetEngine.Stats stats = selection.stats();
             if (stats != null) {
                 totalNodeVisits += stats.nodeVisits();
                 totalExpandedEdges += stats.expandedEdges();
@@ -461,7 +422,7 @@ public final class ProcedureRegistry {
                 }
             }
 
-            for (GraphGadgetEngine.Candidate candidate : run.candidates()) {
+            for (GraphGadgetEngine.Candidate candidate : selection.candidates()) {
                 String key = joinLongs(candidate.nodeIds());
                 if (!emitted.add(key)) {
                     continue;
@@ -470,13 +431,13 @@ public final class ProcedureRegistry {
                         pathId++,
                         new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
                         safe(candidate.confidence()),
-                        gadgetEvidence("ja.gadget.track", candidate, traversalMode)
+                        gadgetEvidence("ja.gadget.track", candidate, traversalMode, direction)
                 ));
                 if (rows.size() >= maxPaths) {
                     break;
                 }
             }
-            if (run.truncated()) {
+            if (selection.truncated()) {
                 truncated = true;
             }
         }
@@ -494,12 +455,299 @@ public final class ProcedureRegistry {
                 aggregateStats,
                 rows.isEmpty() ? "path_not_found" : null,
                 traversalMode,
+                direction,
                 searchAllSources ? sourceCandidates : null
         ));
         if (rows.size() >= maxPaths && sourceCandidates > 1) {
             truncated = true;
         }
         return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
+    }
+
+    private static PrunedRunSelection selectPrunedShortest(GraphSnapshot snapshot,
+                                                           long from,
+                                                           long to,
+                                                           int maxHops,
+                                                           TraversalMode traversalMode,
+                                                           SearchDirection direction,
+                                                           QueryBudget budget) {
+        PrunedRunSelection selection = runPrunedPaths(snapshot, from, to, maxHops, 1, traversalMode, direction, budget);
+        if (selection.candidates().isEmpty()) {
+            return selection;
+        }
+        GraphPrunedPathEngine.Candidate best = selection.candidates().get(0);
+        for (GraphPrunedPathEngine.Candidate candidate : selection.candidates()) {
+            if (candidate == null) {
+                continue;
+            }
+            if (best == null || comparePrunedCandidate(candidate, best) < 0) {
+                best = candidate;
+            }
+        }
+        return new PrunedRunSelection(best == null ? List.of() : List.of(best), selection.stats(), selection.truncated());
+    }
+
+    private static PrunedRunSelection runPrunedPaths(GraphSnapshot snapshot,
+                                                     long from,
+                                                     long to,
+                                                     int maxHops,
+                                                     int maxPaths,
+                                                     TraversalMode traversalMode,
+                                                     SearchDirection direction,
+                                                     QueryBudget budget) {
+        BudgetedPrunedController controller = new BudgetedPrunedController(budget);
+        if (direction == SearchDirection.BACKWARD) {
+            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().searchBackward(
+                    snapshot,
+                    new GraphPrunedPathEngine.ReverseSearchRequest(
+                            to,
+                            from,
+                            Set.of(),
+                            false,
+                            false,
+                            maxHops,
+                            maxPaths,
+                            traversalMode,
+                            Set.of(),
+                            "low"
+                    ),
+                    controller
+            );
+            return new PrunedRunSelection(run.candidates(), run.stats(), run.candidates().size() >= maxPaths);
+        }
+        if (direction == SearchDirection.BIDIRECTIONAL) {
+            GraphPrunedPathEngine.Run forward = new GraphPrunedPathEngine().search(
+                    snapshot,
+                    new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                    controller
+            );
+            ensureWithinBudget(budget);
+            int remaining = Math.max(0, maxPaths - forward.candidates().size());
+            if (remaining <= 0) {
+                return new PrunedRunSelection(forward.candidates(), forward.stats(), true);
+            }
+            GraphPrunedPathEngine.Run backward = new GraphPrunedPathEngine().searchBackward(
+                    snapshot,
+                    new GraphPrunedPathEngine.ReverseSearchRequest(
+                            to,
+                            from,
+                            Set.of(),
+                            false,
+                            false,
+                            maxHops,
+                            remaining,
+                            traversalMode,
+                            Set.of(),
+                            "low"
+                    ),
+                    controller
+            );
+            List<GraphPrunedPathEngine.Candidate> merged = mergePrunedCandidates(forward.candidates(), backward.candidates(), maxPaths);
+            return new PrunedRunSelection(
+                    merged,
+                    mergePrunedStats(forward.stats(), backward.stats(), merged.size()),
+                    merged.size() >= maxPaths && (!forward.candidates().isEmpty() || !backward.candidates().isEmpty())
+            );
+        }
+        GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
+                snapshot,
+                new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                controller
+        );
+        return new PrunedRunSelection(run.candidates(), run.stats(), run.candidates().size() >= maxPaths);
+    }
+
+    private static PathEnumeration enumeratePaths(GraphSnapshot snapshot,
+                                                  long from,
+                                                  long to,
+                                                  int maxHops,
+                                                  int maxPaths,
+                                                  TraversalMode traversalMode,
+                                                  SearchDirection direction,
+                                                  QueryBudget budget) {
+        if (direction == SearchDirection.BACKWARD) {
+            return enumerateBackwardPaths(snapshot, from, to, maxHops, maxPaths, traversalMode, budget);
+        }
+        if (direction == SearchDirection.BIDIRECTIONAL) {
+            PathEnumeration forward = enumerateForwardPaths(snapshot, from, to, maxHops, maxPaths, traversalMode, budget);
+            if (forward.paths().size() >= maxPaths) {
+                return forward;
+            }
+            PathEnumeration backward = enumerateBackwardPaths(snapshot, from, to, maxHops, maxPaths - forward.paths().size(), traversalMode, budget);
+            List<Path> merged = mergePaths(forward.paths(), backward.paths(), maxPaths);
+            return new PathEnumeration(merged, forward.truncated() || backward.truncated());
+        }
+        return enumerateForwardPaths(snapshot, from, to, maxHops, maxPaths, traversalMode, budget);
+    }
+
+    private static PathEnumeration enumerateForwardPaths(GraphSnapshot snapshot,
+                                                         long from,
+                                                         long to,
+                                                         int maxHops,
+                                                         int maxPaths,
+                                                         TraversalMode traversalMode,
+                                                         QueryBudget budget) {
+        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, maxHops, traversalMode, budget);
+        if (!toTarget.containsKey(from)) {
+            return PathEnumeration.empty();
+        }
+        List<Path> paths = new ArrayList<>();
+        List<Long> nodePath = new ArrayList<>();
+        List<Long> edgePath = new ArrayList<>();
+        Set<Long> visited = new HashSet<>();
+        ArrayDeque<DfsFrame> stack = new ArrayDeque<>();
+
+        nodePath.add(from);
+        visited.add(from);
+        List<GraphEdge> firstOutgoing = rankedOutgoing(snapshot, from, visited, to, 0, maxHops, toTarget, traversalMode, maxPaths, budget);
+        stack.push(new DfsFrame(from, firstOutgoing));
+
+        while (!stack.isEmpty() && paths.size() < maxPaths) {
+            checkBudget(budget);
+            DfsFrame frame = stack.peek();
+            long current = frame.nodeId;
+            int currentHops = nodePath.size() - 1;
+            Integer tail = toTarget.get(current);
+            if (tail == null || currentHops + tail > maxHops) {
+                backtrackFrame(stack, nodePath, edgePath, visited);
+                continue;
+            }
+            if (current == to) {
+                budget.onPath();
+                paths.add(new Path(new ArrayList<>(nodePath), new ArrayList<>(edgePath)));
+                backtrackFrame(stack, nodePath, edgePath, visited);
+                continue;
+            }
+            if (currentHops >= maxHops || frame.cursor >= frame.outgoing.size()) {
+                backtrackFrame(stack, nodePath, edgePath, visited);
+                continue;
+            }
+            GraphEdge edge = frame.outgoing.get(frame.cursor++);
+            long next = edge.getDstId();
+            if (visited.contains(next)) {
+                continue;
+            }
+            int nextHops = currentHops + 1;
+            Integer nextTail = toTarget.get(next);
+            if (nextTail == null || nextHops + nextTail > maxHops) {
+                continue;
+            }
+            visited.add(next);
+            nodePath.add(next);
+            edgePath.add(edge.getEdgeId());
+            List<GraphEdge> nextOutgoing = rankedOutgoing(snapshot, next, visited, to, nextHops, maxHops, toTarget, traversalMode, maxPaths, budget);
+            stack.push(new DfsFrame(next, nextOutgoing));
+        }
+        return new PathEnumeration(paths, paths.size() >= maxPaths && !stack.isEmpty());
+    }
+
+    private static PathEnumeration enumerateBackwardPaths(GraphSnapshot snapshot,
+                                                          long from,
+                                                          long to,
+                                                          int maxHops,
+                                                          int maxPaths,
+                                                          TraversalMode traversalMode,
+                                                          QueryBudget budget) {
+        Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, from, maxHops, traversalMode, budget);
+        if (!fromSource.containsKey(to)) {
+            return PathEnumeration.empty();
+        }
+        List<Path> paths = new ArrayList<>();
+        List<Long> backwardNodePath = new ArrayList<>();
+        List<Long> backwardEdgePath = new ArrayList<>();
+        Set<Long> visited = new HashSet<>();
+        ArrayDeque<DfsFrame> stack = new ArrayDeque<>();
+
+        backwardNodePath.add(to);
+        visited.add(to);
+        List<GraphEdge> firstIncoming = rankedIncoming(snapshot, to, visited, from, 0, maxHops, fromSource, traversalMode, maxPaths, budget);
+        stack.push(new DfsFrame(to, firstIncoming));
+
+        while (!stack.isEmpty() && paths.size() < maxPaths) {
+            checkBudget(budget);
+            DfsFrame frame = stack.peek();
+            long current = frame.nodeId;
+            int currentHops = backwardNodePath.size() - 1;
+            Integer tail = fromSource.get(current);
+            if (tail == null || currentHops + tail > maxHops) {
+                backtrackFrame(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+            if (current == from) {
+                budget.onPath();
+                paths.add(reversePath(backwardNodePath, backwardEdgePath));
+                backtrackFrame(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+            if (currentHops >= maxHops || frame.cursor >= frame.outgoing.size()) {
+                backtrackFrame(stack, backwardNodePath, backwardEdgePath, visited);
+                continue;
+            }
+            GraphEdge edge = frame.outgoing.get(frame.cursor++);
+            long next = edge.getSrcId();
+            if (visited.contains(next)) {
+                continue;
+            }
+            int nextHops = currentHops + 1;
+            Integer nextTail = fromSource.get(next);
+            if (nextTail == null || nextHops + nextTail > maxHops) {
+                continue;
+            }
+            visited.add(next);
+            backwardNodePath.add(next);
+            backwardEdgePath.add(edge.getEdgeId());
+            List<GraphEdge> nextIncoming = rankedIncoming(snapshot, next, visited, from, nextHops, maxHops, fromSource, traversalMode, maxPaths, budget);
+            stack.push(new DfsFrame(next, nextIncoming));
+        }
+        return new PathEnumeration(paths, paths.size() >= maxPaths && !stack.isEmpty());
+    }
+
+    private static GadgetRunSelection runGadgetSearch(GraphSnapshot snapshot,
+                                                      long from,
+                                                      long to,
+                                                      int maxHops,
+                                                      int maxPaths,
+                                                      TraversalMode traversalMode,
+                                                      SearchDirection direction,
+                                                      QueryBudget budget) {
+        BudgetedGadgetController controller = new BudgetedGadgetController(budget);
+        if (direction == SearchDirection.BACKWARD) {
+            GraphGadgetEngine.Run run = new GraphGadgetEngine().searchBackward(
+                    snapshot,
+                    new GraphGadgetEngine.ReverseSearchRequest(to, from, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                    controller
+            );
+            return new GadgetRunSelection(run.candidates(), run.stats(), run.truncated());
+        }
+        if (direction == SearchDirection.BIDIRECTIONAL) {
+            GraphGadgetEngine.Run forward = new GraphGadgetEngine().search(
+                    snapshot,
+                    new GraphGadgetEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                    controller
+            );
+            ensureWithinBudget(budget);
+            int remaining = Math.max(0, maxPaths - forward.candidates().size());
+            if (remaining <= 0) {
+                return new GadgetRunSelection(forward.candidates(), forward.stats(), true);
+            }
+            GraphGadgetEngine.Run backward = new GraphGadgetEngine().searchBackward(
+                    snapshot,
+                    new GraphGadgetEngine.ReverseSearchRequest(to, from, maxHops, remaining, traversalMode, Set.of(), "low"),
+                    controller
+            );
+            List<GraphGadgetEngine.Candidate> merged = mergeGadgetCandidates(forward.candidates(), backward.candidates(), maxPaths);
+            return new GadgetRunSelection(
+                    merged,
+                    mergeGadgetStats(forward.stats(), backward.stats(), merged),
+                    forward.truncated() || backward.truncated() || merged.size() >= maxPaths
+            );
+        }
+        GraphGadgetEngine.Run run = new GraphGadgetEngine().search(
+                snapshot,
+                new GraphGadgetEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
+                controller
+        );
+        return new GadgetRunSelection(run.candidates(), run.stats(), run.truncated());
     }
 
     private static Path bidirectionalShortest(GraphSnapshot snapshot,
@@ -567,6 +815,57 @@ public final class ProcedureRegistry {
             return null;
         }
         return rebuildPath(meetNode, frontPrev, backNext);
+    }
+
+    private static Path singleDirectionShortest(GraphSnapshot snapshot,
+                                                long from,
+                                                long to,
+                                                int maxHops,
+                                                TraversalMode traversalMode,
+                                                QueryBudget budget,
+                                                boolean backward) {
+        if (from <= 0L || to <= 0L) {
+            return null;
+        }
+        if (from == to) {
+            return new Path(List.of(from), List.of());
+        }
+        Map<Long, Long> parentNode = new HashMap<>();
+        Map<Long, Long> parentEdge = new HashMap<>();
+        Map<Long, Integer> dist = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        long start = backward ? to : from;
+        long target = backward ? from : to;
+        queue.add(start);
+        dist.put(start, 0);
+        parentNode.put(start, -1L);
+        parentEdge.put(start, -1L);
+        while (!queue.isEmpty()) {
+            checkBudget(budget);
+            long current = queue.poll();
+            int hops = dist.getOrDefault(current, 0);
+            if (hops >= maxHops) {
+                continue;
+            }
+            List<GraphEdge> edges = backward ? snapshot.getIncomingView(current) : snapshot.getOutgoingView(current);
+            for (GraphEdge edge : edges) {
+                budget.onExpand();
+                long next = backward ? edge.getSrcId() : edge.getDstId();
+                if (!isTraversable(snapshot, edge, traversalMode) || dist.containsKey(next)) {
+                    continue;
+                }
+                dist.put(next, hops + 1);
+                parentNode.put(next, current);
+                parentEdge.put(next, edge.getEdgeId());
+                if (next == target) {
+                    return backward
+                            ? rebuildReverseShortest(parentNode, parentEdge, from, to)
+                            : rebuildForwardShortest(parentNode, parentEdge, from, to);
+                }
+                queue.add(next);
+            }
+        }
+        return null;
     }
 
     private static MeetCandidate expandForwardLayer(GraphSnapshot snapshot,
@@ -776,6 +1075,52 @@ public final class ProcedureRegistry {
         return dist;
     }
 
+    private static List<GraphEdge> rankedIncoming(GraphSnapshot snapshot,
+                                                  long current,
+                                                  Set<Long> visited,
+                                                  long source,
+                                                  int currentHops,
+                                                  int maxHops,
+                                                  Map<Long, Integer> fromSource,
+                                                  TraversalMode traversalMode,
+                                                  int maxPaths,
+                                                  QueryBudget budget) {
+        List<ScoredEdge> scored = new ArrayList<>();
+        for (GraphEdge edge : snapshot.getIncomingView(current)) {
+            budget.onExpand();
+            long prev = edge.getSrcId();
+            if (!isTraversable(snapshot, edge, traversalMode) || visited.contains(prev)) {
+                continue;
+            }
+            int nextHops = currentHops + 1;
+            if (nextHops > maxHops) {
+                continue;
+            }
+            Integer tail = fromSource.get(prev);
+            if (tail == null || nextHops + tail > maxHops) {
+                continue;
+            }
+            int score = confidenceScore(edge.getConfidence()) * 1000
+                    + relationScore(edge.getRelType()) * 10
+                    - tail;
+            if (prev == source) {
+                score += 10_000;
+            }
+            scored.add(new ScoredEdge(edge, score));
+        }
+        if (scored.isEmpty()) {
+            return List.of();
+        }
+        scored.sort(Comparator.comparingInt(ScoredEdge::score).reversed());
+        int dynamicCap = Math.max(8, Math.min(MAX_FAN_OUT, Math.max(8, maxPaths / 2)));
+        int limit = Math.min(dynamicCap, scored.size());
+        List<GraphEdge> out = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
+            out.add(scored.get(i).edge);
+        }
+        return out;
+    }
+
     private static List<GraphEdge> rankedOutgoing(GraphSnapshot snapshot,
                                                   long current,
                                                   Set<Long> visited,
@@ -929,11 +1274,14 @@ public final class ProcedureRegistry {
         };
     }
 
-    private static List<String> buildPrunedWarnings(GraphPrunedPathEngine.Stats stats, String extra) {
+    private static List<String> buildPrunedWarnings(GraphPrunedPathEngine.Stats stats,
+                                                    String extra,
+                                                    SearchDirection direction) {
         LinkedHashSet<String> warnings = new LinkedHashSet<>();
         if (extra != null && !extra.isBlank()) {
             warnings.add(extra);
         }
+        warnings.add("path_search_direction=" + direction.displayName());
         if (stats != null) {
             warnings.add("pruned_node_visits=" + stats.nodeVisits());
             warnings.add("pruned_expanded_edges=" + stats.expandedEdges());
@@ -947,11 +1295,13 @@ public final class ProcedureRegistry {
     private static List<String> buildGadgetWarnings(GraphGadgetEngine.Stats stats,
                                                     String extra,
                                                     TraversalMode traversalMode,
+                                                    SearchDirection direction,
                                                     Integer sourceCandidates) {
         LinkedHashSet<String> warnings = new LinkedHashSet<>();
         if (extra != null && !extra.isBlank()) {
             warnings.add(extra);
         }
+        warnings.add("gadget_search_direction=" + direction.displayName());
         if (sourceCandidates != null) {
             warnings.add("gadget_source_candidates=" + Math.max(0, sourceCandidates));
         }
@@ -974,7 +1324,10 @@ public final class ProcedureRegistry {
         return new ArrayList<>(warnings);
     }
 
-    private static String prunedEvidence(String name, GraphPrunedPathEngine.Candidate candidate, TraversalMode traversalMode) {
+    private static String prunedEvidence(String name,
+                                         GraphPrunedPathEngine.Candidate candidate,
+                                         TraversalMode traversalMode,
+                                         SearchDirection direction) {
         StringBuilder sb = new StringBuilder(safe(name));
         if (candidate != null && candidate.proven()) {
             sb.append(" proven");
@@ -982,13 +1335,13 @@ public final class ProcedureRegistry {
         if (candidate != null && candidate.lowConfidence()) {
             sb.append(" low-confidence");
         }
-        if (traversalMode != null && traversalMode.includesAlias()) {
-            sb.append(" traversal=").append(traversalMode.displayName());
-        }
-        return sb.toString().trim();
+        return evidenceWithTraversalAndDirection(sb.toString().trim(), traversalMode, direction);
     }
 
-    private static String gadgetEvidence(String name, GraphGadgetEngine.Candidate candidate, TraversalMode traversalMode) {
+    private static String gadgetEvidence(String name,
+                                         GraphGadgetEngine.Candidate candidate,
+                                         TraversalMode traversalMode,
+                                         SearchDirection direction) {
         StringBuilder sb = new StringBuilder(safe(name));
         if (candidate != null && !safe(candidate.route()).isBlank()) {
             sb.append(" route=").append(candidate.route());
@@ -999,7 +1352,7 @@ public final class ProcedureRegistry {
         if (candidate != null && candidate.lowConfidence()) {
             sb.append(" low-confidence");
         }
-        return evidenceWithTraversal(sb.toString().trim(), traversalMode);
+        return evidenceWithTraversalAndDirection(sb.toString().trim(), traversalMode, direction);
     }
 
     private static String evidenceWithTraversal(String evidence, TraversalMode traversalMode) {
@@ -1014,6 +1367,22 @@ public final class ProcedureRegistry {
             return base;
         }
         return base + "\ntraversal=" + traversalMode.displayName();
+    }
+
+    private static String evidenceWithTraversalAndDirection(String evidence,
+                                                            TraversalMode traversalMode,
+                                                            SearchDirection direction) {
+        String withTraversal = evidenceWithTraversal(evidence, traversalMode);
+        if (direction == null) {
+            return withTraversal;
+        }
+        if (withTraversal.isEmpty()) {
+            return "direction=" + direction.displayName();
+        }
+        if (withTraversal.contains("direction=")) {
+            return withTraversal;
+        }
+        return withTraversal + "\ndirection=" + direction.displayName();
     }
 
     private static List<Long> edgeIds(List<GraphEdge> edges) {
@@ -1041,6 +1410,215 @@ public final class ProcedureRegistry {
                 confidence,
                 evidence
         );
+    }
+
+    private static int comparePrunedCandidate(GraphPrunedPathEngine.Candidate left,
+                                              GraphPrunedPathEngine.Candidate right) {
+        int leftHop = left == null || left.nodeIds() == null ? Integer.MAX_VALUE : Math.max(0, left.nodeIds().size() - 1);
+        int rightHop = right == null || right.nodeIds() == null ? Integer.MAX_VALUE : Math.max(0, right.nodeIds().size() - 1);
+        if (leftHop != rightHop) {
+            return Integer.compare(leftHop, rightHop);
+        }
+        if (left != null && right != null && left.proven() != right.proven()) {
+            return left.proven() ? -1 : 1;
+        }
+        if (left != null && right != null && left.lowConfidence() != right.lowConfidence()) {
+            return left.lowConfidence() ? 1 : -1;
+        }
+        long leftEdge = left == null || left.edges() == null || left.edges().isEmpty() ? Long.MAX_VALUE : left.edges().get(0).getEdgeId();
+        long rightEdge = right == null || right.edges() == null || right.edges().isEmpty() ? Long.MAX_VALUE : right.edges().get(0).getEdgeId();
+        return Long.compare(leftEdge, rightEdge);
+    }
+
+    private static List<GraphPrunedPathEngine.Candidate> mergePrunedCandidates(List<GraphPrunedPathEngine.Candidate> first,
+                                                                               List<GraphPrunedPathEngine.Candidate> second,
+                                                                               int maxPaths) {
+        LinkedHashMap<String, GraphPrunedPathEngine.Candidate> merged = new LinkedHashMap<>();
+        appendPrunedCandidates(merged, first, maxPaths);
+        appendPrunedCandidates(merged, second, maxPaths);
+        return List.copyOf(merged.values());
+    }
+
+    private static void appendPrunedCandidates(Map<String, GraphPrunedPathEngine.Candidate> merged,
+                                               List<GraphPrunedPathEngine.Candidate> values,
+                                               int maxPaths) {
+        if (values == null || values.isEmpty() || merged.size() >= maxPaths) {
+            return;
+        }
+        for (GraphPrunedPathEngine.Candidate candidate : values) {
+            if (candidate == null) {
+                continue;
+            }
+            String key = joinLongs(candidate.nodeIds());
+            GraphPrunedPathEngine.Candidate current = merged.get(key);
+            if (current == null || comparePrunedCandidate(candidate, current) < 0) {
+                merged.put(key, candidate);
+            }
+            if (merged.size() >= maxPaths) {
+                return;
+            }
+        }
+    }
+
+    private static GraphPrunedPathEngine.Stats mergePrunedStats(GraphPrunedPathEngine.Stats first,
+                                                                GraphPrunedPathEngine.Stats second,
+                                                                int emittedPaths) {
+        if (first == null && second == null) {
+            return new GraphPrunedPathEngine.Stats(0, 0, emittedPaths, 0, 0, 0L);
+        }
+        if (first == null) {
+            return new GraphPrunedPathEngine.Stats(
+                    second.nodeVisits(),
+                    second.expandedEdges(),
+                    emittedPaths,
+                    second.prunedByState(),
+                    second.prunedByDistance(),
+                    second.elapsedMs()
+            );
+        }
+        if (second == null) {
+            return new GraphPrunedPathEngine.Stats(
+                    first.nodeVisits(),
+                    first.expandedEdges(),
+                    emittedPaths,
+                    first.prunedByState(),
+                    first.prunedByDistance(),
+                    first.elapsedMs()
+            );
+        }
+        return new GraphPrunedPathEngine.Stats(
+                first.nodeVisits() + second.nodeVisits(),
+                first.expandedEdges() + second.expandedEdges(),
+                emittedPaths,
+                first.prunedByState() + second.prunedByState(),
+                first.prunedByDistance() + second.prunedByDistance(),
+                first.elapsedMs() + second.elapsedMs()
+        );
+    }
+
+    private static List<Path> mergePaths(List<Path> first, List<Path> second, int maxPaths) {
+        LinkedHashMap<String, Path> merged = new LinkedHashMap<>();
+        appendPaths(merged, first, maxPaths);
+        appendPaths(merged, second, maxPaths);
+        return List.copyOf(merged.values());
+    }
+
+    private static void appendPaths(Map<String, Path> merged, List<Path> values, int maxPaths) {
+        if (values == null || values.isEmpty() || merged.size() >= maxPaths) {
+            return;
+        }
+        for (Path path : values) {
+            if (path == null) {
+                continue;
+            }
+            merged.putIfAbsent(joinLongs(path.nodeIds), path);
+            if (merged.size() >= maxPaths) {
+                return;
+            }
+        }
+    }
+
+    private static List<GraphGadgetEngine.Candidate> mergeGadgetCandidates(List<GraphGadgetEngine.Candidate> first,
+                                                                           List<GraphGadgetEngine.Candidate> second,
+                                                                           int maxPaths) {
+        LinkedHashMap<String, GraphGadgetEngine.Candidate> merged = new LinkedHashMap<>();
+        appendGadgetCandidates(merged, first, maxPaths);
+        appendGadgetCandidates(merged, second, maxPaths);
+        return List.copyOf(merged.values());
+    }
+
+    private static void appendGadgetCandidates(Map<String, GraphGadgetEngine.Candidate> merged,
+                                               List<GraphGadgetEngine.Candidate> values,
+                                               int maxPaths) {
+        if (values == null || values.isEmpty() || merged.size() >= maxPaths) {
+            return;
+        }
+        for (GraphGadgetEngine.Candidate candidate : values) {
+            if (candidate == null) {
+                continue;
+            }
+            merged.putIfAbsent(joinLongs(candidate.nodeIds()), candidate);
+            if (merged.size() >= maxPaths) {
+                return;
+            }
+        }
+    }
+
+    private static GraphGadgetEngine.Stats mergeGadgetStats(GraphGadgetEngine.Stats first,
+                                                            GraphGadgetEngine.Stats second,
+                                                            List<GraphGadgetEngine.Candidate> merged) {
+        LinkedHashMap<String, Integer> routes = new LinkedHashMap<>();
+        if (merged != null) {
+            for (GraphGadgetEngine.Candidate candidate : merged) {
+                if (candidate == null || safe(candidate.route()).isBlank()) {
+                    continue;
+                }
+                routes.merge(candidate.route(), 1, Integer::sum);
+            }
+        }
+        int nodeVisits = (first == null ? 0 : first.nodeVisits()) + (second == null ? 0 : second.nodeVisits());
+        int expandedEdges = (first == null ? 0 : first.expandedEdges()) + (second == null ? 0 : second.expandedEdges());
+        int stateCuts = (first == null ? 0 : first.prunedByState()) + (second == null ? 0 : second.prunedByState());
+        int distanceCuts = (first == null ? 0 : first.prunedByDistance()) + (second == null ? 0 : second.prunedByDistance());
+        long elapsedMs = (first == null ? 0L : first.elapsedMs()) + (second == null ? 0L : second.elapsedMs());
+        return new GraphGadgetEngine.Stats(nodeVisits, expandedEdges, merged == null ? 0 : merged.size(), stateCuts, distanceCuts, elapsedMs, routes);
+    }
+
+    private static Path reversePath(List<Long> backwardNodePath, List<Long> backwardEdgePath) {
+        List<Long> nodeIds = new ArrayList<>(backwardNodePath.size());
+        for (int i = backwardNodePath.size() - 1; i >= 0; i--) {
+            nodeIds.add(backwardNodePath.get(i));
+        }
+        List<Long> edgeIds = new ArrayList<>(backwardEdgePath.size());
+        for (int i = backwardEdgePath.size() - 1; i >= 0; i--) {
+            edgeIds.add(backwardEdgePath.get(i));
+        }
+        return new Path(nodeIds, edgeIds);
+    }
+
+    private static Path rebuildForwardShortest(Map<Long, Long> parentNode,
+                                               Map<Long, Long> parentEdge,
+                                               long from,
+                                               long to) {
+        ArrayList<Long> nodeIds = new ArrayList<>();
+        ArrayList<Long> edgeIds = new ArrayList<>();
+        long cursor = to;
+        while (cursor > 0L) {
+            nodeIds.add(cursor);
+            long prev = parentNode.getOrDefault(cursor, -1L);
+            long via = parentEdge.getOrDefault(cursor, -1L);
+            if (prev <= 0L) {
+                break;
+            }
+            edgeIds.add(via);
+            cursor = prev;
+        }
+        Collections.reverse(nodeIds);
+        Collections.reverse(edgeIds);
+        return !nodeIds.isEmpty() && nodeIds.get(0) == from ? new Path(nodeIds, edgeIds) : null;
+    }
+
+    private static Path rebuildReverseShortest(Map<Long, Long> parentNode,
+                                               Map<Long, Long> parentEdge,
+                                               long from,
+                                               long to) {
+        ArrayList<Long> nodePath = new ArrayList<>();
+        ArrayList<Long> edgePath = new ArrayList<>();
+        long cursor = from;
+        while (cursor > 0L) {
+            nodePath.add(cursor);
+            long next = parentNode.getOrDefault(cursor, -1L);
+            long via = parentEdge.getOrDefault(cursor, -1L);
+            if (next <= 0L) {
+                break;
+            }
+            edgePath.add(via);
+            cursor = next;
+        }
+        if (nodePath.isEmpty() || nodePath.get(nodePath.size() - 1) != to) {
+            return null;
+        }
+        return new Path(nodePath, edgePath);
     }
 
     private static String joinLongs(List<Long> values) {
@@ -1218,13 +1796,17 @@ public final class ProcedureRegistry {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
-    private static boolean resolveFromSink(String mode) {
+    private static SearchDirection resolveTaintDirection(String mode, String direction) {
+        String explicit = normalizeProcedureString(direction);
+        if (!explicit.isEmpty()) {
+            return SearchDirection.parse(explicit, SearchDirection.FORWARD);
+        }
         String value = normalizeProcedureString(mode).toLowerCase(Locale.ROOT);
         if (value.isEmpty() || "source".equals(value) || "fromsource".equals(value)) {
-            return false;
+            return SearchDirection.FORWARD;
         }
         if ("sink".equals(value) || "fromsink".equals(value)) {
-            return true;
+            return SearchDirection.BACKWARD;
         }
         throw new IllegalArgumentException("invalid_request");
     }
@@ -1483,6 +2065,38 @@ public final class ProcedureRegistry {
             this.nodeIds = nodeIds;
             this.edgeIds = edgeIds;
             this.unresolvedCount = Math.max(0, unresolvedCount);
+        }
+    }
+
+    private record PathEnumeration(List<Path> paths, boolean truncated) {
+        private PathEnumeration {
+            paths = paths == null ? List.of() : List.copyOf(paths);
+        }
+
+        private static PathEnumeration empty() {
+            return new PathEnumeration(List.of(), false);
+        }
+    }
+
+    private record PrunedRunSelection(List<GraphPrunedPathEngine.Candidate> candidates,
+                                      GraphPrunedPathEngine.Stats stats,
+                                      boolean truncated) {
+        private PrunedRunSelection {
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+            stats = stats == null ? new GraphPrunedPathEngine.Stats(0, 0, 0, 0, 0, 0L) : stats;
+        }
+
+        private GraphPrunedPathEngine.Candidate candidate() {
+            return candidates.isEmpty() ? null : candidates.get(0);
+        }
+    }
+
+    private record GadgetRunSelection(List<GraphGadgetEngine.Candidate> candidates,
+                                      GraphGadgetEngine.Stats stats,
+                                      boolean truncated) {
+        private GadgetRunSelection {
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+            stats = stats == null ? new GraphGadgetEngine.Stats(0, 0, 0, 0, 0, 0L, Map.of()) : stats;
         }
     }
 

@@ -151,6 +151,7 @@
   - `mode=sink` 且 `searchAllSources=false` 时会从 sink 逆向精确搜索指定 source；返回结果仍按 `source -> sink` 顺序输出，便于后续 taint 复用
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
   - `traversalMode` 仅支持 `call-only`（默认）和 `call+alias`
+  - Cypher 过程侧新增显式 `direction=forward|backward|bidirectional`；HTTP DFS 任务仍沿 `mode` 表达方向
   - `searchAllSources` / `onlyFromWeb` 会跟随最新 `rules/source.json` 热刷新选择 source，无需重建项目
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
@@ -224,12 +225,17 @@
     `scenarios[]` 可按 `sinkKind/sinkKinds`、`sinkTier/sinkTiers`、`sinkTags`、`mode(source|sink)`、`searchAllSources` 覆盖上述值，按数组顺序生效，后写覆盖前写；`sinkTags` 为任一标签命中即匹配
   - `rules/model.json` / `rules/source.json` / `rules/sink.json` 额外支持 `dsl.rules[]` 声明式规则；当前会编译到现有 `summaryModel/additionalTaintSteps/sanitizerModel/guardSanitizers/sourceModel/sourceAnnotations` 与 sink registry 主链，支持 `summary` `additional` `sanitizer` `guard` `pruning-hint` `source` `source-annotation` `sink`
   - `pruning-hint` 会编译到现有 `additionalStepHints`，并按 `container/builder/reflect/optional/stream/array/rules` 等 canonical hint 生效
-  - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb`
+  - `ja.path.shortest(from, to, maxHops, traversalMode='call-only', direction='bidirectional')`
+  - `ja.path.shortest_pruned(from, to, maxHops, traversalMode='call-only', direction='forward')`
+  - `ja.path.from_to(from, to, maxHops, maxPaths, traversalMode='call-only', direction='forward')`
+  - `ja.path.from_to_pruned(from, to, maxHops, maxPaths, traversalMode='call-only', direction='forward')`
+  - `ja.path.gadget(from, to, maxHops, maxPaths, traversalMode='call-only', direction='forward')` 会基于 `method_semantic_flags + edge_semantic_flags` 做 gadget 状态机搜索，当前内置 `container-callback` `proxy-dynamic` `container-trigger` `reflection-callback` `reflection-container` `reflection-trigger` `deserialization-trigger` 路线；命中后 `evidence/warnings` 会带 `route=...` `constraints=...` `direction=...`
+  - `ja.gadget.track(sourceClass, sourceMethod, sourceDesc, sinkClass, sinkMethod, sinkDesc, depth, maxPaths, searchAllSources=false, traversalMode='call-only', direction='forward')` 面向显式 source->sink 或 `searchAllSources=true` 的反序列化 source 枚举；当 `searchAllSources=true` 时，source 可留空，系统会从当前图里自动挑选 `DeserializationCallback` 方法作为候选
+  - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb` `traversalMode` `direction`
   - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
-  - `ja.taint.track(..., mode='sink', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
-  - `ja.path.gadget(from, to, maxHops, maxPaths, traversalMode='call-only')` 会基于 `method_semantic_flags + edge_semantic_flags` 做 gadget 状态机搜索，当前内置 `container-callback` `proxy-dynamic` `container-trigger` `reflection-callback` `reflection-container` `reflection-trigger` `deserialization-trigger` 路线；命中后 `evidence` 会带 `route=...` 与 `constraints=...`
-  - `ja.gadget.track(sourceClass, sourceMethod, sourceDesc, sinkClass, sinkMethod, sinkDesc, depth, maxPaths, searchAllSources=false, traversalMode='call-only')` 面向显式 source->sink 或 `searchAllSources=true` 的反序列化 source 枚举；当 `searchAllSources=true` 时，source 可留空，系统会从当前图里自动挑选 `DeserializationCallback` 方法作为候选
-  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
+  - `ja.taint.track(..., direction='backward')` 会显式覆盖旧 `mode`；`direction='bidirectional'` 会在 source/sink 都明确时同时尝试正向和逆向剪枝搜索
+  - `ja.taint.track(..., direction='backward', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
+  - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。现在还支持显式 `direction='forward|backward|bidirectional'`，并会在 `evidence/warnings` 中回显当前搜索方向。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`

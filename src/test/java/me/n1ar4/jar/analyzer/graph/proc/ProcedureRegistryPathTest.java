@@ -66,7 +66,44 @@ class ProcedureRegistryPathTest {
 
         assertFalse(result.getRows().isEmpty());
         assertEquals("1,2,3", result.getRows().get(0).get(2));
-        assertTrue(result.getWarnings().isEmpty());
+        assertTrue(result.getWarnings().contains("path_search_direction=bidirectional"));
+    }
+
+    @Test
+    void shortestShouldSupportExplicitBackwardDirection() {
+        GraphSnapshot snapshot = buildSimpleSnapshot();
+        ProcedureRegistry registry = new ProcedureRegistry();
+
+        QueryResult result = registry.execute(
+                "ja.path.shortest",
+                List.of("node:1", "node:3", "4", "call-only", "backward"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(1, result.getRows().size());
+        assertEquals("1,2,3", result.getRows().get(0).get(2));
+        assertTrue(String.valueOf(result.getRows().get(0).get(6)).contains("direction=backward"));
+        assertTrue(result.getWarnings().contains("path_search_direction=backward"));
+    }
+
+    @Test
+    void fromToPrunedShouldSupportBidirectionalDirection() {
+        GraphSnapshot snapshot = buildSimpleSnapshot();
+        ProcedureRegistry registry = new ProcedureRegistry();
+
+        QueryResult result = registry.execute(
+                "ja.path.from_to_pruned",
+                List.of("node:1", "node:3", "4", "8", "call-only", "bidirectional"),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(2, result.getRows().size());
+        assertTrue(String.valueOf(result.getRows().get(0).get(6)).contains("direction=bidirectional"));
+        assertTrue(result.getWarnings().contains("path_search_direction=bidirectional"));
     }
 
     @Test

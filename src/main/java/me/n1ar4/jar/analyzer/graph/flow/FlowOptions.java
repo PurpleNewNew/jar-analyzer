@@ -10,6 +10,7 @@ import java.util.Set;
 
 public final class FlowOptions {
     private final boolean fromSink;
+    private final SearchDirection searchDirection;
     private final boolean searchAllSources;
     private final int depth;
     private final int maxLimit;
@@ -31,7 +32,11 @@ public final class FlowOptions {
     private final Integer sourceJarId;
 
     private FlowOptions(Builder builder) {
-        this.fromSink = builder.fromSink;
+        SearchDirection resolvedDirection = builder.searchDirection == null
+                ? (builder.fromSink ? SearchDirection.BACKWARD : SearchDirection.FORWARD)
+                : builder.searchDirection;
+        this.fromSink = resolvedDirection == SearchDirection.BACKWARD;
+        this.searchDirection = resolvedDirection;
         this.searchAllSources = builder.searchAllSources;
         this.depth = Math.max(1, builder.depth);
         this.maxLimit = builder.maxLimit <= 0 ? 30 : builder.maxLimit;
@@ -59,6 +64,10 @@ public final class FlowOptions {
 
     public boolean isFromSink() {
         return fromSink;
+    }
+
+    public SearchDirection getSearchDirection() {
+        return searchDirection;
     }
 
     public boolean isSearchAllSources() {
@@ -189,6 +198,7 @@ public final class FlowOptions {
 
     public static final class Builder {
         private boolean fromSink = true;
+        private SearchDirection searchDirection;
         private boolean searchAllSources = false;
         private int depth = 10;
         private int maxLimit = 30;
@@ -211,7 +221,20 @@ public final class FlowOptions {
 
         public Builder fromSink(boolean fromSink) {
             this.fromSink = fromSink;
+            this.searchDirection = fromSink ? SearchDirection.BACKWARD : SearchDirection.FORWARD;
             return this;
+        }
+
+        public Builder direction(SearchDirection searchDirection) {
+            this.searchDirection = searchDirection == null ? SearchDirection.FORWARD : searchDirection;
+            this.fromSink = this.searchDirection == SearchDirection.BACKWARD;
+            return this;
+        }
+
+        public Builder direction(String searchDirection) {
+            return direction(SearchDirection.parse(searchDirection, this.fromSink
+                    ? SearchDirection.BACKWARD
+                    : SearchDirection.FORWARD));
         }
 
         public Builder searchAllSources(boolean searchAllSources) {

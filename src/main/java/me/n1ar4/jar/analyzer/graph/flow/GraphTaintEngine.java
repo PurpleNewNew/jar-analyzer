@@ -103,6 +103,7 @@ public final class GraphTaintEngine {
                 options.getSinkDesc(),
                 options.getSinkJarId()
         );
+        SearchDirection direction = resolveSearchDirection(options);
         int mode = resolveSearchMode(options, List.of());
         if (sinkIds.isEmpty()) {
             return new SearchRun(List.of(), FlowStats.empty(), "graph-pruned", mode);
@@ -175,36 +176,78 @@ public final class GraphTaintEngine {
                 if (remaining <= 0) {
                     break outer;
                 }
-                GraphPrunedPathEngine.Run run = options.isFromSink()
+                if (direction == SearchDirection.BIDIRECTIONAL) {
+                    GraphPrunedPathEngine.Run forward = prunedPathEngine.search(
+                            snapshot,
+                            new GraphPrunedPathEngine.SearchRequest(
+                                    sourceId,
+                                    sinkId,
+                                    options.getDepth(),
+                                    remaining,
+                                    options.getTraversalMode(),
+                                    options.getBlacklist(),
+                                    options.getMinEdgeConfidence()
+                            ),
+                            controller
+                    );
+                    if (appendCandidates(forward, out, seen, limit, controller)) {
+                        break outer;
+                    }
+                    remaining = limit - out.size();
+                    if (remaining <= 0) {
+                        break outer;
+                    }
+                    GraphPrunedPathEngine.Run backward = prunedPathEngine.searchBackward(
+                            snapshot,
+                            new GraphPrunedPathEngine.ReverseSearchRequest(
+                                    sinkId,
+                                    sourceId,
+                                    Set.of(),
+                                    false,
+                                    false,
+                                    options.getDepth(),
+                                    remaining,
+                                    options.getTraversalMode(),
+                                    options.getBlacklist(),
+                                    options.getMinEdgeConfidence()
+                            ),
+                            controller
+                    );
+                    if (appendCandidates(backward, out, seen, limit, controller)) {
+                        break outer;
+                    }
+                    continue;
+                }
+                GraphPrunedPathEngine.Run run = direction == SearchDirection.BACKWARD
                         ? prunedPathEngine.searchBackward(
-                        snapshot,
-                        new GraphPrunedPathEngine.ReverseSearchRequest(
-                                sinkId,
-                                sourceId,
-                                Set.of(),
-                                false,
-                                false,
-                                options.getDepth(),
-                                remaining,
-                                options.getTraversalMode(),
-                                options.getBlacklist(),
-                                options.getMinEdgeConfidence()
-                        ),
-                        controller
-                )
+                                snapshot,
+                                new GraphPrunedPathEngine.ReverseSearchRequest(
+                                        sinkId,
+                                        sourceId,
+                                        Set.of(),
+                                        false,
+                                        false,
+                                        options.getDepth(),
+                                        remaining,
+                                        options.getTraversalMode(),
+                                        options.getBlacklist(),
+                                        options.getMinEdgeConfidence()
+                                ),
+                                controller
+                        )
                         : prunedPathEngine.search(
-                        snapshot,
-                        new GraphPrunedPathEngine.SearchRequest(
-                                sourceId,
-                                sinkId,
-                                options.getDepth(),
-                                remaining,
-                                options.getTraversalMode(),
-                                options.getBlacklist(),
-                                options.getMinEdgeConfidence()
-                        ),
-                        controller
-                );
+                                snapshot,
+                                new GraphPrunedPathEngine.SearchRequest(
+                                        sourceId,
+                                        sinkId,
+                                        options.getDepth(),
+                                        remaining,
+                                        options.getTraversalMode(),
+                                        options.getBlacklist(),
+                                        options.getMinEdgeConfidence()
+                                ),
+                                controller
+                        );
                 if (appendCandidates(run, out, seen, limit, controller)) {
                     break outer;
                 }
@@ -215,20 +258,35 @@ public final class GraphTaintEngine {
     }
 
     private SearchRun runGraphDfs(GraphSnapshot snapshot, FlowOptions options, AtomicBoolean cancelFlag) {
-        GraphDfsEngine.DfsRun dfsRun = dfsEngine.run(snapshot, options, cancelFlag);
+        SearchDirection direction = resolveSearchDirection(options);
+        if (direction != SearchDirection.BIDIRECTIONAL || options == null || options.isSearchAllSources()) {
+            GraphDfsEngine.DfsRun dfsRun = dfsEngine.run(snapshot, options, cancelFlag);
+            FlowStats stats = new FlowStats(
+                    dfsRun.stats() == null ? 0 : dfsRun.stats().getNodeCount(),
+                    dfsRun.stats() == null ? 0 : dfsRun.stats().getEdgeCount(),
+                    dfsRun.results() == null ? 0 : dfsRun.results().size(),
+                    dfsRun.stats() == null ? 0L : dfsRun.stats().getElapsedMs(),
+                    dfsRun.stats() == null ? FlowTruncation.none() : dfsRun.stats().getTruncation()
+            );
+            return new SearchRun(
+                    dfsRun.results() == null ? List.of() : dfsRun.results(),
+                    stats,
+                    "graph-dfs",
+                    resolveSearchMode(options, dfsRun.results())
+            );
+        }
+
+        GraphDfsEngine.DfsRun forwardRun = dfsEngine.run(snapshot, copyOptions(options, SearchDirection.FORWARD), cancelFlag);
+        GraphDfsEngine.DfsRun backwardRun = dfsEngine.run(snapshot, copyOptions(options, SearchDirection.BACKWARD), cancelFlag);
+        List<DFSResult> merged = mergeDfsResults(forwardRun.results(), backwardRun.results(), options.resolvePathLimit());
         FlowStats stats = new FlowStats(
-                dfsRun.stats() == null ? 0 : dfsRun.stats().getNodeCount(),
-                dfsRun.stats() == null ? 0 : dfsRun.stats().getEdgeCount(),
-                dfsRun.results() == null ? 0 : dfsRun.results().size(),
-                dfsRun.stats() == null ? 0L : dfsRun.stats().getElapsedMs(),
-                dfsRun.stats() == null ? FlowTruncation.none() : dfsRun.stats().getTruncation()
+                safeNodeCount(forwardRun) + safeNodeCount(backwardRun),
+                safeEdgeCount(forwardRun) + safeEdgeCount(backwardRun),
+                merged.size(),
+                Math.max(safeElapsedMs(forwardRun), safeElapsedMs(backwardRun)),
+                mergeTruncation(safeTruncation(forwardRun), safeTruncation(backwardRun))
         );
-        return new SearchRun(
-                dfsRun.results() == null ? List.of() : dfsRun.results(),
-                stats,
-                "graph-dfs",
-                resolveSearchMode(options, dfsRun.results())
-        );
+        return new SearchRun(merged, stats, "graph-dfs", resolveSearchMode(options, merged));
     }
 
     private static boolean canUsePrunedSearch(FlowOptions options) {
@@ -473,10 +531,88 @@ public final class GraphTaintEngine {
         if (inferred != Integer.MIN_VALUE) {
             return inferred;
         }
+        SearchDirection direction = resolveSearchDirection(options);
+        if (direction == SearchDirection.BACKWARD) {
+            return options != null && options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE;
+        }
         if (options != null && options.isFromSink()) {
             return options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE;
         }
         return DFSResult.FROM_SOURCE_TO_SINK;
+    }
+
+    private static SearchDirection resolveSearchDirection(FlowOptions options) {
+        return options == null ? SearchDirection.FORWARD : options.getSearchDirection();
+    }
+
+    private static FlowOptions copyOptions(FlowOptions source, SearchDirection direction) {
+        if (source == null) {
+            return FlowOptions.builder().direction(direction).build();
+        }
+        return FlowOptions.builder()
+                .direction(direction)
+                .searchAllSources(source.isSearchAllSources())
+                .depth(source.getDepth())
+                .maxLimit(source.getMaxLimit())
+                .maxPaths(source.getMaxPaths())
+                .maxNodes(source.getMaxNodes())
+                .maxEdges(source.getMaxEdges())
+                .timeoutMs(source.getTimeoutMs())
+                .onlyFromWeb(source.isOnlyFromWeb())
+                .traversalMode(source.getTraversalMode())
+                .blacklist(source.getBlacklist())
+                .minEdgeConfidence(source.getMinEdgeConfidence())
+                .source(source.getSourceClass(), source.getSourceMethod(), source.getSourceDesc())
+                .sourceJarId(source.getSourceJarId())
+                .sink(source.getSinkClass(), source.getSinkMethod(), source.getSinkDesc())
+                .sinkJarId(source.getSinkJarId())
+                .build();
+    }
+
+    private static List<DFSResult> mergeDfsResults(List<DFSResult> first, List<DFSResult> second, int limit) {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        ArrayList<DFSResult> out = new ArrayList<>();
+        appendMerged(out, seen, first, limit);
+        appendMerged(out, seen, second, limit);
+        return out;
+    }
+
+    private static void appendMerged(List<DFSResult> out,
+                                     Set<String> seen,
+                                     List<DFSResult> values,
+                                     int limit) {
+        if (values == null || values.isEmpty() || out.size() >= limit) {
+            return;
+        }
+        for (DFSResult dfs : values) {
+            if (dfs == null) {
+                continue;
+            }
+            String key = StableOrder.dfsPathKey(dfs);
+            if (!seen.add(key)) {
+                continue;
+            }
+            out.add(dfs);
+            if (out.size() >= limit) {
+                return;
+            }
+        }
+    }
+
+    private static int safeNodeCount(GraphDfsEngine.DfsRun run) {
+        return run == null || run.stats() == null ? 0 : run.stats().getNodeCount();
+    }
+
+    private static int safeEdgeCount(GraphDfsEngine.DfsRun run) {
+        return run == null || run.stats() == null ? 0 : run.stats().getEdgeCount();
+    }
+
+    private static long safeElapsedMs(GraphDfsEngine.DfsRun run) {
+        return run == null || run.stats() == null ? 0L : run.stats().getElapsedMs();
+    }
+
+    private static FlowTruncation safeTruncation(GraphDfsEngine.DfsRun run) {
+        return run == null || run.stats() == null ? FlowTruncation.none() : run.stats().getTruncation();
     }
 
     private static boolean isAnyDesc(String desc) {

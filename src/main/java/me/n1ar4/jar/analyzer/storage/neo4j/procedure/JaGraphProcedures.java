@@ -24,8 +24,9 @@ public final class JaGraphProcedures {
     public Stream<JaNativeBridge.JaProcedureRow> shortest(@Name("from") Object from,
                                                           @Name("to") Object to,
                                                           @Name("maxHops") Long maxHops,
-                                                          @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
-        return rows("ja.path.shortest", List.of(from, to, maxHops, traversalMode));
+                                                          @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                          @Name(value = "direction", defaultValue = "\"bidirectional\"") String direction) {
+        return rows("ja.path.shortest", List.of(from, to, maxHops, traversalMode, direction));
     }
 
     @Procedure(name = "ja.path.shortest_pruned", mode = Mode.READ)
@@ -33,8 +34,9 @@ public final class JaGraphProcedures {
     public Stream<JaNativeBridge.JaProcedureRow> shortestPruned(@Name("from") Object from,
                                                                 @Name("to") Object to,
                                                                 @Name("maxHops") Long maxHops,
-                                                                @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
-        return rows("ja.path.shortest_pruned", List.of(from, to, maxHops, traversalMode));
+                                                                @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                                @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
+        return rows("ja.path.shortest_pruned", List.of(from, to, maxHops, traversalMode, direction));
     }
 
     @Procedure(name = "ja.path.from_to", mode = Mode.READ)
@@ -43,8 +45,9 @@ public final class JaGraphProcedures {
                                                         @Name("to") Object to,
                                                         @Name("maxHops") Long maxHops,
                                                         @Name("maxPaths") Long maxPaths,
-                                                        @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
-        return rows("ja.path.from_to", List.of(from, to, maxHops, maxPaths, traversalMode));
+                                                        @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                        @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
+        return rows("ja.path.from_to", List.of(from, to, maxHops, maxPaths, traversalMode, direction));
     }
 
     @Procedure(name = "ja.path.from_to_pruned", mode = Mode.READ)
@@ -53,8 +56,9 @@ public final class JaGraphProcedures {
                                                               @Name("to") Object to,
                                                               @Name("maxHops") Long maxHops,
                                                               @Name("maxPaths") Long maxPaths,
-                                                              @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
-        return rows("ja.path.from_to_pruned", List.of(from, to, maxHops, maxPaths, traversalMode));
+                                                              @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                              @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
+        return rows("ja.path.from_to_pruned", List.of(from, to, maxHops, maxPaths, traversalMode, direction));
     }
 
     @Procedure(name = "ja.path.gadget", mode = Mode.READ)
@@ -63,8 +67,9 @@ public final class JaGraphProcedures {
                                                             @Name("to") Object to,
                                                             @Name("maxHops") Long maxHops,
                                                             @Name("maxPaths") Long maxPaths,
-                                                            @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
-        return rows("ja.path.gadget", List.of(from, to, maxHops, maxPaths, traversalMode));
+                                                            @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                            @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
+        return rows("ja.path.gadget", List.of(from, to, maxHops, maxPaths, traversalMode, direction));
     }
 
     @Procedure(name = "ja.taint.track", mode = Mode.READ)
@@ -81,7 +86,8 @@ public final class JaGraphProcedures {
                                                             @Name(value = "mode", defaultValue = "\"source\"") String mode,
                                                             @Name(value = "searchAllSources", defaultValue = "false") Boolean searchAllSources,
                                                             @Name(value = "onlyFromWeb", defaultValue = "false") Boolean onlyFromWeb,
-                                                            @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
+                                                            @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                            @Name(value = "direction", defaultValue = "\"\"") String direction) {
         return rows("ja.taint.track", List.of(
                 sourceClass,
                 sourceMethod,
@@ -95,7 +101,8 @@ public final class JaGraphProcedures {
                 mode,
                 searchAllSources,
                 onlyFromWeb,
-                traversalMode
+                traversalMode,
+                direction
         ));
     }
 
@@ -110,7 +117,8 @@ public final class JaGraphProcedures {
                                                              @Name("depth") Long depth,
                                                              @Name("maxPaths") Long maxPaths,
                                                              @Name(value = "searchAllSources", defaultValue = "false") Boolean searchAllSources,
-                                                             @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode) {
+                                                             @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
+                                                             @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
         return rows("ja.gadget.track", List.of(
                 sourceClass,
                 sourceMethod,
@@ -121,7 +129,8 @@ public final class JaGraphProcedures {
                 depth,
                 maxPaths,
                 searchAllSources,
-                traversalMode
+                traversalMode,
+                direction
         ));
     }
 
