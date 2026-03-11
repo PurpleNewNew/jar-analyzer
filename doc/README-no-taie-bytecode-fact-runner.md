@@ -18,7 +18,7 @@
 - [DiscoveryRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/DiscoveryRunner.java)、[ClassAnalysisRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/ClassAnalysisRunner.java)、[BytecodeSymbolRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/BytecodeSymbolRunner.java) 已经接到这条主链上，不再各自拥有一份独立前端。
 - `DispatchCallResolver.collectInstantiatedClasses`、[BytecodeMainlineReflectionResolver.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/BytecodeMainlineReflectionResolver.java)、[SelectivePtaRefiner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/pta/SelectivePtaRefiner.java) 在 bytecode-mainline 主路径下已经优先消费共享 workspace，而不是再各自重扫 class bytes。
 - `BytecodeFactRunner` 当前负责把前端 facts 收口到 `BuildFactSnapshot`，边继续由后续 `dispatch / reflection / semantic / PTA` builder 写入 `BuildEdgeAccumulator`。
-- `ConstraintFacts` 还没有唯一 owner，这部分留到 Phase 1 继续收口，但不再阻塞 `JA-NT-106` 关闭。
+- `ConstraintFacts.receiverVarByCallSiteKey` 与 method-level 的 `alloc/assign/field/array/native/return` 约束已经由 `ConstraintFactAssembler + BuildBytecodeWorkspace` 统一产出，`SelectivePtaRefiner` 也已切到 `snapshot + edges` 输入。
 
 一句话总结：
 
@@ -341,7 +341,7 @@ frame 分析必须有唯一 owner。
 
 意味着：
 
-- `SelectivePtaRefiner` 不再自己 `loadMethodUnits`
+- `SelectivePtaRefiner` 不再自己提取 `alloc/assign/field/array/native` 约束
 - `PointerAssignmentGraph` 风格的 facts 进入统一约束层
 
 ## 8. 当前实现形态
@@ -389,8 +389,8 @@ frame 分析必须有唯一 owner。
 
 本次关闭时仍然保留的边界：
 
-- `ConstraintFacts` 还是空骨架
-- `SelectivePtaRefiner` 仍有内部约束提取逻辑，尚未完全变成纯 `ConstraintFacts` 消费者
+- `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey` 和 method-level 的 `alloc/assign/field/array/native/return` 约束，但 reflection const/string/helper-flow hints 还没完全并入
+- `SelectivePtaRefiner` 已经去掉 `BuildContext` 前端依赖，也不再自己提取 method-level 约束；当前剩余输入主要是 workspace frame 与 `MethodFacts/TypeFacts`
 - `BuildFactAssembler.legacyView(...)` 仍保留桥接，但已不再承担默认主路径 owner
 
 这意味着：

@@ -14,16 +14,14 @@ import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.MethodCallUtils;
-import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -39,9 +37,7 @@ import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.MultiANewArrayInsnNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
-import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.Frame;
-import org.objectweb.asm.tree.analysis.SourceInterpreter;
 import org.objectweb.asm.tree.analysis.SourceValue;
 
 import java.util.ArrayDeque;
@@ -65,34 +61,31 @@ public final class SelectivePtaRefiner {
     private static final Logger logger = LogManager.getLogger();
     private static final PtaBudget DEFAULT_BUDGET = new PtaBudget(8, 64, 64, 64, 8, 32, 8);
     private static final int MAX_SOURCES_PER_VALUE = 8;
-    private static final String ARRAY_COPY_OWNER = "java/lang/System";
-    private static final String ARRAY_COPY_NAME = "arraycopy";
-    private static final String ARRAY_COPY_DESC = "(Ljava/lang/Object;ILjava/lang/Object;II)V";
-
     private SelectivePtaRefiner() {
     }
 
-    public static Result refine(BuildContext context,
+    public static Result refine(BuildFactSnapshot snapshot,
+                                BuildEdgeAccumulator edges,
                                 InheritanceMap inheritanceMap) {
-        BuildBytecodeWorkspace workspace = context == null
+        BuildBytecodeWorkspace workspace = snapshot == null
                 ? BuildBytecodeWorkspace.empty()
-                : BuildBytecodeWorkspace.parse(context.classFileList);
-        return refine(context, workspace, inheritanceMap);
+                : snapshot.bytecode().workspace();
+        return refine(snapshot, edges, workspace, inheritanceMap);
     }
 
-    public static Result refine(BuildContext context,
+    public static Result refine(BuildFactSnapshot snapshot,
+                                BuildEdgeAccumulator edges,
                                 BuildBytecodeWorkspace workspace,
                                 InheritanceMap inheritanceMap) {
-        if (context == null
-                || context.callSites == null
-                || context.callSites.isEmpty()
-                || context.methodMap == null
-                || context.methodMap.isEmpty()
+        if (snapshot == null
+                || edges == null
+                || snapshot.symbols().callSites().isEmpty()
+                || snapshot.methods().methodsByHandle().isEmpty()
                 || inheritanceMap == null) {
             return Result.empty();
         }
-        MethodLookup lookup = MethodLookup.build(context.methodMap);
-        Map<MethodReference.Handle, MethodUnit> methodUnits = loadMethodUnits(context, workspace, lookup);
+        MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
+        Map<MethodReference.Handle, MethodUnit> methodUnits = loadMethodUnits(snapshot, workspace, lookup);
         if (methodUnits.isEmpty()) {
             return Result.empty();
         }
@@ -103,8 +96,8 @@ public final class SelectivePtaRefiner {
         int fieldSites = 0;
         int arraySites = 0;
         int arrayCopySites = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (!isHotspot(site, context.classMap, inheritanceMap)) {
+        for (CallSiteEntity site : snapshot.symbols().callSites()) {
+            if (!isHotspot(site, snapshot.types().classesByHandle(), inheritanceMap)) {
                 continue;
             }
             hotspotSites++;
@@ -148,7 +141,7 @@ public final class SelectivePtaRefiner {
                     receiver.types(),
                     invokeSite.name(),
                     invokeSite.desc(),
-                    context.methodMap,
+                    snapshot.methods().methodsByHandle(),
                     inheritanceMap,
                     budget.maxTargetsPerCall()
             );
@@ -165,8 +158,12 @@ public final class SelectivePtaRefiner {
             if (receiver.evidence().contains("arraycopy")) {
                 arrayCopySites++;
             }
-            HashSet<MethodReference.Handle> callees = context.methodCalls.computeIfAbsent(caller, ignore -> new HashSet<>());
-            String reason = buildReason(receiver.evidence(), invokeSite.context());
+            HashSet<MethodReference.Handle> callees = edges.methodCalls().computeIfAbsent(caller, ignore -> new HashSet<>());
+            String reason = buildReason(
+                    receiver.evidence(),
+                    invokeSite.context(),
+                    snapshot.constraints().receiverVarByCallSiteKey().get(invokeSite.callSiteKey())
+            );
             String confidence = targets.size() == 1 ? MethodCallMeta.CONF_HIGH : MethodCallMeta.CONF_MEDIUM;
             for (MethodReference.Handle target : targets) {
                 MethodReference.Handle callTarget = new MethodReference.Handle(
@@ -175,18 +172,18 @@ public final class SelectivePtaRefiner {
                         target.getName(),
                         target.getDesc()
                 );
-                MethodCallMeta beforeMeta = MethodCallMeta.resolve(context.methodCallMeta, caller, callTarget);
+                MethodCallMeta beforeMeta = MethodCallMeta.resolve(edges.methodCallMeta(), caller, callTarget);
                 int beforeBits = beforeMeta == null ? 0 : beforeMeta.getEvidenceBits();
                 boolean inserted = MethodCallUtils.addCallee(callees, callTarget);
                 MethodCallMeta.record(
-                        context.methodCallMeta,
+                        edges.methodCallMeta(),
                         MethodCallKey.of(caller, callTarget),
                         MethodCallMeta.TYPE_PTA,
                         confidence,
                         reason,
                         invokeSite.opcode()
                 );
-                MethodCallMeta afterMeta = MethodCallMeta.resolve(context.methodCallMeta, caller, callTarget);
+                MethodCallMeta afterMeta = MethodCallMeta.resolve(edges.methodCallMeta(), caller, callTarget);
                 int afterBits = afterMeta == null ? 0 : afterMeta.getEvidenceBits();
                 boolean gainedPtaEvidence = (beforeBits & MethodCallMeta.EVIDENCE_PTA) == 0
                         && (afterBits & MethodCallMeta.EVIDENCE_PTA) != 0;
@@ -247,7 +244,8 @@ public final class SelectivePtaRefiner {
     }
 
     private static String buildReason(Set<String> evidence,
-                                      PtaContext context) {
+                                      PtaContext context,
+                                      String receiverVar) {
         StringBuilder sb = new StringBuilder();
         if (evidence != null && !evidence.isEmpty()) {
             int i = 0;
@@ -266,6 +264,9 @@ public final class SelectivePtaRefiner {
         }
         if (context != null) {
             sb.append("+pta_ctx=").append(context.render());
+        }
+        if (receiverVar != null && !receiverVar.isBlank()) {
+            sb.append("+receiver=").append(receiverVar.trim());
         }
         return sb.toString();
     }
@@ -327,12 +328,13 @@ public final class SelectivePtaRefiner {
         return null;
     }
 
-    private static Map<MethodReference.Handle, MethodUnit> loadMethodUnits(BuildContext context,
+    private static Map<MethodReference.Handle, MethodUnit> loadMethodUnits(BuildFactSnapshot snapshot,
                                                                            BuildBytecodeWorkspace workspace,
                                                                            MethodLookup lookup) {
-        if (context == null || workspace == null || workspace.parsedClasses().isEmpty()) {
+        if (snapshot == null || workspace == null || workspace.parsedClasses().isEmpty()) {
             return Map.of();
         }
+        Map<MethodReference.Handle, List<CallSiteEntity>> callSitesByCaller = snapshot.symbols().callSitesByCaller();
         LinkedHashMap<MethodReference.Handle, MethodUnit> out = new LinkedHashMap<>();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
             if (parsedClass == null || parsedClass.classNode() == null) {
@@ -356,11 +358,12 @@ public final class SelectivePtaRefiner {
                     if (frames == null) {
                         continue;
                     }
+                    BuildFactSnapshot.MethodConstraintFacts constraints = snapshot.constraints().methodConstraints(handle);
                     MethodUnit unit = new MethodUnit(handle,
-                            cn,
                             mn,
                             frames,
-                            buildInvokeSites(handle, mn.instructions));
+                            constraints,
+                            buildInvokeSites(handle, mn.instructions, callSitesByCaller.get(handle)));
                     out.put(handle, unit);
                 }
             } catch (Exception ex) {
@@ -397,58 +400,48 @@ public final class SelectivePtaRefiner {
         return out.isEmpty() ? Map.of() : Map.copyOf(out);
     }
 
-    private static Frame<SourceValue>[] analyzeFrames(String owner, MethodNode method) {
-        try {
-            Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
-            return analyzer.analyze(owner, method);
-        } catch (Exception ex) {
-            logger.debug("pta frame analyze failed: {}", ex.toString());
-            return null;
-        }
-    }
-
     private static List<PtaInvokeSite> buildInvokeSites(MethodReference.Handle caller,
-                                                        InsnList instructions) {
-        if (caller == null || instructions == null || instructions.size() == 0) {
+                                                        InsnList instructions,
+                                                        List<CallSiteEntity> callSites) {
+        if (caller == null || instructions == null || instructions.size() == 0
+                || callSites == null || callSites.isEmpty()) {
             return List.of();
         }
         ArrayList<PtaInvokeSite> out = new ArrayList<>();
-        int callIndex = 0;
-        int currentLine = -1;
-        for (int i = 0; i < instructions.size(); i++) {
-            AbstractInsnNode insn = instructions.get(i);
-            if (insn instanceof org.objectweb.asm.tree.LineNumberNode ln) {
-                currentLine = ln.line;
+        ArrayList<CallSiteEntity> orderedSites = new ArrayList<>(callSites);
+        orderedSites.sort(Comparator
+                .comparingInt((CallSiteEntity site) -> CallSiteKeyUtil.parseInsnIndex(site == null ? null : site.getCallSiteKey()))
+                .thenComparingInt(site -> safeInt(site == null ? null : site.getCallIndex())));
+        for (CallSiteEntity site : orderedSites) {
+            if (site == null) {
                 continue;
             }
+            int insnIndex = CallSiteKeyUtil.parseInsnIndex(site.getCallSiteKey());
+            if (insnIndex < 0 || insnIndex >= instructions.size()) {
+                continue;
+            }
+            AbstractInsnNode insn = instructions.get(insnIndex);
             if (!(insn instanceof MethodInsnNode mi)) {
                 continue;
             }
-            CallSiteEntity site = new CallSiteEntity();
-            site.setCallerClassName(caller.getClassReference() == null ? "" : caller.getClassReference().getName());
-            site.setCallerMethodName(caller.getName());
-            site.setCallerMethodDesc(caller.getDesc());
-            site.setCalleeOwner(mi.owner);
-            site.setCalleeMethodName(mi.name);
-            site.setCalleeMethodDesc(mi.desc);
-            site.setOpCode(mi.getOpcode());
-            site.setLineNumber(currentLine);
-            site.setCallIndex(callIndex);
-            site.setJarId(caller.getJarId());
-            String key = CallSiteKeyUtil.buildCallSiteKey(site, i);
+            if (!safe(mi.owner).equals(safe(site.getCalleeOwner()))
+                    || !safe(mi.name).equals(safe(site.getCalleeMethodName()))
+                    || !safe(mi.desc).equals(safe(site.getCalleeMethodDesc()))
+                    || mi.getOpcode() != safeInt(site.getOpCode())) {
+                continue;
+            }
             out.add(new PtaInvokeSite(
-                    key,
+                    safe(site.getCallSiteKey()),
                     new PtaContextMethod(caller, PtaContext.root()),
                     mi.owner,
                     mi.name,
                     mi.desc,
                     mi.getOpcode(),
-                    callIndex,
-                    currentLine,
-                    i,
+                    safeInt(site.getCallIndex()),
+                    safeInt(site.getLineNumber()),
+                    insnIndex,
                     mi
             ));
-            callIndex++;
         }
         return out.isEmpty() ? List.of() : List.copyOf(out);
     }
@@ -578,17 +571,21 @@ public final class SelectivePtaRefiner {
                                                   MethodLookup lookup,
                                                   PtaBudget budget,
                                                   Set<String> path) {
-        int storeIndex = findPreviousStore(unit, loadInsn.var, limitIndex, Opcodes.ASTORE);
-        if (storeIndex < 0) {
+        BuildFactSnapshot.AssignEdge store = unit.constraints().findPreviousObjectAssign(
+                loadInsn.var,
+                limitIndex,
+                Math.max(0, limitIndex - 256)
+        );
+        if (store == null) {
             return ResolvedValue.empty();
         }
-        Frame<SourceValue> storeFrame = unit.frameAt(storeIndex);
+        Frame<SourceValue> storeFrame = unit.frameAt(store.insnIndex());
         if (storeFrame == null || storeFrame.getStackSize() <= 0) {
             return ResolvedValue.empty();
         }
         ResolvedValue local = resolveValue(storeFrame.getStack(storeFrame.getStackSize() - 1),
                 unit,
-                storeIndex,
+                store.insnIndex(),
                 inheritanceMap,
                 lookup,
                 budget,
@@ -619,21 +616,23 @@ public final class SelectivePtaRefiner {
         }
         ResolvedValue out = ResolvedValue.empty();
         int storeHits = 0;
-        for (int i = limitIndex - 1; i >= 0 && storeHits < budget.maxFieldStoreScan(); i--) {
-            AbstractInsnNode insn = unit.instructions().get(i);
-            if (!(insn instanceof FieldInsnNode putField)
-                    || putField.getOpcode() != Opcodes.PUTFIELD
-                    || !sameField(fieldInsn, putField)) {
+        for (BuildFactSnapshot.FieldEdge storeEdge : unit.constraints().fieldStoreEdges(
+                fieldInsn.owner,
+                fieldInsn.name,
+                fieldInsn.desc
+        )) {
+            if (storeEdge == null || storeEdge.insnIndex() >= limitIndex || storeHits >= budget.maxFieldStoreScan()) {
                 continue;
             }
-            Frame<SourceValue> storeFrame = unit.frameAt(i);
+            int storeIndex = storeEdge.insnIndex();
+            Frame<SourceValue> storeFrame = unit.frameAt(storeIndex);
             if (storeFrame == null || storeFrame.getStackSize() < 2) {
                 continue;
             }
             int stackSize = storeFrame.getStackSize();
             ResolvedValue storeBase = resolveValue(storeFrame.getStack(stackSize - 2),
                     unit,
-                    i,
+                    storeIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -643,7 +642,7 @@ public final class SelectivePtaRefiner {
             }
             ResolvedValue stored = resolveValue(storeFrame.getStack(stackSize - 1),
                     unit,
-                    i,
+                    storeIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -715,56 +714,56 @@ public final class SelectivePtaRefiner {
         }
         ResolvedValue out = ResolvedValue.empty();
         int storeHits = 0;
-        for (int i = limitIndex - 1; i >= 0 && storeHits < budget.maxArrayStoreScan(); i--) {
-            AbstractInsnNode insn = unit.instructions().get(i);
-            if (insn instanceof InsnNode raw && raw.getOpcode() == Opcodes.AASTORE) {
-                Frame<SourceValue> frame = unit.frameAt(i);
-                if (frame == null || frame.getStackSize() < 3) {
-                    continue;
-                }
-                int stackSize = frame.getStackSize();
-                ResolvedValue storeArray = resolveValue(frame.getStack(stackSize - 3),
-                        unit,
-                        i,
-                        inheritanceMap,
-                        lookup,
-                        budget,
-                        path);
-                if (!intersects(arrayOrigins, storeArray.origins())) {
-                    continue;
-                }
-                Integer storeIndex = resolveIntValue(frame.getStack(stackSize - 2), unit, i, budget, path);
-                if (!indexMatches(targetIndex, storeIndex)) {
-                    continue;
-                }
-                ResolvedValue stored = resolveValue(frame.getStack(stackSize - 1),
-                        unit,
-                        i,
-                        inheritanceMap,
-                        lookup,
-                        budget,
-                        path);
-                if (stored.isEmpty()) {
-                    continue;
-                }
-                out = out.merge(stored.addEvidence("array"));
-                storeHits++;
+        for (BuildFactSnapshot.ArrayAccessEdge storeEdge : unit.constraints().arrayStoreEdges()) {
+            if (storeEdge == null || storeEdge.insnIndex() >= limitIndex || storeHits >= budget.maxArrayStoreScan()) {
                 continue;
             }
-            if (!(insn instanceof MethodInsnNode mi)
-                    || !ARRAY_COPY_OWNER.equals(mi.owner)
-                    || !ARRAY_COPY_NAME.equals(mi.name)
-                    || !ARRAY_COPY_DESC.equals(mi.desc)) {
+            int storeIndex = storeEdge.insnIndex();
+            Frame<SourceValue> frame = unit.frameAt(storeIndex);
+            if (frame == null || frame.getStackSize() < 3) {
                 continue;
             }
-            Frame<SourceValue> frame = unit.frameAt(i);
+            int stackSize = frame.getStackSize();
+            ResolvedValue storeArray = resolveValue(frame.getStack(stackSize - 3),
+                    unit,
+                    storeIndex,
+                    inheritanceMap,
+                    lookup,
+                    budget,
+                    path);
+            if (!intersects(arrayOrigins, storeArray.origins())) {
+                continue;
+            }
+            Integer arrayIndex = resolveIntValue(frame.getStack(stackSize - 2), unit, storeIndex, budget, path);
+            if (!indexMatches(targetIndex, arrayIndex)) {
+                continue;
+            }
+            ResolvedValue stored = resolveValue(frame.getStack(stackSize - 1),
+                    unit,
+                    storeIndex,
+                    inheritanceMap,
+                    lookup,
+                    budget,
+                    path);
+            if (stored.isEmpty()) {
+                continue;
+            }
+            out = out.merge(stored.addEvidence("array"));
+            storeHits++;
+        }
+        for (BuildFactSnapshot.ArrayCopyEdge copyEdge : unit.constraints().arrayCopyEdges()) {
+            if (copyEdge == null || copyEdge.insnIndex() >= limitIndex || storeHits >= budget.maxArrayStoreScan()) {
+                continue;
+            }
+            int copyIndex = copyEdge.insnIndex();
+            Frame<SourceValue> frame = unit.frameAt(copyIndex);
             if (frame == null || frame.getStackSize() < 5) {
                 continue;
             }
             int stackSize = frame.getStackSize();
             ResolvedValue dstArray = resolveValue(frame.getStack(stackSize - 3),
                     unit,
-                    i,
+                    copyIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -772,16 +771,16 @@ public final class SelectivePtaRefiner {
             if (!intersects(arrayOrigins, dstArray.origins())) {
                 continue;
             }
-            Integer srcPos = resolveIntValue(frame.getStack(stackSize - 4), unit, i, budget, path);
-            Integer dstPos = resolveIntValue(frame.getStack(stackSize - 2), unit, i, budget, path);
-            Integer length = resolveIntValue(frame.getStack(stackSize - 1), unit, i, budget, path);
+            Integer srcPos = resolveIntValue(frame.getStack(stackSize - 4), unit, copyIndex, budget, path);
+            Integer dstPos = resolveIntValue(frame.getStack(stackSize - 2), unit, copyIndex, budget, path);
+            Integer length = resolveIntValue(frame.getStack(stackSize - 1), unit, copyIndex, budget, path);
             Integer srcIndex = translateArrayCopyIndex(targetIndex, srcPos, dstPos, length);
             if (targetIndex != null && srcIndex == null) {
                 continue;
             }
             ResolvedValue srcArray = resolveValue(frame.getStack(stackSize - 5),
                     unit,
-                    i,
+                    copyIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -792,7 +791,7 @@ public final class SelectivePtaRefiner {
             ResolvedValue copied = resolveArrayElement(srcArray.origins(),
                     srcIndex,
                     unit,
-                    i,
+                    copyIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -829,18 +828,18 @@ public final class SelectivePtaRefiner {
             return ResolvedValue.empty();
         }
         ResolvedValue out = ResolvedValue.empty();
-        for (int i = 0; i < calleeUnit.instructions().size(); i++) {
-            AbstractInsnNode insn = calleeUnit.instructions().get(i);
-            if (insn == null || insn.getOpcode() != Opcodes.ARETURN) {
+        for (BuildFactSnapshot.ReturnEdge returnEdge : calleeUnit.constraints().returnEdges()) {
+            if (returnEdge == null) {
                 continue;
             }
-            Frame<SourceValue> frame = calleeUnit.frameAt(i);
+            int returnIndex = returnEdge.insnIndex();
+            Frame<SourceValue> frame = calleeUnit.frameAt(returnIndex);
             if (frame == null || frame.getStackSize() <= 0) {
                 continue;
             }
             ResolvedValue returned = resolveValue(frame.getStack(frame.getStackSize() - 1),
                     calleeUnit,
-                    i,
+                    returnIndex,
                     inheritanceMap,
                     lookup,
                     budget,
@@ -915,15 +914,19 @@ public final class SelectivePtaRefiner {
         if (src instanceof VarInsnNode varInsn) {
             int opcode = varInsn.getOpcode();
             if (opcode >= Opcodes.ILOAD && opcode <= Opcodes.ALOAD) {
-                int storeIndex = findPreviousNumericStore(unit, varInsn.var, limitIndex);
-                if (storeIndex < 0) {
+                BuildFactSnapshot.AssignEdge store = unit.constraints().findPreviousNumericAssign(
+                        varInsn.var,
+                        limitIndex,
+                        Math.max(0, limitIndex - 256)
+                );
+                if (store == null) {
                     return null;
                 }
-                Frame<SourceValue> frame = unit.frameAt(storeIndex);
+                Frame<SourceValue> frame = unit.frameAt(store.insnIndex());
                 if (frame == null || frame.getStackSize() <= 0) {
                     return null;
                 }
-                return resolveIntValue(frame.getStack(frame.getStackSize() - 1), unit, storeIndex, budget, path);
+                return resolveIntValue(frame.getStack(frame.getStackSize() - 1), unit, store.insnIndex(), budget, path);
             }
         }
         return null;
@@ -952,60 +955,6 @@ public final class SelectivePtaRefiner {
             return true;
         }
         return Objects.equals(targetIndex, storeIndex);
-    }
-
-    private static int findPreviousStore(MethodUnit unit,
-                                         int var,
-                                         int limitIndex,
-                                         int expectedOpcode) {
-        if (unit == null || var < 0 || limitIndex <= 0) {
-            return -1;
-        }
-        int floor = Math.max(0, limitIndex - 256);
-        for (int i = limitIndex - 1; i >= floor; i--) {
-            AbstractInsnNode insn = unit.instructions().get(i);
-            if (!(insn instanceof VarInsnNode vin)) {
-                continue;
-            }
-            if (vin.var == var && vin.getOpcode() == expectedOpcode) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static int findPreviousNumericStore(MethodUnit unit,
-                                                int var,
-                                                int limitIndex) {
-        if (unit == null || var < 0 || limitIndex <= 0) {
-            return -1;
-        }
-        int floor = Math.max(0, limitIndex - 256);
-        for (int i = limitIndex - 1; i >= floor; i--) {
-            AbstractInsnNode insn = unit.instructions().get(i);
-            if (!(insn instanceof VarInsnNode vin)) {
-                continue;
-            }
-            int opcode = vin.getOpcode();
-            if (vin.var == var
-                    && (opcode == Opcodes.ISTORE
-                    || opcode == Opcodes.LSTORE
-                    || opcode == Opcodes.FSTORE
-                    || opcode == Opcodes.DSTORE)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static boolean sameField(FieldInsnNode left,
-                                     FieldInsnNode right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        return safe(left.owner).equals(safe(right.owner))
-                && safe(left.name).equals(safe(right.name))
-                && safe(left.desc).equals(safe(right.desc));
     }
 
     private static boolean intersects(Set<OriginKey> left,
@@ -1182,21 +1131,23 @@ public final class SelectivePtaRefiner {
 
     private static final class MethodUnit {
         private final MethodReference.Handle handle;
-        private final ClassNode classNode;
         private final MethodNode methodNode;
         private final Frame<SourceValue>[] frames;
+        private final BuildFactSnapshot.MethodConstraintFacts constraints;
         private final List<PtaInvokeSite> invokeSites;
         private final Map<MethodReference.Handle, MethodUnit> siblings;
 
         private MethodUnit(MethodReference.Handle handle,
-                           ClassNode classNode,
                            MethodNode methodNode,
                            Frame<SourceValue>[] frames,
+                           BuildFactSnapshot.MethodConstraintFacts constraints,
                            List<PtaInvokeSite> invokeSites) {
             this.handle = handle;
-            this.classNode = classNode;
             this.methodNode = methodNode;
             this.frames = frames;
+            this.constraints = constraints == null
+                    ? BuildFactSnapshot.MethodConstraintFacts.empty()
+                    : constraints;
             this.invokeSites = invokeSites == null ? List.of() : invokeSites;
             this.siblings = new HashMap<>();
         }
@@ -1227,9 +1178,21 @@ public final class SelectivePtaRefiner {
             return frames[index];
         }
 
+        private BuildFactSnapshot.MethodConstraintFacts constraints() {
+            return constraints;
+        }
+
         private PtaInvokeSite findCallSite(CallSiteEntity site) {
             if (site == null || invokeSites.isEmpty()) {
                 return null;
+            }
+            String key = safe(site.getCallSiteKey());
+            if (!key.isEmpty()) {
+                for (PtaInvokeSite invokeSite : invokeSites) {
+                    if (invokeSite != null && key.equals(safe(invokeSite.callSiteKey()))) {
+                        return invokeSite;
+                    }
+                }
             }
             for (PtaInvokeSite invokeSite : invokeSites) {
                 if (invokeSite == null) {

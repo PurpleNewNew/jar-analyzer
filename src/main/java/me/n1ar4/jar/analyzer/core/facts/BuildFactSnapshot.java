@@ -196,15 +196,164 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         }
     }
 
-    public record ConstraintFacts(Map<String, String> receiverVarByCallSiteKey) {
+    public record ConstraintFacts(Map<String, String> receiverVarByCallSiteKey,
+                                  Map<MethodReference.Handle, MethodConstraintFacts> methodsByHandle) {
         public ConstraintFacts {
             receiverVarByCallSiteKey = receiverVarByCallSiteKey == null || receiverVarByCallSiteKey.isEmpty()
                     ? Map.of()
                     : Map.copyOf(receiverVarByCallSiteKey);
+            methodsByHandle = methodsByHandle == null || methodsByHandle.isEmpty()
+                    ? Map.of()
+                    : Map.copyOf(methodsByHandle);
+        }
+
+        public MethodConstraintFacts methodConstraints(MethodReference.Handle handle) {
+            if (handle == null || methodsByHandle.isEmpty()) {
+                return MethodConstraintFacts.empty();
+            }
+            MethodConstraintFacts facts = methodsByHandle.get(handle);
+            return facts == null ? MethodConstraintFacts.empty() : facts;
         }
 
         public static ConstraintFacts empty() {
-            return new ConstraintFacts(Map.of());
+            return new ConstraintFacts(Map.of(), Map.of());
         }
+    }
+
+    public record MethodConstraintFacts(List<AllocEdge> allocEdges,
+                                        Map<Integer, List<AssignEdge>> objectAssignEdgesByVar,
+                                        Map<Integer, List<AssignEdge>> numericAssignEdgesByVar,
+                                        Map<String, List<FieldEdge>> fieldLoadEdgesByFieldKey,
+                                        Map<String, List<FieldEdge>> fieldStoreEdgesByFieldKey,
+                                        List<ArrayAccessEdge> arrayLoadEdges,
+                                        List<ArrayAccessEdge> arrayStoreEdges,
+                                        List<ArrayCopyEdge> arrayCopyEdges,
+                                        List<ReturnEdge> returnEdges,
+                                        List<NativeModelHint> nativeModelHints) {
+        public MethodConstraintFacts {
+            allocEdges = immutableList(allocEdges);
+            objectAssignEdgesByVar = immutableMapOfLists(objectAssignEdgesByVar);
+            numericAssignEdgesByVar = immutableMapOfLists(numericAssignEdgesByVar);
+            fieldLoadEdgesByFieldKey = immutableMapOfLists(fieldLoadEdgesByFieldKey);
+            fieldStoreEdgesByFieldKey = immutableMapOfLists(fieldStoreEdgesByFieldKey);
+            arrayLoadEdges = immutableList(arrayLoadEdges);
+            arrayStoreEdges = immutableList(arrayStoreEdges);
+            arrayCopyEdges = immutableList(arrayCopyEdges);
+            returnEdges = immutableList(returnEdges);
+            nativeModelHints = immutableList(nativeModelHints);
+        }
+
+        public AssignEdge findPreviousObjectAssign(int varIndex,
+                                                  int limitIndex,
+                                                  int floorIndex) {
+            return findPreviousAssign(objectAssignEdgesByVar.get(varIndex), limitIndex, floorIndex);
+        }
+
+        public AssignEdge findPreviousNumericAssign(int varIndex,
+                                                   int limitIndex,
+                                                   int floorIndex) {
+            return findPreviousAssign(numericAssignEdgesByVar.get(varIndex), limitIndex, floorIndex);
+        }
+
+        public List<FieldEdge> fieldStoreEdges(String owner,
+                                               String name,
+                                               String desc) {
+            return fieldStoreEdgesByFieldKey.getOrDefault(FieldEdge.key(owner, name, desc), List.of());
+        }
+
+        public List<FieldEdge> fieldLoadEdges(String owner,
+                                              String name,
+                                              String desc) {
+            return fieldLoadEdgesByFieldKey.getOrDefault(FieldEdge.key(owner, name, desc), List.of());
+        }
+
+        public static MethodConstraintFacts empty() {
+            return new MethodConstraintFacts(
+                    List.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of()
+            );
+        }
+
+        private static AssignEdge findPreviousAssign(List<AssignEdge> edges,
+                                                     int limitIndex,
+                                                     int floorIndex) {
+            if (edges == null || edges.isEmpty()) {
+                return null;
+            }
+            for (AssignEdge edge : edges) {
+                if (edge == null) {
+                    continue;
+                }
+                if (edge.insnIndex() < limitIndex && edge.insnIndex() >= floorIndex) {
+                    return edge;
+                }
+            }
+            return null;
+        }
+
+        private static <T> List<T> immutableList(List<T> values) {
+            return values == null || values.isEmpty() ? List.of() : List.copyOf(values);
+        }
+
+        private static <K, V> Map<K, List<V>> immutableMapOfLists(Map<K, List<V>> values) {
+            if (values == null || values.isEmpty()) {
+                return Map.of();
+            }
+            java.util.LinkedHashMap<K, List<V>> out = new java.util.LinkedHashMap<>();
+            for (Map.Entry<K, List<V>> entry : values.entrySet()) {
+                if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                out.put(entry.getKey(), List.copyOf(entry.getValue()));
+            }
+            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        }
+    }
+
+    public record AllocEdge(int insnIndex,
+                            String kind,
+                            String typeName) {
+    }
+
+    public record AssignEdge(int insnIndex,
+                             int varIndex,
+                             int opcode) {
+    }
+
+    public record FieldEdge(int insnIndex,
+                            String owner,
+                            String name,
+                            String desc) {
+        public static String key(String owner, String name, String desc) {
+            return safe(owner) + "|" + safe(name) + "|" + safe(desc);
+        }
+
+        private static String safe(String value) {
+            return value == null ? "" : value;
+        }
+    }
+
+    public record ArrayAccessEdge(int insnIndex) {
+    }
+
+    public record ArrayCopyEdge(int insnIndex) {
+    }
+
+    public record ReturnEdge(int insnIndex) {
+    }
+
+    public record NativeModelHint(int insnIndex,
+                                  String kind,
+                                  String owner,
+                                  String name,
+                                  String desc) {
     }
 }

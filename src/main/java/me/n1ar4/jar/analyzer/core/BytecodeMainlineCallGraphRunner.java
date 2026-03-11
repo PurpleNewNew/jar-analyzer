@@ -97,10 +97,10 @@ public final class BytecodeMainlineCallGraphRunner {
                         instantiatedClasses,
                         lookup
                 );
-        SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
-                ? SelectivePtaRefiner.refine(legacyView, workspace, inheritanceMap)
-                : SelectivePtaRefiner.Result.empty();
         BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(legacyView);
+        SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
+                ? SelectivePtaRefiner.refine(snapshot, updated, workspace, inheritanceMap)
+                : SelectivePtaRefiner.Result.empty();
         edges.methodCalls().clear();
         edges.methodCallMeta().clear();
         edges.methodCalls().putAll(updated.methodCalls());
