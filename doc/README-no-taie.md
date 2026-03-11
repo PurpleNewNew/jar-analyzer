@@ -1,6 +1,6 @@
 # 去 Tai-e 主链化设计（JDK 21）
 
-本文档给出 `jar-analyzer` 接下来从“Tai-e 作为默认建库主链”迁移到“字节码自研主链 + 选择性精化”的完整设计。
+本文档记录 `jar-analyzer` 从“Tai-e 作为默认建库主链”迁移到“字节码自研主链 + 选择性精化”的完整设计与最终收口结果。
 
 配套执行文档见 [README-no-taie-phase0.md](/Users/veritas/Documents/projects/jar-analyzer/doc/README-no-taie-phase0.md)。
 
@@ -17,31 +17,30 @@
 - 不建议继续让 Tai-e 作为默认建库主干。
 - 不建议 fork/裁剪 Tai-e 后自行维护其核心前端、World、IR、PTA 体系。
 - 建议采用 `dev` 分支已有的 ASM/字节码自研能力作为迁移种子，重建一条面向当前 Neo4j 项目模型的单主链建库体系。
-- Tai-e 应降级为可选的 `precision/oracle` 引擎，只用于对照、回归和疑难样本精化，不再参与默认 build。
+- Tai-e 已从仓库构建与运行路径中彻底移除；当前只保留历史基线与迁移文档。
 
 ## 0. 当前状态（2026-03-11）
 
 截至 2026 年 3 月 11 日，Phase 0 已完成，当前主干状态如下：
 
-- 默认 build 已切到 `balanced` 字节码主链；显式 `oracle-taie` 入口仍保留，旧的 `taie` engine 入口已移除
-- `fast / balanced / precision / oracle-taie` 的 profile 契约已经落地，见 `doc/README-no-taie-profile-switch.md`
+- 默认 build 已切到 `balanced` 字节码主链；`taie` 与 `oracle-taie` 已从生产配置面移除
+- `fast / balanced / precision` 的 profile 契约已经落地，见 `doc/README-no-taie-profile-switch.md`
 - 单次解析前端收口已经进入主建库链：`BuildBytecodeWorkspace + BuildFactSnapshot + BuildEdgeAccumulator + BytecodeFactRunner`
 - bytecode-mainline 已经能在 callback、framework-stack 等真实样本上跑通主链并进入回归包
-- 默认主链切换与 `oracle-taie` 收口已经完成；`ConstraintFacts / selective PTA / precision` 的 Phase 4 收口也已经完成
-- Phase 5 的 `oracle-taie` 适配层压缩也已经进入主干：`CoreRunner` 不再直接编排 Tai-e 运行/映射/入口签名拼装，相关逻辑已经收进 `core/taie/TaieOracleCallGraphRunner`
+- 默认主链切换与历史 oracle 收口已经完成；`ConstraintFacts / selective PTA / precision` 的 Phase 4 收口也已经完成
+- Phase 5 的历史 oracle 适配层压缩已经完成；Phase 6 也已完成，Tai-e 已从生产与测试路径一并移除
 
 ## 1. 背景与问题定义
 
 当前分支的建库主链大体分为两段：
 
 1. 先做字节码事实发现：`DiscoveryRunner`、`ClassAnalysisRunner`、`FrameworkEntryDiscovery`、`MethodSemanticSupport`、`BytecodeSymbolRunner`
-2. 再进入 Tai-e 调用图阶段：`TaieAnalysisRunner` + `TaieEdgeMapper`
+2. 历史上再进入 Tai-e 调用图阶段：`TaieAnalysisRunner` + `TaieEdgeMapper`
 
 对应代码入口在：
 
 - `src/main/java/me/n1ar4/jar/analyzer/core/CoreRunner.java`
-- `src/main/java/me/n1ar4/jar/analyzer/core/taie/TaieAnalysisRunner.java`
-- `src/main/java/me/n1ar4/jar/analyzer/core/taie/TaieEdgeMapper.java`
+- 当前仓库已不再保留 `core/taie/*`
 
 现状的核心问题不是“Tai-e 不准”，而是“Tai-e 被放在了错误的位置上”。
 
@@ -195,7 +194,7 @@ Tai-e 本体当前仍然依赖 Soot frontend：
 
 - 默认 build：走快速、可控、可调的字节码主链
 - 难点调用点：按需做精化
-- 对照验证：必要时再调用 Tai-e
+- 对照验证：依赖冻结基线与回归包，不再依赖仓库内 Tai-e
 
 ## 5. 目标态架构
 
@@ -214,7 +213,6 @@ flowchart TD
     I --> J["GraphPayload + RuntimeSnapshot"]
     J --> K["Neo4jBulkImportService"]
     J --> L["ProjectRuntimeSnapshot 发布"]
-    M["可选 Tai-e Oracle/Precision"] --> I
 ```
 
 ### 5.1 总体原则
@@ -464,15 +462,15 @@ flowchart TD
 - `callGraphMode=bytecode:fast-v1|bytecode:balanced-v1|bytecode:precision-v1|bytecode:semantic-v1`
 - 可选 `ptaRefinedCallSites/semanticEdgeCount/dispatchEdgeCount`
 
-## 7. 与 Tai-e 的关系重定义
+## 7. 与 Tai-e 的收口结论
 
-### 7.1 新定位
+### 7.1 当前仓库边界
 
-Tai-e 迁移后只保留以下用途：
+Tai-e 已经从当前仓库移除，现阶段只保留以下历史资产：
 
-- `precision` 模式的可选高成本精化
-- 回归和 benchmark 对照 oracle
-- 疑难样本人工比对
+- 历史基线报告
+- 迁移设计与关闭记录
+- 用于解释迁移决策的历史背景描述
 
 ### 7.2 不再允许的定位
 
@@ -515,7 +513,7 @@ Tai-e 迁移后只保留以下用途：
 - `ContextSensitivePtaEngine`
 - PTA plugin / adaptive config 中有价值的部分
 
-### 8.3 只保留为可选适配器
+### 8.3 已删除的历史适配器
 
 - `TaieAnalysisRunner`
 - `TaieEdgeMapper`
@@ -524,8 +522,8 @@ Tai-e 迁移后只保留以下用途：
 ### 8.4 已收口的默认路径与剩余兼容面
 
 - `CoreRunner` 默认主阶段已收敛为 `callgraph`
-- 默认 build 已不再依赖“前面事实扫描一遍，后面 Tai-e 再整包分析一遍”的双重主链；Tai-e 仅在显式 `oracle-taie` 时运行
-- Tai-e 专属输入规范化逻辑仍残留在 `oracle-taie` 路径，后续只按对照链需要继续压缩
+- 默认 build 已不再依赖“前面事实扫描一遍，后面 Tai-e 再整包分析一遍”的双重主链；Tai-e 已退出生产调用图入口
+- Tai-e 专属输入规范化逻辑已随测试 harness 一并删除
 
 ## 9. 迁移计划
 
@@ -574,19 +572,19 @@ Tai-e 迁移后只保留以下用途：
 - 单次 build 的类解析次数显著下降
 - 事实输出与当前快照契约一致
 
-### Phase 3: 默认主链切换与 `oracle-taie` 收敛（已完成）
+### Phase 3: 默认主链切换与历史 oracle 收口（已完成）
 
 目标：
 
 - 默认 profile 已切到 `balanced` 字节码主链
-- Tai-e 仅在显式 `oracle-taie` 模式启用
+- 阶段性把历史 Tai-e 能力收口到显式对照口径，便于后续整体删除
 - 清理默认主链上的 Tai-e 阶段名、报表字段和文档口径
 - 删除 `engine=taie` 兼容别名与 `taie_*` 公开指标
 
 验收：
 
 - 默认 build 不再依赖 Tai-e 生命周期
-- 对外 README / Phase 文档 / bench 报表统一以 `callgraph` 与 `oracle-taie` 为 canonical 口径
+- 对外 README / Phase 文档 / bench 报表统一以 `callgraph` 为 canonical 口径，并为 Phase 6 删除历史配置值完成铺垫
 - 真实 Web / gadget 回归继续通过
 
 ### Phase 4: 选择性 PTA 收敛（已完成）
@@ -599,7 +597,6 @@ Tai-e 迁移后只保留以下用途：
   - `fast`
   - `balanced`
   - `precision`
-  - `oracle-taie`（仅对照）
 
 验收：
 
@@ -613,19 +610,20 @@ Tai-e 迁移后只保留以下用途：
 目标：
 
 - 删除仅服务历史对照链的冗余桥接
-- 继续缩小 `core/taie/*` 的外围依赖面
+- 为仓库级删除 Tai-e 依赖清空外围接线
 
 验收：
 
 - `CoreRunner` 不再直接依赖 `TaieAnalysisRunner / TaieEdgeMapper`
-- Tai-e 的 main-class 解析、explicit entry method 规划、edge mapping 与 oracle 统计已经收进 `core/taie/TaieOracleCallGraphRunner`
-- 默认主链继续只保留 bytecode-mainline；`oracle-taie` 仅保留一层薄适配器入口
+- 默认主链继续只保留 bytecode-mainline；仓库内已不再保留 `oracle-taie` 运行入口
 
-### Phase 6: 评估是否彻底移除 Tai-e 依赖
+### Phase 6: 彻底移除 Tai-e 依赖（已完成）
 
-目标：
+结果：
 
-- 如果 `precision` 模式已可被自研精化替代，再评估彻底删除 `core/taie/*`
+- `CallGraphPlan` 已不再暴露 `oracle-taie`
+- `CoreRunner` 已只保留 bytecode-mainline 主链
+- Tai-e 相关源码、测试设施与 Maven 依赖都已从仓库移除
 
 ## 10. 性能与精度验收指标
 
@@ -717,8 +715,6 @@ Tai-e 迁移后只保留以下用途：
   - `SemanticEdgeBuilder`
 - `core/pta/*`
   - 从 `dev` 迁移并重构后的 `ContextSensitivePtaEngine`
-- `core/taie/*`
-  - 只保留 `oracle/precision` 适配器
 
 明确不建议：
 
@@ -731,15 +727,14 @@ Tai-e 迁移后只保留以下用途：
 本设计的最终决策如下：
 
 1. 默认建库主链迁移为“字节码事实主链 + 分层边构建 + 选择性 PTA 精化”。
-2. Tai-e 从默认主链退出，降级为可选 `precision/oracle` 引擎。
+2. Tai-e 从默认主链退出，并最终从仓库构建/测试路径彻底移除。
 3. 不 fork Tai-e，不接管其前端/World/IR 体系。
 4. `dev` 分支中的自研 dispatch/reflection/PTA 能力是本次迁移的主要技术种子。
 5. 迁移必须以单主链收敛为终点，不允许长期双轨并存。
 
-如果后续开始实施，第一步不是直接删除 Tai-e，而是先完成：
+上述迁移三步已经完成。当前后续演进重点只剩：
 
-- 基线测量
-- `dev` 分支内核迁移
-- `BytecodeFactRunner` 单次解析收敛
+- 继续提升 `precision` 的疑难样本补边能力
+- 继续压缩历史文档中的冗余迁移叙述
 
 完成这三步后，再切换默认主链，风险最小，收益也最大。

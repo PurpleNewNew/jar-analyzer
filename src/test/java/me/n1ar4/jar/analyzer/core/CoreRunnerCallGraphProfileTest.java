@@ -20,7 +20,6 @@ class CoreRunnerCallGraphProfileTest {
     void cleanup() {
         System.clearProperty("jar.analyzer.callgraph.engine");
         System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
-        System.clearProperty("jar.analyzer.analysis.profile");
         GraphStore.invalidateCache();
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
@@ -87,35 +86,13 @@ class CoreRunnerCallGraphProfileTest {
         Map<String, Object> details = metric.getDetails();
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, details.get("engine"));
         assertEquals(CallGraphPlan.PROFILE_PRECISION, details.get("analysis_profile"));
-        assertEquals(true, details.get("precision_mode"));
+        assertTrue((Boolean) details.get("precision_mode"));
         assertEquals("precision", details.get("pta_budget_profile"));
     }
 
     @Test
-    void oracleTaieProfileShouldUseOracleEngineMarker() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_ORACLE_TAIE);
-        System.setProperty("jar.analyzer.analysis.profile", "fast");
-        Path jar = FixtureJars.callbackTestJar();
-        ProjectRuntimeContext.updateResolveInnerJars(false);
-
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
-
-        assertNotNull(result);
-        assertEquals(CallGraphPlan.ENGINE_ORACLE_TAIE, result.getCallGraphEngine());
-        assertEquals("oracle-taie:fast", result.getCallGraphMode());
-        assertEquals(CallGraphPlan.PROFILE_ORACLE_TAIE, result.getAnalysisProfile());
-        assertTrue(result.getOracleReachableMethodCount() > 0);
-
-        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
-        assertNotNull(metric);
-        assertEquals(CallGraphPlan.ENGINE_ORACLE_TAIE, metric.getDetails().get("engine"));
-        assertEquals(CallGraphPlan.PROFILE_ORACLE_TAIE, metric.getDetails().get("analysis_profile"));
-    }
-
-    @Test
-    void removedTaieEngineShouldFailFast() {
-        System.setProperty("jar.analyzer.callgraph.engine", "taie");
-        System.setProperty("jar.analyzer.analysis.profile", "fast");
+    void retiredOracleProfileShouldFailFast() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "oracle-taie");
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
@@ -123,6 +100,32 @@ class CoreRunnerCallGraphProfileTest {
                 IllegalArgumentException.class,
                 () -> CoreRunner.run(jar, null, false, false, null)
         );
-        assertTrue(ex.getMessage().contains("oracle-taie"));
+        assertTrue(ex.getMessage().contains("no longer available"));
+    }
+
+    @Test
+    void removedTaieEngineShouldFailFast() {
+        System.setProperty("jar.analyzer.callgraph.engine", "taie");
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CoreRunner.run(jar, null, false, false, null)
+        );
+        assertTrue(ex.getMessage().contains("bytecode-mainline"));
+    }
+
+    @Test
+    void retiredOracleEngineShouldFailFast() {
+        System.setProperty("jar.analyzer.callgraph.engine", "oracle-taie");
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CoreRunner.run(jar, null, false, false, null)
+        );
+        assertTrue(ex.getMessage().contains("no longer available"));
     }
 }

@@ -24,7 +24,7 @@
 | `JA-NT-104` | `CoreRunnerBytecodeMainlineTest`, `RealFrameworkRegressionTest`, `RealStrutsSpringMyBatisAppRegressionTest` |
 | `JA-NT-105` | `CoreRunnerBytecodeMainlineTest`, `RealGadgetFamilyRegressionTest`, `YsoserialPayloadRegressionTest`, `GadgetRouteCoverageBenchTest` |
 | `JA-NT-106` | `BuildFactAssemblerTest`, `CoreRunnerBytecodeMainlineTest`, `RealFrameworkRegressionTest`, `RealStrutsSpringMyBatisProjectModeRegressionTest` |
-| `JA-NT-107` | `CallGraphPlanTest`, `CoreRunnerCallGraphProfileTest`, `TaieBuildIntegrationTest` |
+| `JA-NT-107` | `CallGraphPlanTest`, `CoreRunnerCallGraphProfileTest` |
 | `JA-NT-108` | `NoTaieMigrationRegressionPackTest`, `NoTaieQualityGateTest` |
 
 ## 3. 推荐命令
@@ -41,7 +41,7 @@ mvn -q -Dskip.npm=true -Dskip.installnodenpm=true \
 
 ```bash
 mvn -q -Dskip.npm=true -Dskip.installnodenpm=true \
-  -Dtest=CallGraphPlanTest,CoreRunnerCallGraphProfileTest,TaieBuildIntegrationTest \
+  -Dtest=CallGraphPlanTest,CoreRunnerCallGraphProfileTest \
   test
 ```
 

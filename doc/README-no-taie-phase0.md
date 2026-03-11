@@ -41,8 +41,8 @@ Phase 0 不做“去 Tai-e 切换”，只做两件事：
 Phase 0 之后的工作边界也已经明确：
 
 - 默认主链已切到 `balanced` bytecode profile
-- Tai-e 已退化为显式 `oracle-taie` 对照路径，旧的 `taie` engine 入口已移除
-- 下一阶段应该直接进入“oracle-taie 收敛 + Tai-e 退场”，而不是继续扩写 Phase 0
+- 后续阶段已完成 `oracle-taie` 收口与 Tai-e 仓库级退场
+- Phase 0 已冻结，后续不再扩写
 
 ## 2. 当前可复用资产
 
@@ -75,7 +75,7 @@ Phase 0 之后的工作边界也已经明确：
 
 - `CoreRunner` 已输出逐阶段耗时和 `heapUsage`
 - `Neo4jBulkImportService` 已输出导入耗时、节点数、边数
-- `BuildResult` / build meta 已记录 `call_graph_engine`、`call_graph_mode`，并对 oracle 路径同时输出 `oracle_*` / 兼容 `taie_*` 计数
+- `BuildResult` / build meta 已记录 `call_graph_engine`、`call_graph_mode`；历史 `oracle_*` / `taie_*` 计数已在 Phase 6 一并移除
 - `BenchReportWriter` 已约定 bench 输出目录为 `target/bench`
 
 这意味着 Phase 0 不需要从零开始造 metrics 体系，应该先把现有日志与 QA harness 收敛成结构化报告。
@@ -142,10 +142,12 @@ Phase 0 的基线样本统一固定为以下七组：
 - `method_count`
 - `call_site_count`
 - `edge_count`
-- `oracle_edge_count`
 - `db_size_bytes`
 - `call_graph_engine`
 - `call_graph_mode`
+
+说明：
+- 自 2026 年 3 月 11 日的 Phase 6 收口起，生产 `BuildResult/build_meta` 不再暴露 `oracle_*` 计数；当前仓库也已删除测试侧 Tai-e harness，不再保留任何 Tai-e 运行入口
 
 功能性结果至少记录：
 

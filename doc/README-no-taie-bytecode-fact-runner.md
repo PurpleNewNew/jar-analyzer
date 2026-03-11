@@ -393,21 +393,21 @@ frame 分析必须有唯一 owner。
 - `SelectivePtaRefiner` 已经去掉 `BuildContext` 前端依赖，也不再自己提取 method-level 约束
 - `BytecodeMainlineReflectionResolver` 已优先消费 `MethodConstraintFacts.reflectionHints()`
 - `BuildFactAssembler.legacyView(...)` 仍保留桥接，但已不再承担默认主路径 owner
-- `CoreRunner` 中残留的 Tai-e oracle 运行/映射/入口拼装已经收进 `core/taie/TaieOracleCallGraphRunner`
+- `CoreRunner` 中残留的 Tai-e oracle 运行/映射/入口拼装已经被彻底移除
+- Phase 6 当前已把 Tai-e 从仓库 build/test 路径一并移除
 
 这意味着：
 
 - `JA-NT-106` 已经完成
 - Phase 4 的 PTA/反射约束 owner 收口也已经完成
-- Phase 5 的 `oracle-taie` 适配层压缩也已经完成，不需要再回头继续做前端 owner
+- Phase 5 的 `oracle-taie` 适配层压缩也已经完成，且 Phase 6 已把 Tai-e 从仓库中彻底移除
 
-## 10. 下一步边界
+## 10. 收尾边界
 
-下一步应直接进入：
+当前收尾已经完成：
 
-1. 评估 `precision` 是否已经足够覆盖 Tai-e 对照用途
-2. 继续削薄 `core/taie/*` 剩余外围依赖
-3. 评估是否进入彻底删除 Tai-e 依赖的最后阶段
+1. 历史文档与仓库规范已同步到“Tai-e 已退场”的当前口径
+2. 后续只继续按 bytecode-mainline 主链演进 `precision`
 
 一句话收尾：
 

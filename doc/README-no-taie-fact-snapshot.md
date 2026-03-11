@@ -146,7 +146,7 @@ record BuildFactSnapshot(
 
 - `dispatch/PTA` 的范围裁剪
 - 后续 incremental cache key
-- `precision/oracle-taie` 的可选输入
+- `precision` 的可选输入；当前不再依赖任何 Tai-e oracle
 
 ### 4.2 `TypeFacts`
 
@@ -295,7 +295,7 @@ record BuildFactSnapshot(
 - `nativeModelHints`
 
 这层仍然是后续 precision 收敛的唯一 owner。
-截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey`、method-level 的 `alloc/assign/field/array/native/return` 约束，以及 reflection invoke / method-handle / class-new-instance hints；`SelectivePtaRefiner` 也已切到 `snapshot + BuildEdgeAccumulator` 输入，`BytecodeMainlineReflectionResolver` 已优先消费 `snapshot.constraints()`。默认主链切换与 `oracle-taie` 收口已经完成，`oracle-taie` 适配层压缩也已经完成，当前 `CoreRunner` 只保留 bytecode-mainline / oracle 分流，Tai-e 专属运行/映射/入口拼装已经收进 `core/taie/TaieOracleCallGraphRunner`。下一步应评估是否进入彻底删除 Tai-e 依赖的最后阶段。
+截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey`、method-level 的 `alloc/assign/field/array/native/return` 约束，以及 reflection invoke / method-handle / class-new-instance hints；`SelectivePtaRefiner` 也已切到 `snapshot + BuildEdgeAccumulator` 输入，`BytecodeMainlineReflectionResolver` 已优先消费 `snapshot.constraints()`。默认主链切换、`oracle-taie` 收口以及适配层压缩都已经完成；Phase 6 也已完成，Tai-e 已从生产与测试路径一并移除，`CoreRunner` 和仓库测试都只保留 bytecode-mainline。
 
 ## 5. `BuildEdgeAccumulator` 的目标结构
 
@@ -462,14 +462,14 @@ BuildEdgeAccumulator edges = BuildEdgeAccumulator.empty();
 - 这不是鼓励拆很多薄类，而是把稳定契约单独收出来
 - 真正的装配逻辑应集中在 `BuildFactAssembler`
 
-## 9. 迁移期如何接入当前主链
+## 9. 收口后的主链接线方式
 
-建议的过渡步骤：
+当前主链接线方式：
 
 1. 当前 `CoreRunner` 继续跑既有 stages
 2. 在 `method semantic` 和 `bytecode symbol` 之后，新增：
    - `BuildFactSnapshot snapshot = BuildFactAssembler.from(...)`
-3. 迁移期仍允许 Tai-e 继续写 `BuildEdgeAccumulator`
+3. 后续 resolver/PTA 统一只允许写 `BuildEdgeAccumulator`
 4. 新增 `dispatch/reflection` 时，也只允许写 `BuildEdgeAccumulator`
 5. `Neo4jBulkImportService` 和 `ProjectRuntimeSnapshot` 消费：
    - `snapshot`
@@ -477,9 +477,9 @@ BuildEdgeAccumulator edges = BuildEdgeAccumulator.empty();
 
 这样可以做到：
 
-- 行为不改
-- 契约先稳住
-- 后续引擎替换时，只换“谁往 accumulator 写边”
+- 主链 owner 单一
+- 契约稳定
+- 新能力只在 facts/edges 层扩展，不再引入第二条调用图入口
 
 ## 10. `JA-NT-102` 的完成定义
 

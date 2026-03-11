@@ -47,7 +47,7 @@ public final class BytecodeMainlineCallGraphRunner {
         }
         BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
         BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(context, null, Map.of(), List.of(), workspace);
-        Result result = run(facts.snapshot(), facts.edges(), Settings.legacySemanticV1());
+        Result result = run(facts.snapshot(), facts.edges(), Settings.semanticV1());
         facts.edges().copyInto(context);
         return result;
     }
@@ -59,7 +59,7 @@ public final class BytecodeMainlineCallGraphRunner {
             return Result.empty();
         }
         BuildContext legacyView = BuildFactAssembler.legacyView(snapshot, edges);
-        Settings resolved = settings == null ? Settings.legacySemanticV1() : settings;
+        Settings resolved = settings == null ? Settings.semanticV1() : settings;
         InheritanceMap inheritanceMap = snapshot.types().inheritanceMap();
         BuildBytecodeWorkspace workspace = snapshot.bytecode().workspace();
         MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
@@ -302,7 +302,7 @@ public final class BytecodeMainlineCallGraphRunner {
             modeMeta = modeMeta == null || modeMeta.isBlank() ? MODE_SEMANTIC_V1 : modeMeta;
         }
 
-        public static Settings legacySemanticV1() {
+        public static Settings semanticV1() {
             return new Settings(MODE_SEMANTIC_V1, true, false);
         }
 

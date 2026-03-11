@@ -96,7 +96,7 @@ class Neo4jBulkImportServiceCallSiteTest {
                 projectKey,
                 1L,
                 false,
-                "oracle-taie:balanced",
+                "oracle-harness:balanced",
                 methods,
                 Map.of(caller.getHandle(), Set.of(calleeJarTwo.getHandle())),
                 Map.of(),

@@ -67,7 +67,7 @@ class Neo4jBulkImportServiceDuplicateSignatureTest {
                 Set.of(),
                 1,
                 10,
-                "taie-synth",
+                "callgraph-synth",
                 -1
         );
 

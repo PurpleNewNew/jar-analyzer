@@ -56,8 +56,7 @@ public final class NoTaieMigrationRegressionPack {
         out.put("JA-NT-107", pack(
                 "JA-NT-107",
                 "me.n1ar4.jar.analyzer.core.CallGraphPlanTest",
-                "me.n1ar4.jar.analyzer.core.CoreRunnerCallGraphProfileTest",
-                "me.n1ar4.jar.analyzer.core.taie.TaieBuildIntegrationTest"
+                "me.n1ar4.jar.analyzer.core.CoreRunnerCallGraphProfileTest"
         ));
         out.put("JA-NT-108", pack(
                 "JA-NT-108",

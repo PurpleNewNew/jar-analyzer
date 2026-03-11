@@ -439,7 +439,6 @@ profile 切换只能是：
 
 - `bytecode-mainline`
 - `bytecode-mainline+pta-refine`
-- `oracle-taie`
 
 不允许重新引入：
 

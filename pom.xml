@@ -96,7 +96,6 @@
         <compress.version>1.28.0</compress.version>
         <tomcat.jasper.version>10.1.18</tomcat.jasper.version>
         <ant.version>1.10.12</ant.version>
-        <taie.version>0.5.2</taie.version>
         <neo4j.version>5.26.0</neo4j.version>
         <jcef.tag.version>jcef-0b8e42e+cef-122.1.10+gc902316+chromium-122.0.6261.112</jcef.tag.version>
         <frontend.maven.version>1.15.1</frontend.maven.version>
@@ -260,11 +259,6 @@
             <groupId>org.apache.ant</groupId>
             <artifactId>ant</artifactId>
             <version>${ant.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>net.pascal-lab</groupId>
-            <artifactId>tai-e</artifactId>
-            <version>${taie.version}</version>
         </dependency>
         <dependency>
             <groupId>org.neo4j</groupId>

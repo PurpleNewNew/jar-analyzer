@@ -20,7 +20,6 @@ import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver.JdkResolution;
 import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier;
 import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier.ScopeSummary;
-import me.n1ar4.jar.analyzer.core.taie.TaieOracleCallGraphRunner;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
@@ -74,7 +73,6 @@ public class CoreRunner {
     private static final String CALLGRAPH_STAGE_KEY = "callgraph";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
-    private static final boolean DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS = false;
 
     private static void refreshCachesAfterBuild() {
         try {
@@ -596,8 +594,7 @@ public class CoreRunner {
         JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
         CallGraphPlan callGraphPlan = CallGraphPlan.resolve(
                 System.getProperty(CALL_GRAPH_ENGINE_PROP),
-                System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP),
-                null
+                System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP)
         );
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
         List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
@@ -611,15 +608,6 @@ public class CoreRunner {
         String callGraphModeMeta = callGraphPlan.callGraphModeMeta();
         String analysisProfile = callGraphPlan.analysisProfile();
         int explicitEntryCount = 0;
-        int oracleEdgeCount = 0;
-        int oracleEntryMethodCount = 0;
-        int oracleReachableMethodCount = 0;
-        int oraclePointsToVarCount = 0;
-        int oraclePointsToObjectCount = 0;
-        int oracleEndpointThisVarCount = 0;
-        long oracleEndpointAliasPairs = 0L;
-        String oracleReflectionInference = "";
-        String oracleReflectionLog = "";
         BytecodeMainlineCallGraphRunner.Result bytecodeResult = BytecodeMainlineCallGraphRunner.Result.empty();
         context.methodCalls.clear();
         context.methodCallMeta.clear();
@@ -635,87 +623,45 @@ public class CoreRunner {
             logger.info("all archives are common/sdk, continue without call graph (policy={})",
                     policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
         } else {
-            if (callGraphPlan.bytecodeMainline()) {
-                BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(
-                        context,
-                        scopeSummary,
-                        jarOriginsById,
-                        localVars,
-                        workspace
-                );
-                bytecodeResult = BytecodeMainlineCallGraphRunner.run(
-                        facts.snapshot(),
-                        facts.edges(),
-                        callGraphPlan.bytecodeSettings()
-                );
-                facts.edges().copyInto(context);
-                logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
-                        msSince(stageStartNs),
-                        callGraphModeMeta,
-                        callGraphPlan.bytecodeSettings().precisionMode(),
-                        callGraphPlan.bytecodeSettings().ptaBudgetProfile(),
-                        bytecodeResult.directEdges(),
-                        bytecodeResult.declaredDispatchEdges(),
-                        bytecodeResult.invokeDynamicEdges(),
-                        bytecodeResult.typedDispatchEdges(),
-                        bytecodeResult.dispatchExpansionEdges(),
-                        bytecodeResult.reflectionEdges(),
-                        bytecodeResult.methodHandleEdges(),
-                        bytecodeResult.callbackEdges(),
-                        bytecodeResult.frameworkEdges(),
-                        bytecodeResult.triggerBridgeEdges(),
-                        bytecodeResult.ptaEdges(),
-                        bytecodeResult.refinedPtaCallSites(),
-                        bytecodeResult.ptaHotspotCallSites(),
-                        bytecodeResult.ptaFieldSites(),
-                        bytecodeResult.ptaArraySites(),
-                        bytecodeResult.ptaArrayCopySites(),
-                        bytecodeResult.instantiatedClassCount(),
-                        bytecodeResult.unresolvedCallerCount(),
-                        bytecodeResult.unresolvedDeclaredTargetCount(),
-                        bytecodeResult.totalEdges(),
-                        heapUsage());
-            } else {
-                TaieOracleCallGraphRunner.Result oracleResult = TaieOracleCallGraphRunner.run(
-                        jarPath,
-                        context,
-                        appArchives,
-                        new ArrayList<>(callGraphClasspath),
-                        jarOriginsById,
-                        callGraphPlan.taieProfile(),
-                        DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS
-                );
-                oracleResult.mergeInto(context);
-                explicitEntryCount = oracleResult.explicitEntryCount();
-                oracleEdgeCount = oracleResult.keptEdges();
-                oracleEntryMethodCount = oracleResult.entryMethodCount();
-                oracleReachableMethodCount = oracleResult.reachableMethodCount();
-                oraclePointsToVarCount = oracleResult.pointsToVarCount();
-                oraclePointsToObjectCount = oracleResult.pointsToObjectCount();
-                oracleEndpointThisVarCount = oracleResult.endpointThisVarCount();
-                oracleEndpointAliasPairs = oracleResult.endpointMayAliasPairs();
-                oracleReflectionInference = safe(oracleResult.reflectionInference());
-                oracleReflectionLog = safe(oracleResult.reflectionLog());
-                logger.info("build stage oracle-taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
-                        oracleResult.elapsedMs(),
-                        oracleResult.profile(),
-                        oracleResult.edgePolicy(),
-                        oracleResult.totalEdges(),
-                        oracleResult.keptEdges(),
-                        oracleResult.skippedByPolicy(),
-                        oracleResult.unresolvedCaller(),
-                        oracleResult.unresolvedCallee(),
-                        explicitEntryCount,
-                        oracleEntryMethodCount,
-                        oracleReachableMethodCount,
-                        oraclePointsToVarCount,
-                        oraclePointsToObjectCount,
-                        oracleEndpointThisVarCount,
-                        oracleEndpointAliasPairs,
-                        oracleReflectionInference.isBlank() ? "<default>" : oracleReflectionInference,
-                        oracleReflectionLog.isBlank() ? "<none>" : oracleReflectionLog,
-                        heapUsage());
-            }
+            BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(
+                    context,
+                    scopeSummary,
+                    jarOriginsById,
+                    localVars,
+                    workspace
+            );
+            bytecodeResult = BytecodeMainlineCallGraphRunner.run(
+                    facts.snapshot(),
+                    facts.edges(),
+                    callGraphPlan.bytecodeSettings()
+            );
+            facts.edges().copyInto(context);
+            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+                    msSince(stageStartNs),
+                    callGraphModeMeta,
+                    callGraphPlan.bytecodeSettings().precisionMode(),
+                    callGraphPlan.bytecodeSettings().ptaBudgetProfile(),
+                    bytecodeResult.directEdges(),
+                    bytecodeResult.declaredDispatchEdges(),
+                    bytecodeResult.invokeDynamicEdges(),
+                    bytecodeResult.typedDispatchEdges(),
+                    bytecodeResult.dispatchExpansionEdges(),
+                    bytecodeResult.reflectionEdges(),
+                    bytecodeResult.methodHandleEdges(),
+                    bytecodeResult.callbackEdges(),
+                    bytecodeResult.frameworkEdges(),
+                    bytecodeResult.triggerBridgeEdges(),
+                    bytecodeResult.ptaEdges(),
+                    bytecodeResult.refinedPtaCallSites(),
+                    bytecodeResult.ptaHotspotCallSites(),
+                    bytecodeResult.ptaFieldSites(),
+                    bytecodeResult.ptaArraySites(),
+                    bytecodeResult.ptaArrayCopySites(),
+                    bytecodeResult.instantiatedClassCount(),
+                    bytecodeResult.unresolvedCallerCount(),
+                    bytecodeResult.unresolvedDeclaredTargetCount(),
+                    bytecodeResult.totalEdges(),
+                    heapUsage());
         }
         logger.info("build stage callgraph total: {} ms (engine={}, heap={})",
                 msSince(stageStartNs), callGraphEngine, heapUsage());
@@ -728,50 +674,35 @@ public class CoreRunner {
                     "classpath_archives", callGraphClasspath.size(),
                     "explicit_entries", explicitEntryCount,
                     "target_archives", scopeSummary == null ? 0 : scopeSummary.targetArchiveCount(),
-                    "library_archives", scopeSummary == null ? 0 : scopeSummary.libraryArchiveCount(),
-                    "oracle_edges", oracleEdgeCount,
-                    "oracle_entry_methods", oracleEntryMethodCount,
-                    "entry_methods", oracleEntryMethodCount,
-                    "oracle_reachable_methods", oracleReachableMethodCount,
-                    "reachable_methods", oracleReachableMethodCount,
-                    "oracle_points_to_vars", oraclePointsToVarCount,
-                    "points_to_vars", oraclePointsToVarCount,
-                    "oracle_points_to_objects", oraclePointsToObjectCount,
-                    "points_to_objects", oraclePointsToObjectCount,
-                    "oracle_endpoint_this_vars", oracleEndpointThisVarCount,
-                    "endpoint_this_vars", oracleEndpointThisVarCount,
-                    "oracle_endpoint_alias_pairs", oracleEndpointAliasPairs,
-                    "endpoint_alias_pairs", oracleEndpointAliasPairs
+                    "library_archives", scopeSummary == null ? 0 : scopeSummary.libraryArchiveCount()
             ));
-            if (callGraphPlan.bytecodeMainline()) {
-                callGraphMetrics.put("direct_edges", bytecodeResult.directEdges());
-                callGraphMetrics.put("declared_dispatch_edges", bytecodeResult.declaredDispatchEdges());
-                callGraphMetrics.put("invoke_dynamic_edges", bytecodeResult.invokeDynamicEdges());
-                callGraphMetrics.put("typed_dispatch_edges", bytecodeResult.typedDispatchEdges());
-                callGraphMetrics.put("dispatch_expansion_edges", bytecodeResult.dispatchExpansionEdges());
-                callGraphMetrics.put("reflection_edges", bytecodeResult.reflectionEdges());
-                callGraphMetrics.put("method_handle_edges", bytecodeResult.methodHandleEdges());
-                callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
-                callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
-                callGraphMetrics.put("trigger_bridge_edges", bytecodeResult.triggerBridgeEdges());
-                callGraphMetrics.put("thread_start_edges", bytecodeResult.threadStartEdges());
-                callGraphMetrics.put("executor_edges", bytecodeResult.executorEdges());
-                callGraphMetrics.put("completable_future_edges", bytecodeResult.completableFutureEdges());
-                callGraphMetrics.put("do_privileged_edges", bytecodeResult.doPrivilegedEdges());
-                callGraphMetrics.put("dynamic_proxy_edges", bytecodeResult.dynamicProxyEdges());
-                callGraphMetrics.put("pta_edges", bytecodeResult.ptaEdges());
-                callGraphMetrics.put("pta_refined_call_sites", bytecodeResult.refinedPtaCallSites());
-                callGraphMetrics.put("pta_hotspot_call_sites", bytecodeResult.ptaHotspotCallSites());
-                callGraphMetrics.put("pta_field_sites", bytecodeResult.ptaFieldSites());
-                callGraphMetrics.put("pta_array_sites", bytecodeResult.ptaArraySites());
-                callGraphMetrics.put("pta_array_copy_sites", bytecodeResult.ptaArrayCopySites());
-                callGraphMetrics.put("precision_mode", callGraphPlan.bytecodeSettings().precisionMode());
-                callGraphMetrics.put("pta_budget_profile", callGraphPlan.bytecodeSettings().ptaBudgetProfile());
-                callGraphMetrics.put("instantiated_classes", bytecodeResult.instantiatedClassCount());
-                callGraphMetrics.put("unresolved_callers", bytecodeResult.unresolvedCallerCount());
-                callGraphMetrics.put("unresolved_declared_targets", bytecodeResult.unresolvedDeclaredTargetCount());
-                callGraphMetrics.put("total_edges", bytecodeResult.totalEdges());
-            }
+            callGraphMetrics.put("direct_edges", bytecodeResult.directEdges());
+            callGraphMetrics.put("declared_dispatch_edges", bytecodeResult.declaredDispatchEdges());
+            callGraphMetrics.put("invoke_dynamic_edges", bytecodeResult.invokeDynamicEdges());
+            callGraphMetrics.put("typed_dispatch_edges", bytecodeResult.typedDispatchEdges());
+            callGraphMetrics.put("dispatch_expansion_edges", bytecodeResult.dispatchExpansionEdges());
+            callGraphMetrics.put("reflection_edges", bytecodeResult.reflectionEdges());
+            callGraphMetrics.put("method_handle_edges", bytecodeResult.methodHandleEdges());
+            callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
+            callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
+            callGraphMetrics.put("trigger_bridge_edges", bytecodeResult.triggerBridgeEdges());
+            callGraphMetrics.put("thread_start_edges", bytecodeResult.threadStartEdges());
+            callGraphMetrics.put("executor_edges", bytecodeResult.executorEdges());
+            callGraphMetrics.put("completable_future_edges", bytecodeResult.completableFutureEdges());
+            callGraphMetrics.put("do_privileged_edges", bytecodeResult.doPrivilegedEdges());
+            callGraphMetrics.put("dynamic_proxy_edges", bytecodeResult.dynamicProxyEdges());
+            callGraphMetrics.put("pta_edges", bytecodeResult.ptaEdges());
+            callGraphMetrics.put("pta_refined_call_sites", bytecodeResult.refinedPtaCallSites());
+            callGraphMetrics.put("pta_hotspot_call_sites", bytecodeResult.ptaHotspotCallSites());
+            callGraphMetrics.put("pta_field_sites", bytecodeResult.ptaFieldSites());
+            callGraphMetrics.put("pta_array_sites", bytecodeResult.ptaArraySites());
+            callGraphMetrics.put("pta_array_copy_sites", bytecodeResult.ptaArrayCopySites());
+            callGraphMetrics.put("precision_mode", callGraphPlan.bytecodeSettings().precisionMode());
+            callGraphMetrics.put("pta_budget_profile", callGraphPlan.bytecodeSettings().ptaBudgetProfile());
+            callGraphMetrics.put("instantiated_classes", bytecodeResult.instantiatedClassCount());
+            callGraphMetrics.put("unresolved_callers", bytecodeResult.unresolvedCallerCount());
+            callGraphMetrics.put("unresolved_declared_targets", bytecodeResult.unresolvedDeclaredTargetCount());
+            callGraphMetrics.put("total_edges", bytecodeResult.totalEdges());
             metrics.record(CALLGRAPH_STAGE_KEY, msSince(stageStartNs), callGraphMetrics);
         }
         return new CallGraphStageResult(
@@ -780,15 +711,6 @@ public class CoreRunner {
                 analysisProfile,
                 callGraphEngine,
                 callGraphModeMeta,
-                oracleEdgeCount,
-                oracleEntryMethodCount,
-                oracleReachableMethodCount,
-                oraclePointsToVarCount,
-                oraclePointsToObjectCount,
-                oracleEndpointThisVarCount,
-                oracleEndpointAliasPairs,
-                oracleReflectionInference,
-                oracleReflectionLog,
                 explicitEntryCount
         );
     }
@@ -884,15 +806,6 @@ public class CoreRunner {
                         callGraphStage.analysisProfile(),
                         callGraphStage.scopeSummary(),
                         callGraphStage.jdkResolution(),
-                        callGraphStage.oracleEdgeCount(),
-                        callGraphStage.oracleEntryMethodCount(),
-                        callGraphStage.oracleReachableMethodCount(),
-                        callGraphStage.oraclePointsToVarCount(),
-                        callGraphStage.oraclePointsToObjectCount(),
-                        callGraphStage.oracleEndpointThisVarCount(),
-                        callGraphStage.oracleEndpointAliasPairs(),
-                        callGraphStage.oracleReflectionInference(),
-                        callGraphStage.oracleReflectionLog(),
                         callGraphStage.explicitEntryCount()
                 )
         );
@@ -969,13 +882,6 @@ public class CoreRunner {
                 callGraphStage.scopeSummary().targetArchiveCount(),
                 callGraphStage.scopeSummary().libraryArchiveCount(),
                 callGraphStage.jdkResolution().sdkEntryCount(),
-                callGraphStage.oracleEdgeCount(),
-                callGraphStage.oracleEntryMethodCount(),
-                callGraphStage.oracleReachableMethodCount(),
-                callGraphStage.oraclePointsToVarCount(),
-                callGraphStage.oraclePointsToObjectCount(),
-                callGraphStage.oracleEndpointThisVarCount(),
-                callGraphStage.oracleEndpointAliasPairs(),
                 peakHeapUsedBytes,
                 peakHeapCommittedBytes,
                 heapMaxBytes,
@@ -1006,15 +912,6 @@ public class CoreRunner {
                                         String analysisProfile,
                                         String callGraphEngine,
                                         String callGraphModeMeta,
-                                        int oracleEdgeCount,
-                                        int oracleEntryMethodCount,
-                                        int oracleReachableMethodCount,
-                                        int oraclePointsToVarCount,
-                                        int oraclePointsToObjectCount,
-                                        int oracleEndpointThisVarCount,
-                                        long oracleEndpointAliasPairs,
-                                        String oracleReflectionInference,
-                                        String oracleReflectionLog,
                                         int explicitEntryCount) {
     }
 
@@ -1369,15 +1266,6 @@ public class CoreRunner {
                                                  String analysisProfile,
                                                  ScopeSummary scopeSummary,
                                                  JdkResolution jdkResolution,
-                                                 int oracleEdgeCount,
-                                                 int oracleEntryMethodCount,
-                                                 int oracleReachableMethodCount,
-                                                 int oraclePointsToVarCount,
-                                                 int oraclePointsToObjectCount,
-                                                 int oracleEndpointThisVarCount,
-                                                 long oracleEndpointAliasPairs,
-                                                 String oracleReflectionInference,
-                                                 String oracleReflectionLog,
                                                  int explicitEntryMethodCount) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("call_graph_engine", safe(callGraphEngine));
@@ -1385,20 +1273,7 @@ public class CoreRunner {
         meta.put("target_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.targetArchiveCount()));
         meta.put("library_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.libraryArchiveCount()));
         meta.put("sdk_entry_count", jdkResolution == null ? 0 : Math.max(0, jdkResolution.sdkEntryCount()));
-        meta.put("oracle_edge_count", Math.max(0, oracleEdgeCount));
         meta.put("explicit_entry_method_count", Math.max(0, explicitEntryMethodCount));
-        meta.put("oracle_entry_method_count", Math.max(0, oracleEntryMethodCount));
-        meta.put("oracle_reachable_method_count", Math.max(0, oracleReachableMethodCount));
-        meta.put("oracle_points_to_var_count", Math.max(0, oraclePointsToVarCount));
-        meta.put("oracle_points_to_object_count", Math.max(0, oraclePointsToObjectCount));
-        meta.put("oracle_endpoint_this_var_count", Math.max(0, oracleEndpointThisVarCount));
-        meta.put("oracle_endpoint_alias_pair_count", Math.max(0L, oracleEndpointAliasPairs));
-        if (oracleReflectionInference != null && !oracleReflectionInference.isBlank()) {
-            meta.put("oracle_reflection_inference", oracleReflectionInference);
-        }
-        if (oracleReflectionLog != null && !oracleReflectionLog.isBlank()) {
-            meta.put("oracle_reflection_log", oracleReflectionLog);
-        }
         return meta;
     }
 
@@ -1437,13 +1312,6 @@ public class CoreRunner {
         private final int targetJarCount;
         private final int libraryJarCount;
         private final int sdkEntryCount;
-        private final int oracleEdgeCount;
-        private final int oracleEntryMethodCount;
-        private final int oracleReachableMethodCount;
-        private final int oraclePointsToVarCount;
-        private final int oraclePointsToObjectCount;
-        private final int oracleEndpointThisVarCount;
-        private final long oracleEndpointAliasPairCount;
         private final long peakHeapUsedBytes;
         private final long peakHeapCommittedBytes;
         private final long heapMaxBytes;
@@ -1466,13 +1334,6 @@ public class CoreRunner {
                            int targetJarCount,
                            int libraryJarCount,
                            int sdkEntryCount,
-                           int oracleEdgeCount,
-                           int oracleEntryMethodCount,
-                           int oracleReachableMethodCount,
-                           int oraclePointsToVarCount,
-                           int oraclePointsToObjectCount,
-                           int oracleEndpointThisVarCount,
-                           long oracleEndpointAliasPairCount,
                            long peakHeapUsedBytes,
                            long peakHeapCommittedBytes,
                            long heapMaxBytes,
@@ -1494,13 +1355,6 @@ public class CoreRunner {
             this.targetJarCount = Math.max(0, targetJarCount);
             this.libraryJarCount = Math.max(0, libraryJarCount);
             this.sdkEntryCount = Math.max(0, sdkEntryCount);
-            this.oracleEdgeCount = Math.max(0, oracleEdgeCount);
-            this.oracleEntryMethodCount = Math.max(0, oracleEntryMethodCount);
-            this.oracleReachableMethodCount = Math.max(0, oracleReachableMethodCount);
-            this.oraclePointsToVarCount = Math.max(0, oraclePointsToVarCount);
-            this.oraclePointsToObjectCount = Math.max(0, oraclePointsToObjectCount);
-            this.oracleEndpointThisVarCount = Math.max(0, oracleEndpointThisVarCount);
-            this.oracleEndpointAliasPairCount = Math.max(0L, oracleEndpointAliasPairCount);
             this.peakHeapUsedBytes = Math.max(0L, peakHeapUsedBytes);
             this.peakHeapCommittedBytes = Math.max(0L, peakHeapCommittedBytes);
             this.heapMaxBytes = Math.max(0L, heapMaxBytes);
@@ -1572,34 +1426,6 @@ public class CoreRunner {
 
         public int getSdkEntryCount() {
             return sdkEntryCount;
-        }
-
-        public int getOracleEdgeCount() {
-            return oracleEdgeCount;
-        }
-
-        public int getOracleEntryMethodCount() {
-            return oracleEntryMethodCount;
-        }
-
-        public int getOracleReachableMethodCount() {
-            return oracleReachableMethodCount;
-        }
-
-        public int getOraclePointsToVarCount() {
-            return oraclePointsToVarCount;
-        }
-
-        public int getOraclePointsToObjectCount() {
-            return oraclePointsToObjectCount;
-        }
-
-        public int getOracleEndpointThisVarCount() {
-            return oracleEndpointThisVarCount;
-        }
-
-        public long getOracleEndpointAliasPairCount() {
-            return oracleEndpointAliasPairCount;
         }
 
         public long getPeakHeapUsedBytes() {

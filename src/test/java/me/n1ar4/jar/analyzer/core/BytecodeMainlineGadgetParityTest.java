@@ -23,7 +23,6 @@ class BytecodeMainlineGadgetParityTest {
     void cleanup() {
         System.clearProperty("jar.analyzer.callgraph.engine");
         System.clearProperty("jar.analyzer.callgraph.profile");
-        System.clearProperty("jar.analyzer.analysis.profile");
         GraphStore.invalidateCache();
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();

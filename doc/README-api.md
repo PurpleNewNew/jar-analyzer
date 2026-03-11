@@ -18,13 +18,8 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
-- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision|oracle-taie` 切换，其中 `fast/balanced/precision` 走字节码主链，`oracle-taie` 把 Tai-e 限定为对照模式；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine|oracle-taie` 仍可使用，旧值 `taie` 已移除并会显式报错。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
-- Tai-e 边保留策略默认 `reachable-app`（保留 APP 边界 + APP 可达的非 SDK LIBRARY caller），可通过 `jar.analyzer.taie.edge.policy` 调整：
-  - `reachable-app`（默认）
-  - `app-caller`
-  - `non-sdk-caller`
-  - `full`
-- Tai-e invokedynamic 采用内置双档重试（`on -> off`），不再暴露外部模式开关。
+- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。旧值 `taie` 与 `oracle-taie` 已从生产 build 移除并会显式报错。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
+- Tai-e 已从仓库构建与运行路径中彻底移除；不再对外暴露调用图 profile、edge policy 或 analysis profile 配置。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
   - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）

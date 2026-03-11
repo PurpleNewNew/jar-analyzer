@@ -1,4 +1,4 @@
-# `bytecode-mainline / oracle-taie` Profile 切换口径（JA-NT-107）
+# `bytecode-mainline` Profile 切换口径（Phase 6 生产口径）
 
 本文档补充 [Phase 0 实施文档](/Users/veritas/Documents/projects/jar-analyzer/doc/README-no-taie-phase0.md) 中的 `JA-NT-107`，并与当前代码保持一致。
 
@@ -11,7 +11,6 @@
 兼容入口：
 
 - `jar.analyzer.callgraph.engine`
-- `jar.analyzer.analysis.profile`
 
 优先级：
 
@@ -26,12 +25,11 @@
 | `fast` | `bytecode-mainline` | `bytecode:fast-v1` | 否 | 快速建库、先看主调用链 |
 | `balanced` | `bytecode-mainline+pta-refine` | `bytecode:balanced-v1` | 是 | 当前默认主链，兼顾速度与热点 PTA 精化 |
 | `precision` | `bytecode-mainline+pta-refine` | `bytecode:precision-v1` | 是 | 在同一 bytecode 主链下启用更高 PTA 预算，追求更高精度 |
-| `oracle-taie` | `oracle-taie` | `oracle-taie:<taie-profile>` | 否 | 把 Tai-e 限定为 oracle/对照模式 |
 
 说明：
 
 - `precision` 仍然属于 bytecode 主链，不重新引入第二条 PTA 全量主链；当前通过更高 PTA 预算在同链上做精化。
-- `oracle-taie` 的 Tai-e context profile 仍由 `jar.analyzer.analysis.profile` 控制，例如 `fast/balanced/high`。
+- `oracle-taie` 已从配置面退场；Tai-e 也已从仓库代码与测试路径中移除。
 
 ## 3. Engine 兼容映射
 
@@ -41,19 +39,19 @@
 | --- | --- |
 | `bytecode-mainline` | 兼容旧实验入口，走 `bytecode:semantic-v1` |
 | `bytecode-mainline+pta-refine` | 走 `bytecode:balanced-v1` |
-| `oracle-taie` | 走 `oracle-taie:<taie-profile>` |
 
 兼容口径：
 
 - engine 只作为迁移期 escape hatch。
-- `jar.analyzer.callgraph.engine=taie` 已移除，当前会直接报错并提示改成 `oracle-taie`。
-- profile 才是后续 GUI/API 真正应该暴露的切换面。
+- `jar.analyzer.callgraph.engine=taie` 与 `jar.analyzer.callgraph.engine=oracle-taie` 均已移除，当前会直接失败。
+- profile 只保留 `fast / balanced / precision`。
 
 ## 4. 当前代码落点
 
 - 解析入口：`src/main/java/me/n1ar4/jar/analyzer/core/CallGraphPlan.java`
 - 主链接线：`src/main/java/me/n1ar4/jar/analyzer/core/CoreRunner.java`
 - bytecode 主链：`src/main/java/me/n1ar4/jar/analyzer/core/BytecodeMainlineCallGraphRunner.java`
+- 当前仓库不再保留 Tai-e 对照 harness。
 
 ## 5. 最小验证
 
@@ -69,6 +67,6 @@ mvn -q -Dskip.npm=true -Dskip.installnodenpm=true \
 
 - 默认无配置时会落到 `bytecode-mainline+pta-refine / bytecode:balanced-v1`
 - `fast` 会落到 `bytecode-mainline / bytecode:fast-v1`
-- `oracle-taie` 会落到 `oracle-taie / oracle-taie:<taie-profile>`
-- `jar.analyzer.callgraph.engine=taie` 会直接失败并提示使用 `oracle-taie`
+- `jar.analyzer.callgraph.profile=oracle-taie` 会直接失败
+- `jar.analyzer.callgraph.engine=taie|oracle-taie` 会直接失败
 - `jar.analyzer.callgraph.engine` 显式设置时会覆盖 profile

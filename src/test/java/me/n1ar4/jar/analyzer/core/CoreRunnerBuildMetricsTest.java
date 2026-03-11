@@ -62,7 +62,8 @@ class CoreRunnerBuildMetricsTest {
         assertEquals(result.getClassCount(), intMetric(discovery, "classes"));
         assertEquals(result.getMethodCount(), intMetric(discovery, "methods"));
         assertEquals(intMetric(symbol, "call_sites"), result.getCallSiteCount());
-        assertEquals(result.getOracleEdgeCount(), intMetric(callGraph, "oracle_edges"));
+        assertTrue(intMetric(callGraph, "total_edges") >= 0);
+        assertFalse(callGraph.getDetails().containsKey("oracle_edges"));
         assertEquals(result.getEdgeCount(), intMetric(commit, "edges"));
         assertTrue(result.getPeakHeapUsedBytes() > 0L);
         assertTrue(result.getPeakHeapCommittedBytes() >= result.getPeakHeapUsedBytes());
@@ -86,7 +87,7 @@ class CoreRunnerBuildMetricsTest {
             assertEquals(discovery.getDurationMs(), ((Number) meta.getProperty("build_stage_discovery_ms")).longValue());
             assertEquals(callGraph.getDurationMs(), ((Number) meta.getProperty("build_stage_callgraph_ms")).longValue());
             assertFalse(meta.hasProperty("build_stage_taie_callgraph_ms"));
-            assertEquals(result.getOracleEdgeCount(), ((Number) meta.getProperty("oracle_edge_count")).intValue());
+            assertFalse(meta.hasProperty("oracle_edge_count"));
             assertFalse(meta.hasProperty("taie_edge_count"));
             assertEquals(commit.getDurationMs(), ((Number) meta.getProperty("build_stage_neo4j_commit_ms")).longValue());
             assertEquals(intMetric(symbol, "call_sites"),
