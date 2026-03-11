@@ -76,7 +76,9 @@ public class CoreRunner {
 
     private static final String ALL_COMMON_POLICY_PROP = "jar.analyzer.all-common.policy";
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
+    private static final String CALL_GRAPH_ENGINE_PROP = "jar.analyzer.callgraph.engine";
     private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
+    private static final String CALL_GRAPH_ENGINE_BYTECODE = BytecodeMainlineCallGraphRunner.ENGINE;
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
@@ -111,6 +113,8 @@ public class CoreRunner {
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
         BuildContext context = new BuildContext();
+        BuildMetricsCollector metrics = new BuildMetricsCollector();
+        long buildStartNs = System.nanoTime();
         boolean cleaned = false;
         boolean buildCommitted = false;
         BuildSession session = null;
@@ -122,12 +126,19 @@ public class CoreRunner {
             buildSeq = session.buildSeq();
             LAST_BUILD_STAGE.remove();
             markBuildStage("prepare-project-model");
+            long stageStartNs = System.nanoTime();
             prepareProjectModelForBuild(jarPath, rtJarPath, includeNested);
+            metrics.record("prepare_project_model", msSince(stageStartNs), metricMap(
+                    "include_nested", includeNested,
+                    "project_mode", ProjectRuntimeContext.getProjectModel() != null
+                            && ProjectRuntimeContext.getProjectModel().buildMode() == ProjectBuildMode.PROJECT,
+                    "runtime_hint_present", rtJarPath != null || ProjectRuntimeContext.runtimePath() != null
+            ));
             markBuildStage("resolve-inputs");
-            BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress);
+            BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress, metrics);
             markBuildStage("prepare-class-files");
-            prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress);
-            BytecodeSymbolRunner.Result symbolResult = runBytecodeStages(context, quickMode, progress);
+            prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress, metrics);
+            BytecodeSymbolRunner.Result symbolResult = runBytecodeStages(context, quickMode, progress, metrics);
             CallGraphStageResult callGraphStage = runCallGraphStage(
                     jarPath,
                     quickMode,
@@ -135,7 +146,8 @@ public class CoreRunner {
                     inputs.scopeSummary(),
                     inputs.runtimeHint(),
                     inputs.jarOriginsById(),
-                    progress
+                    progress,
+                    metrics
             );
             BuildResult result = commitBuild(
                     targetProjectKey,
@@ -145,7 +157,9 @@ public class CoreRunner {
                     inputs,
                     symbolResult,
                     callGraphStage,
-                    progress
+                    progress,
+                    metrics,
+                    buildStartNs
             );
             buildCommitted = true;
             markBuildStage("cleanup");
@@ -223,7 +237,8 @@ public class CoreRunner {
                                                   Path rtJarPath,
                                                   boolean quickMode,
                                                   boolean includeNested,
-                                                  IntConsumer progress) {
+                                                  IntConsumer progress,
+                                                  BuildMetricsCollector metrics) {
         long stageStartNs = System.nanoTime();
         Map<String, Integer> jarIdMap = new LinkedHashMap<>();
         int[] nextJarId = {1};
@@ -287,6 +302,16 @@ public class CoreRunner {
                 scopeSummary.libraryArchiveCount(),
                 scopeSummary.sdkArchiveCount(),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("resolve_inputs", msSince(stageStartNs), metricMap(
+                    "archives", userArchives.size(),
+                    "target_archives", scopeSummary.targetArchiveCount(),
+                    "library_archives", scopeSummary.libraryArchiveCount(),
+                    "sdk_archives", scopeSummary.sdkArchiveCount(),
+                    "quick_mode", quickMode,
+                    "include_nested", includeNested
+            ));
+        }
         return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, runtimeHint);
     }
 
@@ -348,7 +373,8 @@ public class CoreRunner {
                                           Map<String, Integer> jarIdMap,
                                           boolean fixClass,
                                           boolean includeNested,
-                                          IntConsumer progress) {
+                                          IntConsumer progress,
+                                          BuildMetricsCollector metrics) {
         long stageStartNs = System.nanoTime();
         List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
                 userArchives, jarIdMap, context.resources, includeNested);
@@ -401,11 +427,21 @@ public class CoreRunner {
                 context.resources.size(),
                 fixClass,
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("prepare_class_files", msSince(stageStartNs), metricMap(
+                    "class_files", classFiles.size(),
+                    "resources", context.resources.size(),
+                    "jsp_class_files", jspClassFiles.size(),
+                    "fix_class", fixClass,
+                    "include_nested", includeNested
+            ));
+        }
     }
 
     private static BytecodeSymbolRunner.Result runBytecodeStages(BuildContext context,
                                                                  boolean quickMode,
-                                                                 IntConsumer progress) {
+                                                                 IntConsumer progress,
+                                                                 BuildMetricsCollector metrics) {
         markBuildStage("discovery");
         long stageStartNs = System.nanoTime();
         DiscoveryRunner.start(
@@ -422,6 +458,13 @@ public class CoreRunner {
                 context.discoveredClasses.size(),
                 context.discoveredMethods.size(),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("discovery", msSince(stageStartNs), metricMap(
+                    "class_files", context.classFileList.size(),
+                    "classes", context.discoveredClasses.size(),
+                    "methods", context.discoveredMethods.size()
+            ));
+        }
         progress.accept(30);
 
         markBuildStage("class-analysis");
@@ -449,6 +492,16 @@ public class CoreRunner {
                 context.filters.size(),
                 context.listeners.size(),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("class_analysis", msSince(stageStartNs), metricMap(
+                    "strings", context.strMap.size(),
+                    "controllers", context.controllers.size(),
+                    "interceptors", context.interceptors.size(),
+                    "servlets", context.servlets.size(),
+                    "filters", context.filters.size(),
+                    "listeners", context.listeners.size()
+            ));
+        }
 
         markBuildStage("framework-entry");
         stageStartNs = System.nanoTime();
@@ -471,6 +524,14 @@ public class CoreRunner {
                 context.filters.size(),
                 context.listeners.size(),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("framework_entry", msSince(stageStartNs), metricMap(
+                    "explicit_methods", context.explicitSourceMethodFlags.size(),
+                    "servlets", context.servlets.size(),
+                    "filters", context.filters.size(),
+                    "listeners", context.listeners.size()
+            ));
+        }
 
         markBuildStage("method-semantic");
         stageStartNs = System.nanoTime();
@@ -479,12 +540,24 @@ public class CoreRunner {
                 msSince(stageStartNs),
                 countSemanticMethods(context),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("method_semantic", msSince(stageStartNs), metricMap(
+                    "tagged_methods", countSemanticMethods(context)
+            ));
+        }
 
         markBuildStage("bytecode-symbol");
         stageStartNs = System.nanoTime();
         progress.accept(40);
         if (quickMode) {
             logger.info("build stage bytecode-symbol: skipped in quick mode (heap={})", heapUsage());
+            if (metrics != null) {
+                metrics.record("bytecode_symbol", msSince(stageStartNs), metricMap(
+                        "call_sites", 0,
+                        "local_vars", 0,
+                        "skipped", true
+                ));
+            }
             return null;
         }
         BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(context.classFileList);
@@ -498,6 +571,13 @@ public class CoreRunner {
                 callSites == null ? 0 : callSites.size(),
                 symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size(),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("bytecode_symbol", msSince(stageStartNs), metricMap(
+                    "call_sites", callSites == null ? 0 : callSites.size(),
+                    "local_vars", symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size(),
+                    "skipped", false
+            ));
+        }
         return symbolResult;
     }
 
@@ -507,7 +587,8 @@ public class CoreRunner {
                                                           ScopeSummary scopeSummary,
                                                           Path runtimeHint,
                                                           Map<Integer, ProjectOrigin> jarOriginsById,
-                                                          IntConsumer progress) {
+                                                          IntConsumer progress,
+                                                          BuildMetricsCollector metrics) {
         markBuildStage("taie-callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
@@ -533,6 +614,7 @@ public class CoreRunner {
         long taieEndpointAliasPairs = 0L;
         String taieReflectionInference = "";
         String taieReflectionLog = "";
+        BytecodeMainlineCallGraphRunner.Result bytecodeResult = BytecodeMainlineCallGraphRunner.Result.empty();
         List<String> explicitEntryMethods = collectExplicitEntryMethods(context, jarOriginsById);
         context.methodCalls.clear();
         context.methodCallMeta.clear();
@@ -548,64 +630,141 @@ public class CoreRunner {
             logger.info("all archives are common/sdk, continue without call graph (policy={})",
                     policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
         } else {
-            String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
-            TaieRunResult taieResult = TaieAnalysisRunner.run(
-                    appArchives,
-                    new ArrayList<>(taieClasspath),
-                    profile,
-                    mainClass,
-                    explicitEntryMethods,
-                    DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS
-            );
-            if (!taieResult.success() || taieResult.callGraph() == null) {
-                String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
-                throw new IllegalStateException("tai-e call graph failed: " + reason);
+            String requestedEngine = resolveCallGraphEngineSetting();
+            if (CALL_GRAPH_ENGINE_BYTECODE.equals(requestedEngine)) {
+                callGraphEngine = CALL_GRAPH_ENGINE_BYTECODE;
+                callGraphModeMeta = BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1;
+                bytecodeResult = BytecodeMainlineCallGraphRunner.run(context);
+                logger.info("build stage bytecode-mainline: {} ms (mode={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+                        msSince(stageStartNs),
+                        callGraphModeMeta,
+                        bytecodeResult.directEdges(),
+                        bytecodeResult.declaredDispatchEdges(),
+                        bytecodeResult.invokeDynamicEdges(),
+                        bytecodeResult.typedDispatchEdges(),
+                        bytecodeResult.dispatchExpansionEdges(),
+                        bytecodeResult.reflectionEdges(),
+                        bytecodeResult.methodHandleEdges(),
+                        bytecodeResult.callbackEdges(),
+                        bytecodeResult.frameworkEdges(),
+                        bytecodeResult.ptaEdges(),
+                        bytecodeResult.refinedPtaCallSites(),
+                        bytecodeResult.ptaHotspotCallSites(),
+                        bytecodeResult.ptaFieldSites(),
+                        bytecodeResult.ptaArraySites(),
+                        bytecodeResult.ptaArrayCopySites(),
+                        bytecodeResult.instantiatedClassCount(),
+                        bytecodeResult.unresolvedCallerCount(),
+                        bytecodeResult.unresolvedDeclaredTargetCount(),
+                        bytecodeResult.totalEdges(),
+                        heapUsage());
+            } else {
+                String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
+                TaieRunResult taieResult = TaieAnalysisRunner.run(
+                        appArchives,
+                        new ArrayList<>(taieClasspath),
+                        profile,
+                        mainClass,
+                        explicitEntryMethods,
+                        DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS
+                );
+                if (!taieResult.success() || taieResult.callGraph() == null) {
+                    String reason = taieResult.reason() == null ? "" : taieResult.reason().trim();
+                    throw new IllegalStateException("tai-e call graph failed: " + reason);
+                }
+                MappingResult mapped = TaieEdgeMapper.map(
+                        taieResult.callGraph(),
+                        context.methodMap,
+                        jarOriginsById,
+                        edgePolicy
+                );
+                if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
+                    context.discoveredMethods.addAll(mapped.syntheticMethods());
+                }
+                if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
+                    context.methodCalls.putAll(mapped.methodCalls());
+                }
+                if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
+                    context.methodCallMeta.putAll(mapped.methodCallMeta());
+                }
+                taieEdgeCount = mapped.keptEdges();
+                taieEntryMethodCount = taieResult.entryMethodCount();
+                taieReachableMethodCount = taieResult.reachableMethodCount();
+                taiePointsToVarCount = taieResult.pointsToVarCount();
+                taiePointsToObjectCount = taieResult.pointsToObjectCount();
+                taieEndpointThisVarCount = taieResult.endpointThisVarCount();
+                taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
+                taieReflectionInference = safe(taieResult.reflectionInference());
+                taieReflectionLog = safe(taieResult.reflectionLog());
+                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
+                        taieResult.elapsedMs(),
+                        profile.value(),
+                        mapped.edgePolicy(),
+                        mapped.totalEdges(),
+                        mapped.keptEdges(),
+                        mapped.skippedByPolicy(),
+                        mapped.unresolvedCaller(),
+                        mapped.unresolvedCallee(),
+                        taieResult.explicitEntryCount(),
+                        taieEntryMethodCount,
+                        taieReachableMethodCount,
+                        taiePointsToVarCount,
+                        taiePointsToObjectCount,
+                        taieEndpointThisVarCount,
+                        taieEndpointAliasPairs,
+                        taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
+                        taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog,
+                        heapUsage());
             }
-            MappingResult mapped = TaieEdgeMapper.map(
-                    taieResult.callGraph(),
-                    context.methodMap,
-                    jarOriginsById,
-                    edgePolicy
-            );
-            if (mapped.syntheticMethods() != null && !mapped.syntheticMethods().isEmpty()) {
-                context.discoveredMethods.addAll(mapped.syntheticMethods());
-            }
-            if (mapped.methodCalls() != null && !mapped.methodCalls().isEmpty()) {
-                context.methodCalls.putAll(mapped.methodCalls());
-            }
-            if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
-                context.methodCallMeta.putAll(mapped.methodCallMeta());
-            }
-            taieEdgeCount = mapped.keptEdges();
-            taieEntryMethodCount = taieResult.entryMethodCount();
-            taieReachableMethodCount = taieResult.reachableMethodCount();
-            taiePointsToVarCount = taieResult.pointsToVarCount();
-            taiePointsToObjectCount = taieResult.pointsToObjectCount();
-            taieEndpointThisVarCount = taieResult.endpointThisVarCount();
-            taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
-            taieReflectionInference = safe(taieResult.reflectionInference());
-            taieReflectionLog = safe(taieResult.reflectionLog());
-            logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
-                    taieResult.elapsedMs(),
-                    profile.value(),
-                    mapped.edgePolicy(),
-                    mapped.totalEdges(),
-                    mapped.keptEdges(),
-                    mapped.skippedByPolicy(),
-                    mapped.unresolvedCaller(),
-                    mapped.unresolvedCallee(),
-                    taieResult.explicitEntryCount(),
-                    taieEntryMethodCount,
-                    taieReachableMethodCount,
-                    taiePointsToVarCount,
-                    taiePointsToObjectCount,
-                    taieEndpointThisVarCount,
-                    taieEndpointAliasPairs,
-                    taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
-                    taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog,
-                    heapUsage());
         }
-        logger.info("build stage taie total: {} ms (heap={})", msSince(stageStartNs), heapUsage());
+        logger.info("build stage callgraph total: {} ms (engine={}, heap={})",
+                msSince(stageStartNs), callGraphEngine, heapUsage());
+        if (metrics != null) {
+            Map<String, Object> callGraphMetrics = new LinkedHashMap<>(metricMap(
+                    "engine", callGraphEngine,
+                    "analysis_profile", profile == null ? "" : profile.value(),
+                    "quick_mode", quickMode,
+                    "app_archives", appArchives.size(),
+                    "classpath_archives", taieClasspath.size(),
+                    "explicit_entries", explicitEntryMethods.size(),
+                    "target_archives", scopeSummary == null ? 0 : scopeSummary.targetArchiveCount(),
+                    "library_archives", scopeSummary == null ? 0 : scopeSummary.libraryArchiveCount(),
+                    "taie_edges", taieEdgeCount,
+                    "entry_methods", taieEntryMethodCount,
+                    "reachable_methods", taieReachableMethodCount,
+                    "points_to_vars", taiePointsToVarCount,
+                    "points_to_objects", taiePointsToObjectCount,
+                    "endpoint_this_vars", taieEndpointThisVarCount,
+                    "endpoint_alias_pairs", taieEndpointAliasPairs
+            ));
+            if (CALL_GRAPH_ENGINE_BYTECODE.equals(callGraphEngine)) {
+                callGraphMetrics.put("direct_edges", bytecodeResult.directEdges());
+                callGraphMetrics.put("declared_dispatch_edges", bytecodeResult.declaredDispatchEdges());
+                callGraphMetrics.put("invoke_dynamic_edges", bytecodeResult.invokeDynamicEdges());
+                callGraphMetrics.put("typed_dispatch_edges", bytecodeResult.typedDispatchEdges());
+                callGraphMetrics.put("dispatch_expansion_edges", bytecodeResult.dispatchExpansionEdges());
+                callGraphMetrics.put("reflection_edges", bytecodeResult.reflectionEdges());
+                callGraphMetrics.put("method_handle_edges", bytecodeResult.methodHandleEdges());
+                callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
+                callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
+                callGraphMetrics.put("thread_start_edges", bytecodeResult.threadStartEdges());
+                callGraphMetrics.put("executor_edges", bytecodeResult.executorEdges());
+                callGraphMetrics.put("completable_future_edges", bytecodeResult.completableFutureEdges());
+                callGraphMetrics.put("do_privileged_edges", bytecodeResult.doPrivilegedEdges());
+                callGraphMetrics.put("dynamic_proxy_edges", bytecodeResult.dynamicProxyEdges());
+                callGraphMetrics.put("pta_edges", bytecodeResult.ptaEdges());
+                callGraphMetrics.put("pta_refined_call_sites", bytecodeResult.refinedPtaCallSites());
+                callGraphMetrics.put("pta_hotspot_call_sites", bytecodeResult.ptaHotspotCallSites());
+                callGraphMetrics.put("pta_field_sites", bytecodeResult.ptaFieldSites());
+                callGraphMetrics.put("pta_array_sites", bytecodeResult.ptaArraySites());
+                callGraphMetrics.put("pta_array_copy_sites", bytecodeResult.ptaArrayCopySites());
+                callGraphMetrics.put("instantiated_classes", bytecodeResult.instantiatedClassCount());
+                callGraphMetrics.put("unresolved_callers", bytecodeResult.unresolvedCallerCount());
+                callGraphMetrics.put("unresolved_declared_targets", bytecodeResult.unresolvedDeclaredTargetCount());
+                callGraphMetrics.put("total_edges", bytecodeResult.totalEdges());
+            }
+            metrics.record("taie_callgraph", msSince(stageStartNs), callGraphMetrics);
+        }
         return new CallGraphStageResult(
                 scopeSummary,
                 jdkResolution,
@@ -632,7 +791,9 @@ public class CoreRunner {
                                            BuildInputs inputs,
                                            BytecodeSymbolRunner.Result symbolResult,
                                            CallGraphStageResult callGraphStage,
-                                           IntConsumer progress) {
+                                           IntConsumer progress,
+                                           BuildMetricsCollector metrics,
+                                           long buildStartNs) {
         clearCachedBytes(context.classFileList);
         progress.accept(70);
         progress.accept(90);
@@ -698,6 +859,14 @@ public class CoreRunner {
                             callSiteCount,
                             localVarCount,
                             heapUsage());
+                    if (metrics != null) {
+                        metrics.record("build_runtime_snapshot", msSince(snapshotStartNs), metricMap(
+                                "class_files", classFileCount,
+                                "methods", methodCount,
+                                "call_sites", callSiteCount,
+                                "local_vars", localVarCount
+                        ));
+                    }
                     releaseSnapshotBackedBuildData(context, localVars);
                     return snapshot;
                 },
@@ -719,21 +888,59 @@ public class CoreRunner {
                 )
         );
         markBuildStage("publish-runtime");
+        long publishStartNs = System.nanoTime();
         releaseCommittedBuildData(context, localVars);
         ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
                 targetProjectKey,
                 runtimeSnapshot,
                 projectModel
         );
+        if (metrics != null) {
+            metrics.record("publish_runtime", msSince(publishStartNs), metricMap(
+                    "project_key_present", targetProjectKey != null && !targetProjectKey.isBlank(),
+                    "build_seq", buildSeq
+            ));
+        }
         markBuildStage("refresh-caches");
+        long refreshStartNs = System.nanoTime();
         refreshCachesAfterBuild();
+        if (metrics != null) {
+            metrics.record("refresh_caches", msSince(refreshStartNs), metricMap(
+                    "cache_refresh", true
+            ));
+        }
         logger.info("build stage neo4j+metadata commit: {} ms (dbSize={}, heap={})",
                 msSince(commitStartNs),
                 formatSizeInMB(getFileSize(targetProjectKey)),
                 heapUsage());
+        if (metrics != null) {
+            metrics.record("neo4j_commit", msSince(commitStartNs), metricMap(
+                    "class_files", classFileCount,
+                    "methods", methodCount,
+                    "call_sites", callSiteCount,
+                    "local_vars", localVarCount,
+                    "edges", edgeCount
+            ));
+        }
 
         long fileSizeBytes = getFileSize(targetProjectKey);
         String fileSizeMB = formatSizeInMB(fileSizeBytes);
+        long buildWallMs = msSince(buildStartNs);
+        Map<String, BuildStageMetric> stageMetrics = metrics == null
+                ? Collections.emptyMap()
+                : metrics.snapshot();
+        long peakHeapUsedBytes = metrics == null ? 0L : metrics.peakHeapUsedBytes();
+        long peakHeapCommittedBytes = metrics == null ? 0L : metrics.peakHeapCommittedBytes();
+        long heapMaxBytes = metrics == null ? 0L : metrics.heapMaxBytes();
+        try {
+            GRAPH_BUILD_SERVICE.updateBuildMeta(
+                    targetProjectKey,
+                    buildSeq,
+                    flattenBuildMetrics(stageMetrics, buildWallMs, peakHeapUsedBytes, peakHeapCommittedBytes, heapMaxBytes)
+            );
+        } catch (Exception ex) {
+            logger.warn("update structured build meta fail: {}", ex.toString());
+        }
         progress.accept(100);
 
         return new BuildResult(
@@ -742,11 +949,13 @@ public class CoreRunner {
                 classFileCount,
                 classCount,
                 methodCount,
+                callSiteCount,
                 edgeCount,
                 fileSizeBytes,
                 fileSizeMB,
                 quickMode,
                 callGraphStage.callGraphEngine(),
+                callGraphStage.callGraphModeMeta(),
                 callGraphStage.profile().value(),
                 callGraphStage.scopeSummary().targetArchiveCount(),
                 callGraphStage.scopeSummary().libraryArchiveCount(),
@@ -757,7 +966,12 @@ public class CoreRunner {
                 callGraphStage.taiePointsToVarCount(),
                 callGraphStage.taiePointsToObjectCount(),
                 callGraphStage.taieEndpointThisVarCount(),
-                callGraphStage.taieEndpointAliasPairs()
+                callGraphStage.taieEndpointAliasPairs(),
+                peakHeapUsedBytes,
+                peakHeapCommittedBytes,
+                heapMaxBytes,
+                buildWallMs,
+                stageMetrics
         );
     }
 
@@ -786,6 +1000,9 @@ public class CoreRunner {
                                         String taieReflectionInference,
                                         String taieReflectionLog,
                                         int explicitEntryCount) {
+    }
+
+    private record HeapStats(long usedBytes, long committedBytes, long maxBytes) {
     }
 
     private static long msSince(long startNs) {
@@ -850,13 +1067,25 @@ public class CoreRunner {
     }
 
     private static String heapUsage() {
+        HeapStats heap = captureHeapStats();
+        return "used=" + formatMemory(heap.usedBytes())
+                + ", committed=" + formatMemory(heap.committedBytes())
+                + ", max=" + formatMemory(heap.maxBytes());
+    }
+
+    private static HeapStats captureHeapStats() {
         Runtime runtime = Runtime.getRuntime();
-        long max = runtime.maxMemory();
-        long committed = runtime.totalMemory();
-        long used = committed - runtime.freeMemory();
-        return "used=" + formatMemory(used)
-                + ", committed=" + formatMemory(committed)
-                + ", max=" + formatMemory(max);
+        long max = Math.max(0L, runtime.maxMemory());
+        long committed = Math.max(0L, runtime.totalMemory());
+        long used = Math.max(0L, committed - runtime.freeMemory());
+        return new HeapStats(used, committed, max);
+    }
+
+    private static long toMiB(long bytes) {
+        if (bytes <= 0L) {
+            return 0L;
+        }
+        return bytes / (1024L * 1024L);
     }
 
     private static String safe(String value) {
@@ -1104,6 +1333,88 @@ public class CoreRunner {
             normalized = normalized.substring(1);
         }
         return normalized;
+    }
+
+    private static Map<String, Object> flattenBuildMetrics(Map<String, BuildStageMetric> stageMetrics,
+                                                           long buildWallMs,
+                                                           long peakHeapUsedBytes,
+                                                           long peakHeapCommittedBytes,
+                                                           long heapMaxBytes) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("build_wall_ms", Math.max(0L, buildWallMs));
+        out.put("build_peak_heap_used_bytes", Math.max(0L, peakHeapUsedBytes));
+        out.put("build_peak_heap_used_mb", toMiB(peakHeapUsedBytes));
+        out.put("build_peak_heap_committed_bytes", Math.max(0L, peakHeapCommittedBytes));
+        out.put("build_peak_heap_committed_mb", toMiB(peakHeapCommittedBytes));
+        out.put("build_heap_max_bytes", Math.max(0L, heapMaxBytes));
+        out.put("build_heap_max_mb", toMiB(heapMaxBytes));
+        if (stageMetrics == null || stageMetrics.isEmpty()) {
+            return out;
+        }
+        for (Map.Entry<String, BuildStageMetric> entry : stageMetrics.entrySet()) {
+            if (entry == null || entry.getValue() == null) {
+                continue;
+            }
+            String stageKey = normalizeMetricKey(entry.getKey());
+            if (stageKey.isBlank()) {
+                continue;
+            }
+            BuildStageMetric metric = entry.getValue();
+            out.put("build_stage_" + stageKey + "_ms", Math.max(0L, metric.getDurationMs()));
+            Map<String, Object> details = metric.getDetails();
+            if (details == null || details.isEmpty()) {
+                continue;
+            }
+            for (Map.Entry<String, Object> detailEntry : details.entrySet()) {
+                if (detailEntry == null) {
+                    continue;
+                }
+                String detailKey = normalizeMetricKey(detailEntry.getKey());
+                if (detailKey.isBlank()) {
+                    continue;
+                }
+                Object value = detailEntry.getValue();
+                if (value == null) {
+                    continue;
+                }
+                out.put("build_stage_" + stageKey + "_" + detailKey, value);
+            }
+        }
+        return out;
+    }
+
+    private static String normalizeMetricKey(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+        StringBuilder out = new StringBuilder(normalized.length());
+        for (int i = 0; i < normalized.length(); i++) {
+            char c = normalized.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    private static Map<String, Object> metricMap(Object... items) {
+        if (items == null || items.length == 0) {
+            return Collections.emptyMap();
+        }
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < items.length; i += 2) {
+            Object rawKey = items[i];
+            Object rawValue = items[i + 1];
+            String key = normalizeMetricKey(rawKey == null ? "" : String.valueOf(rawKey));
+            if (key.isBlank() || rawValue == null) {
+                continue;
+            }
+            out.put(key, rawValue);
+        }
+        return out.isEmpty() ? Collections.emptyMap() : Collections.unmodifiableMap(out);
     }
 
     private static List<String> collectExplicitEntryMethods(BuildContext context,
@@ -1487,6 +1798,19 @@ public class CoreRunner {
         return meta;
     }
 
+    private static String resolveCallGraphEngineSetting() {
+        String value = safe(System.getProperty(CALL_GRAPH_ENGINE_PROP));
+        if (value.isBlank()) {
+            return CALL_GRAPH_ENGINE_TAIE;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (CALL_GRAPH_ENGINE_TAIE.equals(normalized) || CALL_GRAPH_ENGINE_BYTECODE.equals(normalized)) {
+            return normalized;
+        }
+        logger.warn("unknown call graph engine setting: {} (fallback to {})", value, CALL_GRAPH_ENGINE_TAIE);
+        return CALL_GRAPH_ENGINE_TAIE;
+    }
+
     private static List<Path> normalizePaths(List<String> paths) {
         if (paths == null || paths.isEmpty()) {
             return List.of();
@@ -1511,11 +1835,13 @@ public class CoreRunner {
         private final int classFileCount;
         private final int classCount;
         private final int methodCount;
+        private final int callSiteCount;
         private final long edgeCount;
         private final long dbSizeBytes;
         private final String dbSizeLabel;
         private final boolean quickMode;
         private final String callGraphEngine;
+        private final String callGraphMode;
         private final String analysisProfile;
         private final int targetJarCount;
         private final int libraryJarCount;
@@ -1527,17 +1853,24 @@ public class CoreRunner {
         private final int taiePointsToObjectCount;
         private final int taieEndpointThisVarCount;
         private final long taieEndpointAliasPairCount;
+        private final long peakHeapUsedBytes;
+        private final long peakHeapCommittedBytes;
+        private final long heapMaxBytes;
+        private final long buildWallMs;
+        private final Map<String, BuildStageMetric> stageMetrics;
 
         public BuildResult(long buildSeq,
                            int jarCount,
                            int classFileCount,
                            int classCount,
                            int methodCount,
+                           int callSiteCount,
                            long edgeCount,
                            long dbSizeBytes,
                            String dbSizeLabel,
                            boolean quickMode,
                            String callGraphEngine,
+                           String callGraphMode,
                            String analysisProfile,
                            int targetJarCount,
                            int libraryJarCount,
@@ -1548,17 +1881,24 @@ public class CoreRunner {
                            int taiePointsToVarCount,
                            int taiePointsToObjectCount,
                            int taieEndpointThisVarCount,
-                           long taieEndpointAliasPairCount) {
+                           long taieEndpointAliasPairCount,
+                           long peakHeapUsedBytes,
+                           long peakHeapCommittedBytes,
+                           long heapMaxBytes,
+                           long buildWallMs,
+                           Map<String, BuildStageMetric> stageMetrics) {
             this.buildSeq = buildSeq;
             this.jarCount = jarCount;
             this.classFileCount = classFileCount;
             this.classCount = classCount;
             this.methodCount = methodCount;
+            this.callSiteCount = Math.max(0, callSiteCount);
             this.edgeCount = edgeCount;
             this.dbSizeBytes = dbSizeBytes;
             this.dbSizeLabel = dbSizeLabel;
             this.quickMode = quickMode;
             this.callGraphEngine = callGraphEngine;
+            this.callGraphMode = callGraphMode;
             this.analysisProfile = analysisProfile;
             this.targetJarCount = Math.max(0, targetJarCount);
             this.libraryJarCount = Math.max(0, libraryJarCount);
@@ -1570,6 +1910,13 @@ public class CoreRunner {
             this.taiePointsToObjectCount = Math.max(0, taiePointsToObjectCount);
             this.taieEndpointThisVarCount = Math.max(0, taieEndpointThisVarCount);
             this.taieEndpointAliasPairCount = Math.max(0L, taieEndpointAliasPairCount);
+            this.peakHeapUsedBytes = Math.max(0L, peakHeapUsedBytes);
+            this.peakHeapCommittedBytes = Math.max(0L, peakHeapCommittedBytes);
+            this.heapMaxBytes = Math.max(0L, heapMaxBytes);
+            this.buildWallMs = Math.max(0L, buildWallMs);
+            this.stageMetrics = stageMetrics == null || stageMetrics.isEmpty()
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(stageMetrics));
         }
 
         public long getBuildSeq() {
@@ -1592,6 +1939,10 @@ public class CoreRunner {
             return methodCount;
         }
 
+        public int getCallSiteCount() {
+            return callSiteCount;
+        }
+
         public long getEdgeCount() {
             return edgeCount;
         }
@@ -1610,6 +1961,10 @@ public class CoreRunner {
 
         public String getCallGraphEngine() {
             return callGraphEngine;
+        }
+
+        public String getCallGraphMode() {
+            return callGraphMode;
         }
 
         public String getAnalysisProfile() {
@@ -1654,6 +2009,107 @@ public class CoreRunner {
 
         public long getTaieEndpointAliasPairCount() {
             return taieEndpointAliasPairCount;
+        }
+
+        public long getPeakHeapUsedBytes() {
+            return peakHeapUsedBytes;
+        }
+
+        public long getPeakHeapCommittedBytes() {
+            return peakHeapCommittedBytes;
+        }
+
+        public long getHeapMaxBytes() {
+            return heapMaxBytes;
+        }
+
+        public long getBuildWallMs() {
+            return buildWallMs;
+        }
+
+        public Map<String, BuildStageMetric> getStageMetrics() {
+            return stageMetrics;
+        }
+
+        public BuildStageMetric getStageMetric(String stageKey) {
+            if (stageKey == null || stageKey.isBlank() || stageMetrics.isEmpty()) {
+                return null;
+            }
+            return stageMetrics.get(normalizeMetricKey(stageKey));
+        }
+    }
+
+    public static final class BuildStageMetric {
+        private final String stageKey;
+        private final long durationMs;
+        private final Map<String, Object> details;
+
+        private BuildStageMetric(String stageKey, long durationMs, Map<String, Object> details) {
+            this.stageKey = normalizeMetricKey(stageKey);
+            this.durationMs = Math.max(0L, durationMs);
+            this.details = details == null || details.isEmpty()
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(details));
+        }
+
+        public String getStageKey() {
+            return stageKey;
+        }
+
+        public long getDurationMs() {
+            return durationMs;
+        }
+
+        public Map<String, Object> getDetails() {
+            return details;
+        }
+    }
+
+    private static final class BuildMetricsCollector {
+        private final LinkedHashMap<String, BuildStageMetric> stages = new LinkedHashMap<>();
+        private long peakHeapUsedBytes;
+        private long peakHeapCommittedBytes;
+        private long heapMaxBytes;
+
+        private void record(String stageKey, long durationMs, Map<String, Object> details) {
+            String normalized = normalizeMetricKey(stageKey);
+            if (normalized.isBlank()) {
+                return;
+            }
+            HeapStats heap = captureHeapStats();
+            peakHeapUsedBytes = Math.max(peakHeapUsedBytes, heap.usedBytes());
+            peakHeapCommittedBytes = Math.max(peakHeapCommittedBytes, heap.committedBytes());
+            heapMaxBytes = Math.max(heapMaxBytes, heap.maxBytes());
+            LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+            if (details != null && !details.isEmpty()) {
+                merged.putAll(details);
+            }
+            merged.putIfAbsent("heap_used_bytes", heap.usedBytes());
+            merged.putIfAbsent("heap_committed_bytes", heap.committedBytes());
+            merged.putIfAbsent("heap_max_bytes", heap.maxBytes());
+            merged.putIfAbsent("heap_used_mb", toMiB(heap.usedBytes()));
+            merged.putIfAbsent("heap_committed_mb", toMiB(heap.committedBytes()));
+            merged.putIfAbsent("heap_max_mb", toMiB(heap.maxBytes()));
+            stages.put(normalized, new BuildStageMetric(normalized, durationMs, merged));
+        }
+
+        private Map<String, BuildStageMetric> snapshot() {
+            if (stages.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            return Collections.unmodifiableMap(new LinkedHashMap<>(stages));
+        }
+
+        private long peakHeapUsedBytes() {
+            return Math.max(0L, peakHeapUsedBytes);
+        }
+
+        private long peakHeapCommittedBytes() {
+            return Math.max(0L, peakHeapCommittedBytes);
+        }
+
+        private long heapMaxBytes() {
+            return Math.max(0L, heapMaxBytes);
         }
     }
 }

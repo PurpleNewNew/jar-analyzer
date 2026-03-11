@@ -145,6 +145,15 @@ public class CallbackEntry {
         mh.invoke(receiver);
     }
 
+    public void methodHandleDirect() throws Throwable {
+        MethodHandle mh = MethodHandles.lookup().findVirtual(
+                ReflectionTarget.class,
+                "target",
+                MethodType.methodType(void.class)
+        );
+        mh.invoke(new ReflectionTarget());
+    }
+
     private ClassLoader helperLoader() {
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         if (loader == null) {

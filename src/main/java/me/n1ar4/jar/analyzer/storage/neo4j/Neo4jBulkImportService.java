@@ -179,6 +179,36 @@ public final class Neo4jBulkImportService {
         }
     }
 
+    public void updateBuildMeta(String projectKey,
+                                long buildSeq,
+                                Map<String, Object> extraMeta) {
+        if (extraMeta == null || extraMeta.isEmpty()) {
+            return;
+        }
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        GraphDatabaseService database = Neo4jProjectStore.getInstance().database(normalized);
+        if (database == null) {
+            throw new IllegalStateException("neo4j_live_database_missing");
+        }
+        try (Transaction tx = database.beginTx()) {
+            Node meta;
+            try (var it = tx.findNodes(Label.label("JAMeta"), "key", "build_meta")) {
+                if (it.hasNext()) {
+                    meta = it.next();
+                } else {
+                    meta = tx.createNode(Label.label("JAMeta"));
+                    meta.setProperty("key", "build_meta");
+                    meta.setProperty("build_seq", buildSeq);
+                }
+            }
+            meta.setProperty("updated_at", System.currentTimeMillis());
+            applyExtraBuildMeta(meta, extraMeta);
+            tx.commit();
+        } catch (Exception ex) {
+            throw new IllegalStateException("neo4j_build_meta_update_failed", ex);
+        }
+    }
+
     private CsvBuildResult writeCsvPayload(
             Path nodeFile,
             Path relFile,
@@ -501,7 +531,7 @@ public final class Neo4jBulkImportService {
                         String evidence = meta == null ? "" : safe(meta.getEvidence());
                         int edgeSemanticFlags = meta == null ? 0 : meta.getEvidenceBits();
                         int opCode = resolveOpcode(meta, caller, callee);
-                        List<CallSiteProjection> projections = resolveCallSiteProjections(callSiteIndex, caller, callee);
+                        List<CallSiteProjection> projections = resolveCallSiteProjections(callSiteIndex, caller, callee, meta);
                         if (projections.isEmpty()) {
                             relPrinter.printRecord(
                                     srcNode,
@@ -1428,7 +1458,8 @@ public final class Neo4jBulkImportService {
     private static List<CallSiteProjection> resolveCallSiteProjections(
             Map<CallSiteLookupKey, List<CallSiteProjection>> callSiteIndex,
             MethodReference.Handle caller,
-            MethodReference.Handle callee) {
+            MethodReference.Handle callee,
+            MethodCallMeta meta) {
         if (callSiteIndex == null || callSiteIndex.isEmpty() || caller == null || callee == null) {
             return List.of();
         }
@@ -1442,7 +1473,54 @@ public final class Neo4jBulkImportService {
                 normalizeJarId(caller.getJarId())
         );
         List<CallSiteProjection> projections = callSiteIndex.get(key);
-        return projections == null || projections.isEmpty() ? List.of() : projections;
+        if (projections != null && !projections.isEmpty()) {
+            return projections;
+        }
+        if (meta == null || !MethodCallMeta.TYPE_PTA.equals(meta.getType())) {
+            return List.of();
+        }
+        int expectedOpcode = resolveOpcode(meta, caller, callee);
+        LinkedHashMap<String, CallSiteProjection> fallback = new LinkedHashMap<>();
+        String callerClass = safe(caller.getClassReference() == null ? null : caller.getClassReference().getName());
+        String callerMethod = safe(caller.getName());
+        String callerDesc = safe(caller.getDesc());
+        String calleeMethod = safe(callee.getName());
+        String calleeDesc = safe(callee.getDesc());
+        int callerJarId = normalizeJarId(caller.getJarId());
+        for (Map.Entry<CallSiteLookupKey, List<CallSiteProjection>> entry : callSiteIndex.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            CallSiteLookupKey candidateKey = entry.getKey();
+            if (!callerClass.equals(candidateKey.callerClassName())
+                    || !callerMethod.equals(candidateKey.callerMethodName())
+                    || !callerDesc.equals(candidateKey.callerMethodDesc())
+                    || !calleeMethod.equals(candidateKey.calleeMethodName())
+                    || !calleeDesc.equals(candidateKey.calleeMethodDesc())
+                    || callerJarId != candidateKey.jarId()) {
+                continue;
+            }
+            for (CallSiteProjection projection : entry.getValue()) {
+                if (projection == null) {
+                    continue;
+                }
+                if (expectedOpcode > 0
+                        && projection.opCode() > 0
+                        && projection.opCode() != expectedOpcode) {
+                    continue;
+                }
+                fallback.putIfAbsent(projection.callSiteKey(), projection);
+            }
+        }
+        if (fallback.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<CallSiteProjection> out = new ArrayList<>(fallback.values());
+        out.sort(Comparator
+                .comparingInt(CallSiteProjection::lineNumber)
+                .thenComparingInt(CallSiteProjection::callIndex)
+                .thenComparing(CallSiteProjection::callSiteKey));
+        return List.copyOf(out);
     }
 
     private static ProjectRuntimeSnapshot requireRuntimeSnapshot(Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier) {

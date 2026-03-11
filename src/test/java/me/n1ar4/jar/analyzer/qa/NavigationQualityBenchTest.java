@@ -54,7 +54,17 @@ public class NavigationQualityBenchTest {
         int iterations = resolveInt(ITER_PROP, 30, 1, 500);
         double minHitRate = resolveDouble(MIN_HIT_PROP, 0.95, 0.10, 1.00);
         long maxP95Ms = resolveLong(MAX_P95_PROP, 150L, 10L, 5_000L);
+        BenchmarkResult bench = runBenchmark(iterations, minHitRate, maxP95Ms, true);
+        assertTrue(bench.hitRatePass(),
+                "navigation hit rate below threshold: actual=" + bench.hitRate() + ", expected=" + minHitRate);
+        assertTrue(bench.p95Pass(),
+                "navigation p95 too high: actual=" + bench.p95Ms() + "ms, expected<=" + maxP95Ms + "ms");
+    }
 
+    static BenchmarkResult runBenchmark(int iterations,
+                                        double minHitRate,
+                                        long maxP95Ms,
+                                        boolean writeReport) throws Exception {
         CoreEngine engine = buildCallbackFixture();
         try {
             List<Scenario> scenarios = List.of(
@@ -106,11 +116,10 @@ public class NavigationQualityBenchTest {
             long p50 = percentile(latencies, 0.50);
             long p95 = percentile(latencies, 0.95);
             long p99 = percentile(latencies, 0.99);
-            boolean hitPass = hitRate >= minHitRate;
-            boolean p95Pass = p95 <= maxP95Ms;
 
             List<String> reportLines = new ArrayList<>();
             reportLines.add("## Summary");
+            reportLines.add("- scenarios: `" + scenarios.size() + "`");
             reportLines.add("- runs: `" + totalRuns + "`");
             reportLines.add("- hits: `" + totalHits + "`");
             reportLines.add("- hitRate: `" + String.format(Locale.ROOT, "%.4f", hitRate) + "`");
@@ -123,8 +132,8 @@ public class NavigationQualityBenchTest {
             reportLines.add("## Thresholds");
             reportLines.add("- minHitRate: `" + String.format(Locale.ROOT, "%.4f", minHitRate) + "`");
             reportLines.add("- maxP95Ms: `" + maxP95Ms + "`");
-            reportLines.add("- hitRatePass: `" + hitPass + "`");
-            reportLines.add("- p95Pass: `" + p95Pass + "`");
+            reportLines.add("- hitRatePass: `" + (hitRate >= minHitRate) + "`");
+            reportLines.add("- p95Pass: `" + (p95 <= maxP95Ms) + "`");
             if (!misses.isEmpty()) {
                 reportLines.add("");
                 reportLines.add("## Sample Misses");
@@ -133,7 +142,9 @@ public class NavigationQualityBenchTest {
                     reportLines.add("- " + misses.get(i));
                 }
             }
-            BenchReportWriter.writeMarkdown("navigation-quality.md", "Navigation Quality Benchmark", reportLines);
+            if (writeReport) {
+                BenchReportWriter.writeMarkdown("navigation-quality.md", "Navigation Quality Benchmark", reportLines);
+            }
 
             System.out.println("[nav-bench] runs=" + totalRuns
                     + " hits=" + totalHits
@@ -147,11 +158,21 @@ public class NavigationQualityBenchTest {
                 int max = Math.min(12, misses.size());
                 System.out.println("[nav-bench] sample-misses=" + misses.subList(0, max));
             }
-
-            assertTrue(hitRate >= minHitRate,
-                    "navigation hit rate below threshold: actual=" + hitRate + ", expected=" + minHitRate);
-            assertTrue(p95 <= maxP95Ms,
-                    "navigation p95 too high: actual=" + p95 + "ms, expected<=" + maxP95Ms + "ms");
+            return new BenchmarkResult(
+                    scenarios.size(),
+                    iterations,
+                    totalRuns,
+                    totalHits,
+                    emptyResult,
+                    avgCandidates,
+                    hitRate,
+                    p50,
+                    p95,
+                    p99,
+                    minHitRate,
+                    maxP95Ms,
+                    List.copyOf(misses)
+            );
         } finally {
             EngineContext.setEngine(null);
         }
@@ -334,5 +355,113 @@ public class NavigationQualityBenchTest {
         USAGES,
         IMPLEMENTATION,
         HIERARCHY
+    }
+
+    static final class BenchmarkResult {
+        private final int scenarioCount;
+        private final int iterations;
+        private final int totalRuns;
+        private final int totalHits;
+        private final int emptyResults;
+        private final double avgCandidates;
+        private final double hitRate;
+        private final long p50Ms;
+        private final long p95Ms;
+        private final long p99Ms;
+        private final double minHitRate;
+        private final long maxP95Ms;
+        private final List<String> misses;
+
+        private BenchmarkResult(int scenarioCount,
+                                int iterations,
+                                int totalRuns,
+                                int totalHits,
+                                int emptyResults,
+                                double avgCandidates,
+                                double hitRate,
+                                long p50Ms,
+                                long p95Ms,
+                                long p99Ms,
+                                double minHitRate,
+                                long maxP95Ms,
+                                List<String> misses) {
+            this.scenarioCount = scenarioCount;
+            this.iterations = iterations;
+            this.totalRuns = totalRuns;
+            this.totalHits = totalHits;
+            this.emptyResults = emptyResults;
+            this.avgCandidates = avgCandidates;
+            this.hitRate = hitRate;
+            this.p50Ms = p50Ms;
+            this.p95Ms = p95Ms;
+            this.p99Ms = p99Ms;
+            this.minHitRate = minHitRate;
+            this.maxP95Ms = maxP95Ms;
+            this.misses = misses == null ? List.of() : misses;
+        }
+
+        int scenarioCount() {
+            return scenarioCount;
+        }
+
+        int iterations() {
+            return iterations;
+        }
+
+        int totalRuns() {
+            return totalRuns;
+        }
+
+        int totalHits() {
+            return totalHits;
+        }
+
+        int emptyResults() {
+            return emptyResults;
+        }
+
+        double avgCandidates() {
+            return avgCandidates;
+        }
+
+        double hitRate() {
+            return hitRate;
+        }
+
+        long p50Ms() {
+            return p50Ms;
+        }
+
+        long p95Ms() {
+            return p95Ms;
+        }
+
+        long p99Ms() {
+            return p99Ms;
+        }
+
+        double minHitRate() {
+            return minHitRate;
+        }
+
+        long maxP95Ms() {
+            return maxP95Ms;
+        }
+
+        List<String> misses() {
+            return misses;
+        }
+
+        boolean hitRatePass() {
+            return hitRate >= minHitRate;
+        }
+
+        boolean p95Pass() {
+            return p95Ms <= maxP95Ms;
+        }
+
+        boolean passed() {
+            return hitRatePass() && p95Pass();
+        }
     }
 }

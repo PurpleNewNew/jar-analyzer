@@ -20,6 +20,9 @@ import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.apache.jasper.JspC;
+import org.apache.jasper.servlet.JspCServletContext;
+import org.apache.tomcat.JarScanner;
+import org.apache.tomcat.util.scan.StandardJarScanner;
 import org.objectweb.asm.ClassReader;
 
 import java.nio.file.Files;
@@ -130,7 +133,7 @@ public final class JspCompileRunner {
                 Integer.toHexString((root.uriRoot().toString() + "#" + root.jarId()).hashCode()));
         try {
             Files.createDirectories(outputDir);
-            JspC jspc = new JspC();
+            JspC jspc = new QuietJspC();
             jspc.setCompile(true);
             jspc.setClassDebugInfo(false);
             jspc.setFailOnError(false);
@@ -145,6 +148,16 @@ public final class JspCompileRunner {
             logger.warn("jsp compile failed: root={} err={}", root.uriRoot(), ex.toString());
             return List.of();
         }
+    }
+
+    static void installQuietJarScanner(JspCServletContext context) {
+        if (context == null) {
+            return;
+        }
+        StandardJarScanner scanner = new StandardJarScanner();
+        scanner.setScanClassPath(false);
+        scanner.setScanBootstrapClassPath(false);
+        context.setAttribute(JarScanner.class.getName(), scanner);
     }
 
     private static List<ClassFileEntity> collectCompiledClasses(Path outputDir, CompileRoot root) {
@@ -292,5 +305,13 @@ public final class JspCompileRunner {
     }
 
     private record CompileRoot(Path uriRoot, int jarId, String jarName) {
+    }
+
+    private static final class QuietJspC extends JspC {
+        @Override
+        protected void initTldScanner(JspCServletContext context, ClassLoader loader) {
+            installQuietJarScanner(context);
+            super.initTldScanner(context, loader);
+        }
     }
 }

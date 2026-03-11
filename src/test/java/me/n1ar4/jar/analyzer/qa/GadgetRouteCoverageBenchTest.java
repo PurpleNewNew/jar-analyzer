@@ -60,7 +60,17 @@ public class GadgetRouteCoverageBenchTest {
         int iterations = resolveInt(ITER_PROP, 40, 1, 500);
         double minHitRate = resolveDouble(MIN_HIT_PROP, 1.0, 0.10, 1.0);
         long maxP95Ms = resolveLong(MAX_P95_PROP, 50L, 1L, 5_000L);
+        BenchmarkResult bench = runBenchmark(iterations, minHitRate, maxP95Ms, true);
+        assertTrue(bench.hitRatePass(),
+                "gadget hit rate below threshold: actual=" + bench.hitRate() + ", expected>=" + minHitRate);
+        assertTrue(bench.p95Pass(),
+                "gadget p95 too high: actual=" + bench.p95Ms() + "ms, expected<=" + maxP95Ms + "ms");
+    }
 
+    static BenchmarkResult runBenchmark(int iterations,
+                                        double minHitRate,
+                                        long maxP95Ms,
+                                        boolean writeReport) {
         ProcedureRegistry registry = new ProcedureRegistry();
         QueryOptions options = QueryOptions.defaults();
         List<Scenario> scenarios = List.of(
@@ -139,7 +149,9 @@ public class GadgetRouteCoverageBenchTest {
                 report.add("- " + misses.get(i));
             }
         }
-        BenchReportWriter.writeMarkdown("gadget-route-coverage.md", "Gadget Route Coverage Benchmark", report);
+        if (writeReport) {
+            BenchReportWriter.writeMarkdown("gadget-route-coverage.md", "Gadget Route Coverage Benchmark", report);
+        }
 
         System.out.println("[gadget-bench] runs=" + totalRuns
                 + " hits=" + totalHits
@@ -151,11 +163,20 @@ public class GadgetRouteCoverageBenchTest {
             int max = Math.min(8, misses.size());
             System.out.println("[gadget-bench] sample-misses=" + misses.subList(0, max));
         }
-
-        assertTrue(hitRate >= minHitRate,
-                "gadget hit rate below threshold: actual=" + hitRate + ", expected>=" + minHitRate);
-        assertTrue(p95 <= maxP95Ms,
-                "gadget p95 too high: actual=" + p95 + "ms, expected<=" + maxP95Ms + "ms");
+        return new BenchmarkResult(
+                scenarios.size(),
+                iterations,
+                totalRuns,
+                totalHits,
+                hitRate,
+                p50,
+                p95,
+                p99,
+                minHitRate,
+                maxP95Ms,
+                Map.copyOf(scenarioHits),
+                List.copyOf(misses)
+        );
     }
 
     private static Scenario pathScenario(String name,
@@ -394,5 +415,106 @@ public class GadgetRouteCoverageBenchTest {
                             GraphSnapshot snapshot,
                             List<String> args,
                             String expectedRoute) {
+    }
+
+    static final class BenchmarkResult {
+        private final int scenarioCount;
+        private final int iterations;
+        private final int totalRuns;
+        private final int totalHits;
+        private final double hitRate;
+        private final long p50Ms;
+        private final long p95Ms;
+        private final long p99Ms;
+        private final double minHitRate;
+        private final long maxP95Ms;
+        private final Map<String, Integer> scenarioHits;
+        private final List<String> misses;
+
+        private BenchmarkResult(int scenarioCount,
+                                int iterations,
+                                int totalRuns,
+                                int totalHits,
+                                double hitRate,
+                                long p50Ms,
+                                long p95Ms,
+                                long p99Ms,
+                                double minHitRate,
+                                long maxP95Ms,
+                                Map<String, Integer> scenarioHits,
+                                List<String> misses) {
+            this.scenarioCount = scenarioCount;
+            this.iterations = iterations;
+            this.totalRuns = totalRuns;
+            this.totalHits = totalHits;
+            this.hitRate = hitRate;
+            this.p50Ms = p50Ms;
+            this.p95Ms = p95Ms;
+            this.p99Ms = p99Ms;
+            this.minHitRate = minHitRate;
+            this.maxP95Ms = maxP95Ms;
+            this.scenarioHits = scenarioHits == null ? Map.of() : scenarioHits;
+            this.misses = misses == null ? List.of() : misses;
+        }
+
+        int scenarioCount() {
+            return scenarioCount;
+        }
+
+        int iterations() {
+            return iterations;
+        }
+
+        int totalRuns() {
+            return totalRuns;
+        }
+
+        int totalHits() {
+            return totalHits;
+        }
+
+        double hitRate() {
+            return hitRate;
+        }
+
+        long p50Ms() {
+            return p50Ms;
+        }
+
+        long p95Ms() {
+            return p95Ms;
+        }
+
+        long p99Ms() {
+            return p99Ms;
+        }
+
+        double minHitRate() {
+            return minHitRate;
+        }
+
+        long maxP95Ms() {
+            return maxP95Ms;
+        }
+
+        Map<String, Integer> scenarioHits() {
+            return scenarioHits;
+        }
+
+        List<String> misses() {
+            return misses;
+        }
+
+        boolean hitRatePass() {
+            return hitRate >= minHitRate;
+        }
+
+        boolean p95Pass() {
+            return p95Ms <= maxP95Ms;
+        }
+
+        boolean passed() {
+            return hitRatePass() && p95Pass();
+        }
     }
 }

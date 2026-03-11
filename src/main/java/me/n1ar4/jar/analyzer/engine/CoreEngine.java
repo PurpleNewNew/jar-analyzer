@@ -157,6 +157,7 @@ public class CoreEngine {
                 row.setEdgeType(resolveEdgeType(edge));
                 row.setEdgeConfidence(safe(edge.getConfidence()));
                 row.setEdgeEvidence(safe(edge.getEvidence()));
+                row.setCallSiteKey(safe(edge.getCallSiteKey()));
                 edges.add(row);
             }
         }

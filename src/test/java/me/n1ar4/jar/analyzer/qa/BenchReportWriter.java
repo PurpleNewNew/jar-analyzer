@@ -23,8 +23,7 @@ final class BenchReportWriter {
     }
 
     static void writeMarkdown(String fileName, String title, List<String> lines) {
-        Path outDir = Path.of("target", "bench");
-        Path output = outDir.resolve(fileName);
+        Path output = outputPath(fileName);
         StringBuilder md = new StringBuilder();
         md.append("# ").append(safe(title)).append('\n');
         md.append('\n');
@@ -42,11 +41,41 @@ final class BenchReportWriter {
                 md.append(safe(line)).append('\n');
             }
         }
+        write(output, md.toString());
+    }
+
+    static void writeCsv(String fileName, List<String> rows) {
+        Path output = outputPath(fileName);
+        StringBuilder csv = new StringBuilder();
+        if (rows != null) {
+            for (String row : rows) {
+                csv.append(safe(row)).append('\n');
+            }
+        }
+        write(output, csv.toString());
+    }
+
+    static void writeText(String fileName, List<String> lines) {
+        Path output = outputPath(fileName);
+        StringBuilder text = new StringBuilder();
+        if (lines != null) {
+            for (String line : lines) {
+                text.append(safe(line)).append('\n');
+            }
+        }
+        write(output, text.toString());
+    }
+
+    private static Path outputPath(String fileName) {
+        return Path.of("target", "bench").resolve(safe(fileName));
+    }
+
+    private static void write(Path output, String content) {
         try {
-            Files.createDirectories(outDir);
+            Files.createDirectories(output.getParent());
             Files.writeString(
                     output,
-                    md.toString(),
+                    safe(content),
                     StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING,
@@ -62,4 +91,3 @@ final class BenchReportWriter {
         return value == null ? "" : value;
     }
 }
-
