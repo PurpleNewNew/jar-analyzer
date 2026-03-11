@@ -68,8 +68,10 @@ public class DatabaseManager {
 
     private static final Map<String, JarEntity> JAR_BY_PATH = new ConcurrentHashMap<>();
     private static final Map<String, String> SEMANTIC_CACHE = new ConcurrentHashMap<>();
-    private static final List<MethodResult> FAVORITES = Collections.synchronizedList(new ArrayList<>());
-    private static final List<MethodResult> HISTORIES = Collections.synchronizedList(new ArrayList<>());
+    private static final int MAX_FAVORITES = 256;
+    private static final int MAX_HISTORIES = 512;
+    private static final List<MethodResult> FAVORITES = new ArrayList<>();
+    private static final List<MethodResult> HISTORIES = new ArrayList<>();
     private static final List<VulReportEntity> VUL_REPORTS = Collections.synchronizedList(new ArrayList<>());
     private static final List<ClassFileEntity> CLASS_FILES = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, List<ClassFileEntity>> CLASS_FILES_BY_NAME = new ConcurrentHashMap<>();
@@ -510,33 +512,32 @@ public class DatabaseManager {
     }
 
     public static void cleanFav() {
-        FAVORITES.clear();
+        withWriteLock(FAVORITES::clear);
     }
 
     public static void cleanFavItem(MethodResult m) {
         if (m == null) {
             return;
         }
-        FAVORITES.removeIf(item -> sameMethod(item, m));
+        withWriteLock(() -> FAVORITES.removeIf(item -> sameMethod(item, m)));
     }
 
     public static void addFav(MethodResult m) {
         if (m == null) {
             return;
         }
-        cleanFavItem(m);
-        FAVORITES.add(m);
+        withWriteLock(() -> appendMethodState(FAVORITES, m, MAX_FAVORITES, true));
     }
 
     public static void insertHistory(MethodResult m) {
         if (m == null) {
             return;
         }
-        HISTORIES.add(m);
+        withWriteLock(() -> appendMethodState(HISTORIES, m, MAX_HISTORIES, true));
     }
 
     public static void cleanHistory() {
-        HISTORIES.clear();
+        withWriteLock(HISTORIES::clear);
     }
 
     public static ArrayList<MethodResult> getAllFavMethods() {
@@ -2682,6 +2683,22 @@ public class DatabaseManager {
         return safe(a.getClassName()).equals(safe(b.getClassName()))
                 && safe(a.getMethodName()).equals(safe(b.getMethodName()))
                 && safe(a.getMethodDesc()).equals(safe(b.getMethodDesc()));
+    }
+
+    private static void appendMethodState(List<MethodResult> target,
+                                          MethodResult method,
+                                          int maxEntries,
+                                          boolean deduplicate) {
+        if (target == null || method == null || maxEntries <= 0) {
+            return;
+        }
+        if (deduplicate) {
+            target.removeIf(item -> sameMethod(item, method));
+        }
+        target.add(method);
+        while (target.size() > maxEntries) {
+            target.remove(0);
+        }
     }
 
     private static String safe(String value) {

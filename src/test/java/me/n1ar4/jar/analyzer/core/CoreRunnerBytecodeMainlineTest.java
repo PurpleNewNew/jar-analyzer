@@ -343,6 +343,8 @@ class CoreRunnerBytecodeMainlineTest {
         CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         assertTrue(metric.getDetails().containsKey("framework_edges"));
+        assertTrue(metric.getDetails().containsKey("framework_caller_candidates"));
+        assertTrue(metric.getDetails().containsKey("framework_truncated_rules"));
 
         CoreEngine engine = new CoreEngine(config());
         EngineContext.setEngine(engine);

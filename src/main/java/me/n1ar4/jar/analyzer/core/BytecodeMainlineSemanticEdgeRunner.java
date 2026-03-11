@@ -14,6 +14,8 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;
@@ -28,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 final class BytecodeMainlineSemanticEdgeRunner {
+    private static final Logger logger = LogManager.getLogger();
     private static final String THREAD_OWNER = "java/lang/Thread";
     private static final String EXECUTOR_OWNER = "java/util/concurrent/Executor";
     private static final String EXECUTOR_SERVICE_OWNER = "java/util/concurrent/ExecutorService";
@@ -102,11 +105,14 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 lookup
         );
         EnumMap<EdgeBucket, Integer> edgeCounts = new EnumMap<>(EdgeBucket.class);
+        FrameworkEdgeStats frameworkStats = FrameworkEdgeStats.empty();
         for (CallSiteRuleGroup group : SemanticInvokeRuleRegistry.CALLSITE_RULE_GROUPS) {
             edgeCounts.put(group.bucket(), applyCallSiteRuleGroup(ruleContext, group));
         }
         for (FrameworkRule rule : SemanticInvokeRuleRegistry.FRAMEWORK_RULES) {
-            edgeCounts.merge(EdgeBucket.FRAMEWORK, applyFrameworkRule(ruleContext, rule), Integer::sum);
+            FrameworkEdgeStats ruleStats = applyFrameworkRule(ruleContext, rule);
+            frameworkStats = frameworkStats.merge(ruleStats);
+            edgeCounts.merge(EdgeBucket.FRAMEWORK, ruleStats.addedEdges(), Integer::sum);
         }
         int callbackEdges = count(edgeCounts, EdgeBucket.THREAD)
                 + count(edgeCounts, EdgeBucket.EXECUTOR)
@@ -122,7 +128,13 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 count(edgeCounts, EdgeBucket.COMPLETABLE_FUTURE),
                 count(edgeCounts, EdgeBucket.DO_PRIVILEGED),
                 count(edgeCounts, EdgeBucket.DYNAMIC_PROXY),
-                count(edgeCounts, EdgeBucket.TRIGGER_BRIDGE)
+                count(edgeCounts, EdgeBucket.TRIGGER_BRIDGE),
+                frameworkStats.callerCandidates(),
+                frameworkStats.targetCandidates(),
+                frameworkStats.truncatedRules(),
+                frameworkStats.truncatedCallers(),
+                frameworkStats.truncatedTargets(),
+                frameworkStats.droppedCandidatePairs()
         );
     }
 
@@ -175,9 +187,9 @@ final class BytecodeMainlineSemanticEdgeRunner {
         return added;
     }
 
-    private static int applyFrameworkRule(SemanticRuleContext context, FrameworkRule rule) {
+    private static FrameworkEdgeStats applyFrameworkRule(SemanticRuleContext context, FrameworkRule rule) {
         if (rule == null) {
-            return 0;
+            return FrameworkEdgeStats.empty();
         }
         List<MethodReference.Handle> callers = collectFrameworkCallers(
                 context.buildContext(),
@@ -191,16 +203,24 @@ final class BytecodeMainlineSemanticEdgeRunner {
         return addFrameworkEdges(context.buildContext(), callers, targets, rule.reason());
     }
 
-    private static int addFrameworkEdges(BuildContext context,
-                                         List<MethodReference.Handle> callers,
-                                         List<MethodReference.Handle> targets,
-                                         String reason) {
+    private static FrameworkEdgeStats addFrameworkEdges(BuildContext context,
+                                                        List<MethodReference.Handle> callers,
+                                                        List<MethodReference.Handle> targets,
+                                                        String reason) {
         if (callers.isEmpty() || targets.isEmpty()) {
-            return 0;
+            return FrameworkEdgeStats.empty();
         }
         int added = 0;
         int callerLimit = Math.min(MAX_FRAMEWORK_CALLERS, callers.size());
         int targetLimit = Math.min(MAX_FRAMEWORK_TARGETS, targets.size());
+        int truncatedCallers = Math.max(0, callers.size() - callerLimit);
+        int truncatedTargets = Math.max(0, targets.size() - targetLimit);
+        long droppedPairs = Math.max(0L, (long) callers.size() * (long) targets.size()
+                - (long) callerLimit * (long) targetLimit);
+        if (truncatedCallers > 0 || truncatedTargets > 0) {
+            logger.warn("framework semantic edge cap hit: reason={} callerCandidates={} targetCandidates={} callerLimit={} targetLimit={} droppedPairs={}",
+                    safe(reason), callers.size(), targets.size(), callerLimit, targetLimit, droppedPairs);
+        }
         for (int i = 0; i < callerLimit; i++) {
             MethodReference.Handle caller = callers.get(i);
             for (int j = 0; j < targetLimit; j++) {
@@ -224,7 +244,15 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 }
             }
         }
-        return added;
+        return new FrameworkEdgeStats(
+                added,
+                callers.size(),
+                targets.size(),
+                truncatedCallers > 0 || truncatedTargets > 0 ? 1 : 0,
+                truncatedCallers,
+                truncatedTargets,
+                droppedPairs
+        );
     }
 
     private static MethodReference.Handle resolveCaller(CallSiteEntity site,
@@ -1073,9 +1101,42 @@ final class BytecodeMainlineSemanticEdgeRunner {
                   int completableFutureEdges,
                   int doPrivilegedEdges,
                   int dynamicProxyEdges,
-                  int triggerBridgeEdges) {
+                  int triggerBridgeEdges,
+                  int frameworkCallerCandidates,
+                  int frameworkTargetCandidates,
+                  int frameworkTruncatedRules,
+                  int frameworkTruncatedCallers,
+                  int frameworkTruncatedTargets,
+                  long frameworkDroppedCandidatePairs) {
         static Result empty() {
-            return new Result(0, 0, 0, 0, 0, 0, 0, 0);
+            return new Result(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0L);
+        }
+    }
+
+    private record FrameworkEdgeStats(int addedEdges,
+                                      int callerCandidates,
+                                      int targetCandidates,
+                                      int truncatedRules,
+                                      int truncatedCallers,
+                                      int truncatedTargets,
+                                      long droppedCandidatePairs) {
+        private static FrameworkEdgeStats empty() {
+            return new FrameworkEdgeStats(0, 0, 0, 0, 0, 0, 0L);
+        }
+
+        private FrameworkEdgeStats merge(FrameworkEdgeStats other) {
+            if (other == null) {
+                return this;
+            }
+            return new FrameworkEdgeStats(
+                    addedEdges + other.addedEdges,
+                    callerCandidates + other.callerCandidates,
+                    targetCandidates + other.targetCandidates,
+                    truncatedRules + other.truncatedRules,
+                    truncatedCallers + other.truncatedCallers,
+                    truncatedTargets + other.truncatedTargets,
+                    droppedCandidatePairs + other.droppedCandidatePairs
+            );
         }
     }
 }

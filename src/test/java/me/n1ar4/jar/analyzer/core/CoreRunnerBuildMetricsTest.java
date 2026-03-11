@@ -70,6 +70,11 @@ class CoreRunnerBuildMetricsTest {
         assertEquals(result.getMethodCount(), intMetric(discovery, "methods"));
         assertEquals(intMetric(symbol, "call_sites"), result.getCallSiteCount());
         assertTrue(intMetric(callGraph, "total_edges") >= 0);
+        assertTrue(intMetric(callGraph, "framework_caller_candidates") >= 0);
+        assertTrue(intMetric(callGraph, "framework_target_candidates") >= 0);
+        assertTrue(intMetric(callGraph, "framework_truncated_rules") >= 0);
+        assertTrue(intMetric(callGraph, "framework_truncated_callers") >= 0);
+        assertTrue(intMetric(callGraph, "framework_truncated_targets") >= 0);
         assertEquals(result.getEdgeCount(), intMetric(commit, "edges"));
         assertTrue(result.getPeakHeapUsedBytes() > 0L);
         assertTrue(result.getPeakHeapCommittedBytes() >= result.getPeakHeapUsedBytes());
@@ -96,6 +101,8 @@ class CoreRunnerBuildMetricsTest {
             assertTrue(meta.hasProperty("build_stage_neo4j_csv_payload_ms"));
             assertTrue(meta.hasProperty("build_stage_neo4j_bulk_import_ms"));
             assertTrue(meta.hasProperty("build_stage_neo4j_persist_runtime_snapshot_ms"));
+            assertTrue(meta.hasProperty("build_stage_callgraph_framework_caller_candidates"));
+            assertTrue(meta.hasProperty("build_stage_callgraph_framework_truncated_rules"));
             assertEquals(intMetric(symbol, "call_sites"),
                     ((Number) meta.getProperty("build_stage_bytecode_symbol_call_sites")).intValue());
             assertEquals(intMetric(symbol, "local_vars"),

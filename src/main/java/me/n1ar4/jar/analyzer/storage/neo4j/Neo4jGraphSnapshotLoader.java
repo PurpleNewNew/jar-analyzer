@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
@@ -30,6 +31,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.function.Predicate;
 
 public final class Neo4jGraphSnapshotLoader {
@@ -45,41 +48,20 @@ public final class Neo4jGraphSnapshotLoader {
     private static final Map<String, CachedSnapshot> CACHE = new ConcurrentHashMap<>();
     private static final Map<String, CachedSnapshot> FLOW_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, CachedSnapshot> QUERY_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, FutureTask<CachedSnapshot>> CACHE_LOADS = new ConcurrentHashMap<>();
+    private static final Map<String, FutureTask<CachedSnapshot>> FLOW_CACHE_LOADS = new ConcurrentHashMap<>();
+    private static final Map<String, FutureTask<CachedSnapshot>> QUERY_CACHE_LOADS = new ConcurrentHashMap<>();
 
     public GraphSnapshot load(String projectKey) {
-        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        long buildSeq = PROJECT_STORE.read(key, BUILD_SEQ_TIMEOUT_MS, Neo4jGraphSnapshotLoader::resolveBuildSeq);
-        CachedSnapshot cached = CACHE.get(key);
-        if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
-            return cached.snapshot;
-        }
-        LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, Neo4jGraphSnapshotLoader::loadSnapshot);
-        CACHE.put(key, new CachedSnapshot(loaded.buildSeq, loaded.snapshot));
-        return loaded.snapshot;
+        return loadSnapshotCached(projectKey, CACHE, CACHE_LOADS, Neo4jGraphSnapshotLoader::loadSnapshot);
     }
 
     public GraphSnapshot loadFlow(String projectKey) {
-        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        long buildSeq = PROJECT_STORE.read(key, BUILD_SEQ_TIMEOUT_MS, Neo4jGraphSnapshotLoader::resolveBuildSeq);
-        CachedSnapshot cached = FLOW_CACHE.get(key);
-        if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
-            return cached.snapshot;
-        }
-        LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, Neo4jGraphSnapshotLoader::loadFlowSnapshot);
-        FLOW_CACHE.put(key, new CachedSnapshot(loaded.buildSeq, loaded.snapshot));
-        return loaded.snapshot;
+        return loadSnapshotCached(projectKey, FLOW_CACHE, FLOW_CACHE_LOADS, Neo4jGraphSnapshotLoader::loadFlowSnapshot);
     }
 
     public GraphSnapshot loadQuery(String projectKey) {
-        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        long buildSeq = PROJECT_STORE.read(key, BUILD_SEQ_TIMEOUT_MS, Neo4jGraphSnapshotLoader::resolveBuildSeq);
-        CachedSnapshot cached = QUERY_CACHE.get(key);
-        if (cached != null && cached.buildSeq == buildSeq && cached.snapshot != null) {
-            return cached.snapshot;
-        }
-        LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, Neo4jGraphSnapshotLoader::loadQuerySnapshot);
-        QUERY_CACHE.put(key, new CachedSnapshot(loaded.buildSeq, loaded.snapshot));
-        return loaded.snapshot;
+        return loadSnapshotCached(projectKey, QUERY_CACHE, QUERY_CACHE_LOADS, Neo4jGraphSnapshotLoader::loadQuerySnapshot);
     }
 
     public static void invalidate(String projectKey) {
@@ -88,17 +70,113 @@ public final class Neo4jGraphSnapshotLoader {
             CACHE.clear();
             FLOW_CACHE.clear();
             QUERY_CACHE.clear();
+            CACHE_LOADS.clear();
+            FLOW_CACHE_LOADS.clear();
+            QUERY_CACHE_LOADS.clear();
             return;
         }
         CACHE.remove(normalized);
         FLOW_CACHE.remove(normalized);
         QUERY_CACHE.remove(normalized);
+        CACHE_LOADS.remove(normalized);
+        FLOW_CACHE_LOADS.remove(normalized);
+        QUERY_CACHE_LOADS.remove(normalized);
     }
 
     public static void invalidateAll() {
         CACHE.clear();
         FLOW_CACHE.clear();
         QUERY_CACHE.clear();
+        CACHE_LOADS.clear();
+        FLOW_CACHE_LOADS.clear();
+        QUERY_CACHE_LOADS.clear();
+    }
+
+    private GraphSnapshot loadSnapshotCached(String projectKey,
+                                             Map<String, CachedSnapshot> cache,
+                                             Map<String, FutureTask<CachedSnapshot>> loads,
+                                             java.util.function.Function<Transaction, LoadedSnapshot> loader) {
+        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        long expectedBuildSeq = resolveExpectedBuildSeq(key);
+        CachedSnapshot cached = cache.get(key);
+        if (isUsable(cached, expectedBuildSeq)) {
+            return cached.snapshot;
+        }
+        while (true) {
+            FutureTask<CachedSnapshot> task = new FutureTask<>(() -> {
+                LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, loader);
+                return new CachedSnapshot(loaded.buildSeq, loaded.snapshot);
+            });
+            FutureTask<CachedSnapshot> active = loads.putIfAbsent(key, task);
+            if (active == null) {
+                try {
+                    task.run();
+                    CachedSnapshot loaded = task.get();
+                    long currentBuildSeq = resolveExpectedBuildSeq(key);
+                    if (isUsable(loaded, currentBuildSeq)) {
+                        cache.put(key, loaded);
+                        return loaded.snapshot;
+                    }
+                    CachedSnapshot refreshed = cache.get(key);
+                    if (isUsable(refreshed, currentBuildSeq)) {
+                        return refreshed.snapshot;
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("graph_snapshot_load_interrupted", ex);
+                } catch (ExecutionException ex) {
+                    throw rethrow(ex.getCause());
+                } finally {
+                    loads.remove(key, task);
+                }
+            }
+            try {
+                CachedSnapshot loaded = active.get();
+                long currentBuildSeq = resolveExpectedBuildSeq(key);
+                if (isUsable(loaded, currentBuildSeq)) {
+                    cache.put(key, loaded);
+                    return loaded.snapshot;
+                }
+                CachedSnapshot refreshed = cache.get(key);
+                if (isUsable(refreshed, currentBuildSeq)) {
+                    return refreshed.snapshot;
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("graph_snapshot_load_interrupted", ex);
+            } catch (ExecutionException ex) {
+                throw rethrow(ex.getCause());
+            }
+        }
+    }
+
+    private static long resolveExpectedBuildSeq(String projectKey) {
+        String key = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        if (key.isBlank()) {
+            return -1L;
+        }
+        long buildSeq = DatabaseManager.getProjectBuildSeq(key);
+        if (buildSeq > 0L) {
+            return buildSeq;
+        }
+        return PROJECT_STORE.read(key, BUILD_SEQ_TIMEOUT_MS, Neo4jGraphSnapshotLoader::resolveBuildSeq);
+    }
+
+    private static boolean isUsable(CachedSnapshot cached, long buildSeq) {
+        return cached != null
+                && cached.snapshot != null
+                && buildSeq > 0L
+                && cached.buildSeq == buildSeq;
+    }
+
+    private static IllegalStateException rethrow(Throwable cause) {
+        if (cause instanceof IllegalStateException state) {
+            return state;
+        }
+        if (cause instanceof RuntimeException runtime) {
+            return new IllegalStateException(runtime.getMessage(), runtime);
+        }
+        return new IllegalStateException("graph_snapshot_load_failed", cause);
     }
 
     private static LoadedSnapshot loadSnapshot(Transaction tx) {

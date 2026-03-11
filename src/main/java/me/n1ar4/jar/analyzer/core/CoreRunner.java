@@ -638,7 +638,7 @@ public class CoreRunner {
                     callGraphPlan.bytecodeSettings()
             );
             facts.edges().copyInto(context);
-            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, ptaPrecisionSelectedCallSites={}, ptaPrecisionSemanticCallSites={}, ptaPrecisionReflectionCallSites={}, ptaPrecisionTriggerCallSites={}, ptaPrecisionHighFanoutCallSites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, frameworkCallerCandidates={}, frameworkTargetCandidates={}, frameworkTruncatedRules={}, frameworkTruncatedCallers={}, frameworkTruncatedTargets={}, frameworkDroppedCandidatePairs={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, ptaPrecisionSelectedCallSites={}, ptaPrecisionSemanticCallSites={}, ptaPrecisionReflectionCallSites={}, ptaPrecisionTriggerCallSites={}, ptaPrecisionHighFanoutCallSites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                     msSince(stageStartNs),
                     callGraphModeMeta,
                     callGraphPlan.bytecodeSettings().precisionMode(),
@@ -658,6 +658,12 @@ public class CoreRunner {
                     bytecodeResult.reflectionHintThresholdExceededSites(),
                     bytecodeResult.callbackEdges(),
                     bytecodeResult.frameworkEdges(),
+                    bytecodeResult.frameworkCallerCandidates(),
+                    bytecodeResult.frameworkTargetCandidates(),
+                    bytecodeResult.frameworkTruncatedRules(),
+                    bytecodeResult.frameworkTruncatedCallers(),
+                    bytecodeResult.frameworkTruncatedTargets(),
+                    bytecodeResult.frameworkDroppedCandidatePairs(),
                     bytecodeResult.triggerBridgeEdges(),
                     bytecodeResult.ptaEdges(),
                     bytecodeResult.refinedPtaCallSites(),
@@ -704,6 +710,12 @@ public class CoreRunner {
             callGraphMetrics.put("reflection_hint_threshold_exceeded_sites", bytecodeResult.reflectionHintThresholdExceededSites());
             callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
             callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
+            callGraphMetrics.put("framework_caller_candidates", bytecodeResult.frameworkCallerCandidates());
+            callGraphMetrics.put("framework_target_candidates", bytecodeResult.frameworkTargetCandidates());
+            callGraphMetrics.put("framework_truncated_rules", bytecodeResult.frameworkTruncatedRules());
+            callGraphMetrics.put("framework_truncated_callers", bytecodeResult.frameworkTruncatedCallers());
+            callGraphMetrics.put("framework_truncated_targets", bytecodeResult.frameworkTruncatedTargets());
+            callGraphMetrics.put("framework_dropped_candidate_pairs", bytecodeResult.frameworkDroppedCandidatePairs());
             callGraphMetrics.put("trigger_bridge_edges", bytecodeResult.triggerBridgeEdges());
             callGraphMetrics.put("thread_start_edges", bytecodeResult.threadStartEdges());
             callGraphMetrics.put("executor_edges", bytecodeResult.executorEdges());

@@ -128,6 +128,12 @@ public final class BytecodeMainlineCallGraphRunner {
                 semanticResult.doPrivilegedEdges(),
                 semanticResult.dynamicProxyEdges(),
                 semanticResult.triggerBridgeEdges(),
+                semanticResult.frameworkCallerCandidates(),
+                semanticResult.frameworkTargetCandidates(),
+                semanticResult.frameworkTruncatedRules(),
+                semanticResult.frameworkTruncatedCallers(),
+                semanticResult.frameworkTruncatedTargets(),
+                semanticResult.frameworkDroppedCandidatePairs(),
                 ptaResult.ptaEdges(),
                 ptaResult.refinedCallSites(),
                 ptaResult.hotspotCallSites(),
@@ -276,6 +282,12 @@ public final class BytecodeMainlineCallGraphRunner {
                          int doPrivilegedEdges,
                          int dynamicProxyEdges,
                          int triggerBridgeEdges,
+                         int frameworkCallerCandidates,
+                         int frameworkTargetCandidates,
+                         int frameworkTruncatedRules,
+                         int frameworkTruncatedCallers,
+                         int frameworkTruncatedTargets,
+                         long frameworkDroppedCandidatePairs,
                          int ptaEdges,
                          int refinedPtaCallSites,
                          int ptaHotspotCallSites,
@@ -293,8 +305,12 @@ public final class BytecodeMainlineCallGraphRunner {
                          long totalEdges) {
         static Result empty() {
             return new Result(
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0L,
+                    0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0,
                     0, 0, 0, 0L
             );
         }
