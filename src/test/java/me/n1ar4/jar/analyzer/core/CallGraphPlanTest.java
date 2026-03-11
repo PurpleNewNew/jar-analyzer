@@ -40,6 +40,20 @@ class CallGraphPlanTest {
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
         assertTrue(plan.bytecodeMainline());
         assertTrue(plan.selectivePta());
+        assertFalse(plan.bytecodeSettings().precisionMode());
+    }
+
+    @Test
+    void precisionProfileShouldUsePrecisionBudgetOnBytecodeMainline() {
+        CallGraphPlan plan = CallGraphPlan.resolve("", CallGraphPlan.PROFILE_PRECISION, AnalysisProfile.BALANCED);
+
+        assertEquals(CallGraphPlan.PROFILE_PRECISION, plan.analysisProfile());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_PRECISION_V1, plan.callGraphModeMeta());
+        assertTrue(plan.bytecodeMainline());
+        assertTrue(plan.selectivePta());
+        assertTrue(plan.bytecodeSettings().precisionMode());
+        assertEquals("precision", plan.bytecodeSettings().ptaBudgetProfile());
     }
 
     @Test

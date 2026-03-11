@@ -11,6 +11,7 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -89,10 +90,11 @@ final class BytecodeMainlineReflectionResolver {
         BuildBytecodeWorkspace workspace = context == null
                 ? BuildBytecodeWorkspace.empty()
                 : BuildBytecodeWorkspace.parse(context.classFileList);
-        return appendEdges(context, workspace, lookup);
+        return appendEdges(BuildFactSnapshot.empty(), context, workspace, lookup);
     }
 
-    static Result appendEdges(BuildContext context,
+    static Result appendEdges(BuildFactSnapshot snapshot,
+                              BuildContext context,
                               BuildBytecodeWorkspace workspace,
                               BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
         if (context == null
@@ -134,6 +136,22 @@ final class BytecodeMainlineReflectionResolver {
                     if (caller == null) {
                         continue;
                     }
+                    BuildFactSnapshot.MethodConstraintFacts constraints = snapshot == null
+                            ? BuildFactSnapshot.MethodConstraintFacts.empty()
+                            : snapshot.constraints().methodConstraints(caller);
+                    MethodResolveResult hintResult = applyHintEdges(
+                            caller,
+                            mn,
+                            constraints.reflectionHints(),
+                            context.methodCalls,
+                            context.methodCallMeta,
+                            context.methodMap
+                    );
+                    reflectionEdges += hintResult.reflectionEdges();
+                    methodHandleEdges += hintResult.methodHandleEdges();
+                    if (!constraints.reflectionHints().isEmpty()) {
+                        continue;
+                    }
                     MethodResolveResult resolveResult = resolveInMethod(
                             caller,
                             mn,
@@ -154,6 +172,167 @@ final class BytecodeMainlineReflectionResolver {
             }
         }
         return new Result(reflectionEdges, methodHandleEdges, invokeDynamicEdges);
+    }
+
+    static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
+            BuildBytecodeWorkspace workspace,
+            Map<MethodReference.Handle, MethodReference> methodMap) {
+        if (workspace == null
+                || workspace.parsedClasses().isEmpty()
+                || methodMap == null
+                || methodMap.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, InstanceFieldFacts> instanceFieldFacts = collectInstanceFieldFacts(workspace);
+        LinkedHashMap<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> out = new LinkedHashMap<>();
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
+            if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
+                continue;
+            }
+            Map<String, String> staticStrings = collectStaticStringConstants(parsedClass.classNode());
+            for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                MethodNode mn = parsedMethod == null ? null : parsedMethod.methodNode();
+                if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
+                    continue;
+                }
+                if (!containsReflectionInvoke(mn.instructions)) {
+                    continue;
+                }
+                MethodReference.Handle handle = new MethodReference.Handle(
+                        new ClassReference.Handle(parsedClass.className(), parsedClass.jarId()),
+                        mn.name,
+                        mn.desc
+                );
+                BuildFactSnapshot.MethodReflectionHints hints = collectMethodHints(
+                        parsedClass.classNode(),
+                        parsedMethod,
+                        staticStrings,
+                        instanceFieldFacts,
+                        methodMap
+                );
+                if (!hints.isEmpty()) {
+                    out.put(handle, hints);
+                }
+            }
+        }
+        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+    }
+
+    private static BuildFactSnapshot.MethodReflectionHints collectMethodHints(ClassNode classNode,
+                                                                              BuildBytecodeWorkspace.ParsedMethod parsedMethod,
+                                                                              Map<String, String> staticStrings,
+                                                                              Map<String, InstanceFieldFacts> instanceFieldFacts,
+                                                                              Map<MethodReference.Handle, MethodReference> methodMap) {
+        MethodNode mn = parsedMethod == null ? null : parsedMethod.methodNode();
+        if (classNode == null
+                || mn == null
+                || mn.instructions == null
+                || mn.instructions.size() == 0
+                || methodMap == null
+                || methodMap.isEmpty()) {
+            return BuildFactSnapshot.MethodReflectionHints.empty();
+        }
+        try {
+            Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+            if (frames == null) {
+                Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
+                frames = analyzer.analyze(classNode.name, mn);
+            }
+            ResolveContext ctx = new ResolveContext(frames, mn.instructions, classNode, staticStrings, instanceFieldFacts);
+            LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> classNewInstanceHints = new LinkedHashMap<>();
+            LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> reflectionInvokeHints = new LinkedHashMap<>();
+            LinkedHashMap<Integer, BuildFactSnapshot.MethodInvokeHint> methodHandleInvokeHints = new LinkedHashMap<>();
+            for (int i = 0, n = mn.instructions.size(); i < n; i++) {
+                AbstractInsnNode insn = mn.instructions.get(i);
+                if (!(insn instanceof MethodInsnNode invoke)) {
+                    continue;
+                }
+                if (isClassNewInstance(invoke)) {
+                    Frame<SourceValue> frame = frames[i];
+                    if (frame == null) {
+                        continue;
+                    }
+                    int objIndex = frame.getStackSize() - 1;
+                    if (objIndex < 0) {
+                        continue;
+                    }
+                    ResolvedString classInfo = resolveClassNameWithReason(frame.getStack(objIndex), ctx);
+                    if (classInfo == null || classInfo.value == null) {
+                        continue;
+                    }
+                    MethodReference.Handle target = findUniqueMethod(
+                            methodMap,
+                            classInfo.value,
+                            "<init>",
+                            "()V"
+                    );
+                    if (target != null) {
+                        classNewInstanceHints.put(
+                                i,
+                                new BuildFactSnapshot.MethodInvokeHint(
+                                        i,
+                                        List.of(target),
+                                        REASON_CLASS_NEW_INSTANCE + "_" + classInfo.reason
+                                )
+                        );
+                    }
+                    continue;
+                }
+                if (isReflectionInvoke(invoke)) {
+                    Frame<SourceValue> frame = frames[i];
+                    if (frame == null) {
+                        continue;
+                    }
+                    int argSlots = 0;
+                    for (Type type : Type.getArgumentTypes(invoke.desc)) {
+                        argSlots += type.getSize();
+                    }
+                    int objIndex = frame.getStackSize() - argSlots - 1;
+                    if (objIndex < 0) {
+                        continue;
+                    }
+                    MethodInsnNode creator = findSingleCreator(frame.getStack(objIndex), ctx, 0);
+                    if (creator == null) {
+                        continue;
+                    }
+                    TargetResolve resolved = resolveTarget(creator, ctx, methodMap);
+                    BuildFactSnapshot.MethodInvokeHint hint = toInvokeHint(i, resolved);
+                    if (hint != null) {
+                        reflectionInvokeHints.put(i, hint);
+                    }
+                    continue;
+                }
+                if (!isMethodHandleInvoke(invoke)) {
+                    continue;
+                }
+                Frame<SourceValue> frame = frames[i];
+                if (frame == null) {
+                    continue;
+                }
+                int argCount = Type.getArgumentTypes(invoke.desc).length;
+                int objIndex = frame.getStackSize() - argCount - 1;
+                if (objIndex < 0) {
+                    continue;
+                }
+                MethodInsnNode creator = findSingleHandleCreator(frame.getStack(objIndex), ctx, 0);
+                if (creator == null) {
+                    continue;
+                }
+                TargetResolve resolved = resolveHandleTarget(creator, ctx, methodMap);
+                BuildFactSnapshot.MethodInvokeHint hint = toInvokeHint(i, resolved);
+                if (hint != null) {
+                    methodHandleInvokeHints.put(i, hint);
+                }
+            }
+            return new BuildFactSnapshot.MethodReflectionHints(
+                    classNewInstanceHints,
+                    reflectionInvokeHints,
+                    methodHandleInvokeHints
+            );
+        } catch (Exception ex) {
+            logger.warn("bytecode-mainline reflection facts collect failed: {}.{}", classNode.name, mn.name);
+            return BuildFactSnapshot.MethodReflectionHints.empty();
+        }
     }
 
     private static int appendInvokeDynamicEdges(ClassNode cn,
@@ -239,6 +418,109 @@ final class BytecodeMainlineReflectionResolver {
                 )) {
                     added++;
                 }
+            }
+        }
+        return added;
+    }
+
+    private static BuildFactSnapshot.MethodInvokeHint toInvokeHint(int insnIndex,
+                                                                   TargetResolve resolved) {
+        if (resolved == null || resolved.targets() == null || resolved.targets().isEmpty()) {
+            return null;
+        }
+        return new BuildFactSnapshot.MethodInvokeHint(insnIndex, resolved.targets(), resolved.reason());
+    }
+
+    private static MethodResolveResult applyHintEdges(MethodReference.Handle caller,
+                                                      MethodNode mn,
+                                                      BuildFactSnapshot.MethodReflectionHints reflectionHints,
+                                                      Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+                                                      Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                                      Map<MethodReference.Handle, MethodReference> methodMap) {
+        if (caller == null
+                || mn == null
+                || mn.instructions == null
+                || mn.instructions.size() == 0
+                || reflectionHints == null
+                || reflectionHints.isEmpty()) {
+            return MethodResolveResult.empty();
+        }
+        int reflectionEdges = 0;
+        int methodHandleEdges = 0;
+        for (int i = 0, n = mn.instructions.size(); i < n; i++) {
+            AbstractInsnNode insn = mn.instructions.get(i);
+            if (!(insn instanceof MethodInsnNode invoke)) {
+                continue;
+            }
+            if (isClassNewInstance(invoke)) {
+                reflectionEdges += appendHintEdges(
+                        caller,
+                        reflectionHints.classNewInstanceHint(i),
+                        methodCalls,
+                        methodCallMeta,
+                        methodMap,
+                        MethodCallMeta.TYPE_REFLECTION
+                );
+                continue;
+            }
+            if (isReflectionInvoke(invoke)) {
+                reflectionEdges += appendHintEdges(
+                        caller,
+                        reflectionHints.reflectionInvokeHint(i),
+                        methodCalls,
+                        methodCallMeta,
+                        methodMap,
+                        MethodCallMeta.TYPE_REFLECTION
+                );
+                continue;
+            }
+            if (isMethodHandleInvoke(invoke)) {
+                methodHandleEdges += appendHintEdges(
+                        caller,
+                        reflectionHints.methodHandleInvokeHint(i),
+                        methodCalls,
+                        methodCallMeta,
+                        methodMap,
+                        MethodCallMeta.TYPE_METHOD_HANDLE
+                );
+            }
+        }
+        return new MethodResolveResult(reflectionEdges, methodHandleEdges);
+    }
+
+    private static int appendHintEdges(MethodReference.Handle caller,
+                                       BuildFactSnapshot.MethodInvokeHint hint,
+                                       Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+                                       Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                       Map<MethodReference.Handle, MethodReference> methodMap,
+                                       String edgeType) {
+        if (caller == null
+                || hint == null
+                || hint.targets() == null
+                || hint.targets().isEmpty()
+                || methodCalls == null
+                || methodCallMeta == null) {
+            return 0;
+        }
+        int added = 0;
+        for (MethodReference.Handle target : hint.targets()) {
+            if (target == null) {
+                continue;
+            }
+            int fallbackOpcode = "<init>".equals(target.getName())
+                    ? Opcodes.INVOKESPECIAL
+                    : Opcodes.INVOKEVIRTUAL;
+            MethodReference.Handle callTarget = withSyntheticOpcode(target, methodMap, fallbackOpcode);
+            if (addEdge(
+                    methodCalls,
+                    methodCallMeta,
+                    caller,
+                    callTarget,
+                    edgeType,
+                    MethodCallMeta.CONF_LOW,
+                    hint.reason()
+            )) {
+                added++;
             }
         }
         return added;

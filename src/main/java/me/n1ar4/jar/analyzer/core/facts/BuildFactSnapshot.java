@@ -229,7 +229,8 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                                         List<ArrayAccessEdge> arrayStoreEdges,
                                         List<ArrayCopyEdge> arrayCopyEdges,
                                         List<ReturnEdge> returnEdges,
-                                        List<NativeModelHint> nativeModelHints) {
+                                        List<NativeModelHint> nativeModelHints,
+                                        MethodReflectionHints reflectionHints) {
         public MethodConstraintFacts {
             allocEdges = immutableList(allocEdges);
             objectAssignEdgesByVar = immutableMapOfLists(objectAssignEdgesByVar);
@@ -241,6 +242,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
             arrayCopyEdges = immutableList(arrayCopyEdges);
             returnEdges = immutableList(returnEdges);
             nativeModelHints = immutableList(nativeModelHints);
+            reflectionHints = reflectionHints == null ? MethodReflectionHints.empty() : reflectionHints;
         }
 
         public AssignEdge findPreviousObjectAssign(int varIndex,
@@ -278,7 +280,8 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                     List.of(),
                     List.of(),
                     List.of(),
-                    List.of()
+                    List.of(),
+                    MethodReflectionHints.empty()
             );
         }
 
@@ -315,6 +318,61 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                 out.put(entry.getKey(), List.copyOf(entry.getValue()));
             }
             return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        }
+    }
+
+    public record MethodReflectionHints(Map<Integer, MethodInvokeHint> classNewInstanceHints,
+                                        Map<Integer, MethodInvokeHint> reflectionInvokeHints,
+                                        Map<Integer, MethodInvokeHint> methodHandleInvokeHints) {
+        public MethodReflectionHints {
+            classNewInstanceHints = immutableMap(classNewInstanceHints);
+            reflectionInvokeHints = immutableMap(reflectionInvokeHints);
+            methodHandleInvokeHints = immutableMap(methodHandleInvokeHints);
+        }
+
+        public MethodInvokeHint classNewInstanceHint(int insnIndex) {
+            return classNewInstanceHints.get(insnIndex);
+        }
+
+        public MethodInvokeHint reflectionInvokeHint(int insnIndex) {
+            return reflectionInvokeHints.get(insnIndex);
+        }
+
+        public MethodInvokeHint methodHandleInvokeHint(int insnIndex) {
+            return methodHandleInvokeHints.get(insnIndex);
+        }
+
+        public boolean isEmpty() {
+            return classNewInstanceHints.isEmpty()
+                    && reflectionInvokeHints.isEmpty()
+                    && methodHandleInvokeHints.isEmpty();
+        }
+
+        public static MethodReflectionHints empty() {
+            return new MethodReflectionHints(Map.of(), Map.of(), Map.of());
+        }
+
+        private static <K, V> Map<K, V> immutableMap(Map<K, V> values) {
+            if (values == null || values.isEmpty()) {
+                return Map.of();
+            }
+            java.util.LinkedHashMap<K, V> out = new java.util.LinkedHashMap<>();
+            for (Map.Entry<K, V> entry : values.entrySet()) {
+                if (entry == null || entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                out.put(entry.getKey(), entry.getValue());
+            }
+            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        }
+    }
+
+    public record MethodInvokeHint(int insnIndex,
+                                   List<MethodReference.Handle> targets,
+                                   String reason) {
+        public MethodInvokeHint {
+            targets = targets == null || targets.isEmpty() ? List.of() : List.copyOf(targets);
+            reason = reason == null ? "" : reason;
         }
     }
 

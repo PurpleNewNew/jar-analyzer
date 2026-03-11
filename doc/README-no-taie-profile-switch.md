@@ -25,12 +25,12 @@
 | --- | --- | --- | --- | --- |
 | `fast` | `bytecode-mainline` | `bytecode:fast-v1` | 否 | 快速建库、先看主调用链 |
 | `balanced` | `bytecode-mainline+pta-refine` | `bytecode:balanced-v1` | 是 | 当前默认主链，兼顾速度与热点 PTA 精化 |
-| `precision` | `bytecode-mainline+pta-refine` | `bytecode:precision-v1` | 是 | 在同一 bytecode 主链下追求更高精度 |
+| `precision` | `bytecode-mainline+pta-refine` | `bytecode:precision-v1` | 是 | 在同一 bytecode 主链下启用更高 PTA 预算，追求更高精度 |
 | `oracle-taie` | `oracle-taie` | `oracle-taie:<taie-profile>` | 否 | 把 Tai-e 限定为 oracle/对照模式 |
 
 说明：
 
-- `precision` 仍然属于 bytecode 主链，不重新引入第二条 PTA 全量主链。
+- `precision` 仍然属于 bytecode 主链，不重新引入第二条 PTA 全量主链；当前通过更高 PTA 预算在同链上做精化。
 - `oracle-taie` 的 Tai-e context profile 仍由 `jar.analyzer.analysis.profile` 控制，例如 `fast/balanced/high`。
 
 ## 3. Engine 兼容映射

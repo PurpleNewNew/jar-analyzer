@@ -27,7 +27,8 @@
 - `fast / balanced / precision / oracle-taie` 的 profile 契约已经落地，见 `doc/README-no-taie-profile-switch.md`
 - 单次解析前端收口已经进入主建库链：`BuildBytecodeWorkspace + BuildFactSnapshot + BuildEdgeAccumulator + BytecodeFactRunner`
 - bytecode-mainline 已经能在 callback、framework-stack 等真实样本上跑通主链并进入回归包
-- 默认主链切换与 `oracle-taie` 收口已经完成；下一步进入 `ConstraintFacts / selective PTA / precision` 深化
+- 默认主链切换与 `oracle-taie` 收口已经完成；`ConstraintFacts / selective PTA / precision` 的 Phase 4 收口也已经完成
+- Phase 5 的 `oracle-taie` 适配层压缩也已经进入主干：`CoreRunner` 不再直接编排 Tai-e 运行/映射/入口签名拼装，相关逻辑已经收进 `core/taie/TaieOracleCallGraphRunner`
 
 ## 1. 背景与问题定义
 
@@ -588,7 +589,7 @@ Tai-e 迁移后只保留以下用途：
 - 对外 README / Phase 文档 / bench 报表统一以 `callgraph` 与 `oracle-taie` 为 canonical 口径
 - 真实 Web / gadget 回归继续通过
 
-### Phase 4: 选择性 PTA 收敛
+### Phase 4: 选择性 PTA 收敛（已完成）
 
 目标：
 
@@ -600,12 +601,25 @@ Tai-e 迁移后只保留以下用途：
   - `precision`
   - `oracle-taie`（仅对照）
 
-### Phase 5: 压缩 `oracle-taie` 适配层
+验收：
+
+- `ConstraintFacts` 已同时承接 PTA method-level 约束和 reflection invoke/method-handle/class-new-instance hints
+- `BytecodeMainlineReflectionResolver` 与 `SelectivePtaRefiner` 已优先消费 `snapshot.constraints()`
+- `precision` 已不再只是 mode 名，而是在 bytecode 主链上启用更高 PTA 预算
+- callback / gadget / ysoserial / framework 回归继续通过
+
+### Phase 5: 压缩 `oracle-taie` 适配层（已完成）
 
 目标：
 
 - 删除仅服务历史对照链的冗余桥接
 - 继续缩小 `core/taie/*` 的外围依赖面
+
+验收：
+
+- `CoreRunner` 不再直接依赖 `TaieAnalysisRunner / TaieEdgeMapper`
+- Tai-e 的 main-class 解析、explicit entry method 规划、edge mapping 与 oracle 统计已经收进 `core/taie/TaieOracleCallGraphRunner`
+- 默认主链继续只保留 bytecode-mainline；`oracle-taie` 仅保留一层薄适配器入口
 
 ### Phase 6: 评估是否彻底移除 Tai-e 依赖
 

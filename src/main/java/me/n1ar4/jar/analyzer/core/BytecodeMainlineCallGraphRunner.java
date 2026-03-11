@@ -89,7 +89,7 @@ public final class BytecodeMainlineCallGraphRunner {
                 instantiatedClasses
         );
         BytecodeMainlineReflectionResolver.Result reflectionResult =
-                BytecodeMainlineReflectionResolver.appendEdges(legacyView, workspace, lookup);
+                BytecodeMainlineReflectionResolver.appendEdges(snapshot, legacyView, workspace, lookup);
         BytecodeMainlineSemanticEdgeRunner.Result semanticResult =
                 BytecodeMainlineSemanticEdgeRunner.appendEdges(
                         legacyView,
@@ -99,7 +99,7 @@ public final class BytecodeMainlineCallGraphRunner {
                 );
         BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(legacyView);
         SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
-                ? SelectivePtaRefiner.refine(snapshot, updated, workspace, inheritanceMap)
+                ? SelectivePtaRefiner.refine(snapshot, updated, workspace, inheritanceMap, resolved.precisionMode())
                 : SelectivePtaRefiner.Result.empty();
         edges.methodCalls().clear();
         edges.methodCallMeta().clear();
@@ -297,13 +297,20 @@ public final class BytecodeMainlineCallGraphRunner {
     private record EdgeSeed(SeedKind kind, String type, String confidence, String reason) {
     }
 
-    public record Settings(String modeMeta, boolean enableSelectivePta) {
+    public record Settings(String modeMeta, boolean enableSelectivePta, boolean precisionMode) {
         public Settings {
             modeMeta = modeMeta == null || modeMeta.isBlank() ? MODE_SEMANTIC_V1 : modeMeta;
         }
 
         public static Settings legacySemanticV1() {
-            return new Settings(MODE_SEMANTIC_V1, true);
+            return new Settings(MODE_SEMANTIC_V1, true, false);
+        }
+
+        public String ptaBudgetProfile() {
+            if (!enableSelectivePta) {
+                return "disabled";
+            }
+            return precisionMode ? "precision" : "balanced";
         }
     }
 

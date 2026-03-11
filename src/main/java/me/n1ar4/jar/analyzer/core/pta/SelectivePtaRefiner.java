@@ -60,6 +60,7 @@ import java.util.Set;
 public final class SelectivePtaRefiner {
     private static final Logger logger = LogManager.getLogger();
     private static final PtaBudget DEFAULT_BUDGET = new PtaBudget(8, 64, 64, 64, 8, 32, 8);
+    private static final PtaBudget PRECISION_BUDGET = new PtaBudget(12, 128, 128, 128, 12, 64, 16);
     private static final int MAX_SOURCES_PER_VALUE = 8;
     private SelectivePtaRefiner() {
     }
@@ -70,13 +71,21 @@ public final class SelectivePtaRefiner {
         BuildBytecodeWorkspace workspace = snapshot == null
                 ? BuildBytecodeWorkspace.empty()
                 : snapshot.bytecode().workspace();
-        return refine(snapshot, edges, workspace, inheritanceMap);
+        return refine(snapshot, edges, workspace, inheritanceMap, false);
     }
 
     public static Result refine(BuildFactSnapshot snapshot,
                                 BuildEdgeAccumulator edges,
                                 BuildBytecodeWorkspace workspace,
                                 InheritanceMap inheritanceMap) {
+        return refine(snapshot, edges, workspace, inheritanceMap, false);
+    }
+
+    public static Result refine(BuildFactSnapshot snapshot,
+                                BuildEdgeAccumulator edges,
+                                BuildBytecodeWorkspace workspace,
+                                InheritanceMap inheritanceMap,
+                                boolean precisionMode) {
         if (snapshot == null
                 || edges == null
                 || snapshot.symbols().callSites().isEmpty()
@@ -89,7 +98,7 @@ public final class SelectivePtaRefiner {
         if (methodUnits.isEmpty()) {
             return Result.empty();
         }
-        PtaBudget budget = DEFAULT_BUDGET;
+        PtaBudget budget = precisionMode ? PRECISION_BUDGET : DEFAULT_BUDGET;
         int hotspotSites = 0;
         int refinedSites = 0;
         int ptaEdges = 0;

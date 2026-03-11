@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.core.facts;
 
 import me.n1ar4.jar.analyzer.core.CallSiteKeyUtil;
+import me.n1ar4.jar.analyzer.core.ReflectionConstraintAnalyzer;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -43,17 +44,26 @@ final class ConstraintFactAssembler {
     }
 
     static BuildFactSnapshot.ConstraintFacts assemble(List<CallSiteEntity> callSites,
+                                                     Map<MethodReference.Handle, MethodReference> methodMap,
                                                      BuildBytecodeWorkspace workspace) {
         if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return BuildFactSnapshot.ConstraintFacts.empty();
         }
         Map<String, ParsedMethodBinding> methodsByKey = indexParsedMethods(workspace);
+        Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> reflectionHintsByHandle =
+                ReflectionConstraintAnalyzer.collect(workspace, methodMap);
         LinkedHashMap<MethodReference.Handle, BuildFactSnapshot.MethodConstraintFacts> methodsByHandle = new LinkedHashMap<>();
         for (ParsedMethodBinding binding : methodsByKey.values()) {
             if (binding == null || binding.handle() == null || binding.parsedMethod() == null) {
                 continue;
             }
-            methodsByHandle.put(binding.handle(), buildMethodConstraints(binding.parsedMethod()));
+            methodsByHandle.put(
+                    binding.handle(),
+                    buildMethodConstraints(
+                            binding.parsedMethod(),
+                            reflectionHintsByHandle.get(binding.handle())
+                    )
+            );
         }
         LinkedHashMap<String, String> receiverVarByCallSiteKey = buildReceiverVarFacts(callSites, methodsByKey);
         if (receiverVarByCallSiteKey.isEmpty() && methodsByHandle.isEmpty()) {
@@ -120,7 +130,9 @@ final class ConstraintFactAssembler {
         return out.isEmpty() ? Map.of() : Map.copyOf(out);
     }
 
-    private static BuildFactSnapshot.MethodConstraintFacts buildMethodConstraints(BuildBytecodeWorkspace.ParsedMethod parsedMethod) {
+    private static BuildFactSnapshot.MethodConstraintFacts buildMethodConstraints(
+            BuildBytecodeWorkspace.ParsedMethod parsedMethod,
+            BuildFactSnapshot.MethodReflectionHints reflectionHints) {
         MethodNode methodNode = parsedMethod == null ? null : parsedMethod.methodNode();
         if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
             return BuildFactSnapshot.MethodConstraintFacts.empty();
@@ -228,7 +240,8 @@ final class ConstraintFactAssembler {
                 arrayStoreEdges,
                 arrayCopyEdges,
                 returnEdges,
-                nativeModelHints
+                nativeModelHints,
+                reflectionHints
         );
     }
 

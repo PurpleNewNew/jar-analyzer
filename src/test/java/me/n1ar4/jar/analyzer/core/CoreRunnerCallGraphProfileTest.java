@@ -70,6 +70,28 @@ class CoreRunnerCallGraphProfileTest {
     }
 
     @Test
+    void precisionProfileShouldUsePrecisionBudgetProfile() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_PRECISION);
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_PRECISION_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.PROFILE_PRECISION, result.getAnalysisProfile());
+
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
+        assertNotNull(metric);
+        Map<String, Object> details = metric.getDetails();
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, details.get("engine"));
+        assertEquals(CallGraphPlan.PROFILE_PRECISION, details.get("analysis_profile"));
+        assertEquals(true, details.get("precision_mode"));
+        assertEquals("precision", details.get("pta_budget_profile"));
+    }
+
+    @Test
     void oracleTaieProfileShouldUseOracleEngineMarker() {
         System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_ORACLE_TAIE);
         System.setProperty("jar.analyzer.analysis.profile", "fast");

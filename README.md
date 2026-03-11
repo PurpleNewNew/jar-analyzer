@@ -105,7 +105,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision|oracle-taie` 切换，其中 `fast/balanced/precision` 走字节码主链，`oracle-taie` 把 Tai-e 限定为对照模式。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine|oracle-taie` 仍可使用；旧值 `taie` 已移除，显式设置会报错并提示改成 `oracle-taie`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`
+3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision|oracle-taie` 切换，其中 `fast/balanced/precision` 走字节码主链，`oracle-taie` 把 Tai-e 限定为对照模式。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine|oracle-taie` 仍可使用；旧值 `taie` 已移除，显式设置会报错并提示改成 `oracle-taie`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条 Tai-e/PTA 主路径
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
 5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `oracle-taie:<profile>`、`bytecode:semantic-v1`、`bytecode:fast-v1`、`bytecode:balanced-v1`、`bytecode:precision-v1` 或 `disabled-no-target`
 

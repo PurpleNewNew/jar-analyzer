@@ -134,7 +134,11 @@ public final class BuildFactAssembler {
                 methodSemanticFlags
         );
         BuildFactSnapshot.BytecodeFacts bytecode = new BuildFactSnapshot.BytecodeFacts(context.classFileList, workspace);
-        BuildFactSnapshot.ConstraintFacts constraints = ConstraintFactAssembler.assemble(context.callSites, workspace);
+        BuildFactSnapshot.ConstraintFacts constraints = ConstraintFactAssembler.assemble(
+                context.callSites,
+                context.methodMap,
+                workspace
+        );
         return new BuildFactSnapshot(
                 archives,
                 types,

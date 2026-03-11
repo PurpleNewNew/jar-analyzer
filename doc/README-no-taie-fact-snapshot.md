@@ -40,7 +40,7 @@
 - `BuildEdgeAccumulator` 已承接 `methodCalls / methodCallMeta`
 - `BuildFactAssembler.legacyView(...)` 仍保留桥接，用于迁移期兼容现有消费者
 - `BytecodeFacts` 当前不再只是“原始 class bytes 的访问入口”，而是显式携带单次解析后的 `BuildBytecodeWorkspace`
-- `ConstraintFacts.receiverVarByCallSiteKey` 已经落地，当前由 `ConstraintFactAssembler` 基于共享 workspace 统一产出；method-level 的 `alloc/assign/field/array/native/return` 约束也已并入
+- `ConstraintFacts.receiverVarByCallSiteKey` 已经落地，当前由 `ConstraintFactAssembler` 基于共享 workspace 统一产出；method-level 的 `alloc/assign/field/array/native/return` 约束以及 reflection invoke / method-handle / class-new-instance hints 也已并入
 
 ## 2. 为什么当前 `BuildContext` 不够
 
@@ -295,7 +295,7 @@ record BuildFactSnapshot(
 - `nativeModelHints`
 
 这层仍然是后续 precision 收敛的唯一 owner。
-截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey` 以及 method-level 的 `alloc/assign/field/array/native/return` 约束，`SelectivePtaRefiner` 也已切到 `snapshot + BuildEdgeAccumulator` 输入；默认主链切换与 `oracle-taie` 收口已经完成，后续应继续把 reflection const/string/helper-flow hints 补齐到这里。
+截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey`、method-level 的 `alloc/assign/field/array/native/return` 约束，以及 reflection invoke / method-handle / class-new-instance hints；`SelectivePtaRefiner` 也已切到 `snapshot + BuildEdgeAccumulator` 输入，`BytecodeMainlineReflectionResolver` 已优先消费 `snapshot.constraints()`。默认主链切换与 `oracle-taie` 收口已经完成，`oracle-taie` 适配层压缩也已经完成，当前 `CoreRunner` 只保留 bytecode-mainline / oracle 分流，Tai-e 专属运行/映射/入口拼装已经收进 `core/taie/TaieOracleCallGraphRunner`。下一步应评估是否进入彻底删除 Tai-e 依赖的最后阶段。
 
 ## 5. `BuildEdgeAccumulator` 的目标结构
 

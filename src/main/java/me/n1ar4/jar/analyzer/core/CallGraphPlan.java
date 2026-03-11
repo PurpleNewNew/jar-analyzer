@@ -53,7 +53,11 @@ public record CallGraphPlan(String analysisProfile,
         if (!bytecodeMainline) {
             return BytecodeMainlineCallGraphRunner.Settings.legacySemanticV1();
         }
-        return new BytecodeMainlineCallGraphRunner.Settings(callGraphModeMeta, selectivePta);
+        return new BytecodeMainlineCallGraphRunner.Settings(
+                callGraphModeMeta,
+                selectivePta,
+                PROFILE_PRECISION.equals(analysisProfile)
+        );
     }
 
     private static CallGraphPlan fromEngine(String engine, AnalysisProfile taieProfile) {

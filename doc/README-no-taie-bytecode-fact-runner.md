@@ -18,7 +18,7 @@
 - [DiscoveryRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/DiscoveryRunner.java)、[ClassAnalysisRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/ClassAnalysisRunner.java)、[BytecodeSymbolRunner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/BytecodeSymbolRunner.java) 已经接到这条主链上，不再各自拥有一份独立前端。
 - `DispatchCallResolver.collectInstantiatedClasses`、[BytecodeMainlineReflectionResolver.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/BytecodeMainlineReflectionResolver.java)、[SelectivePtaRefiner.java](/Users/veritas/Documents/projects/jar-analyzer/src/main/java/me/n1ar4/jar/analyzer/core/pta/SelectivePtaRefiner.java) 在 bytecode-mainline 主路径下已经优先消费共享 workspace，而不是再各自重扫 class bytes。
 - `BytecodeFactRunner` 当前负责把前端 facts 收口到 `BuildFactSnapshot`，边继续由后续 `dispatch / reflection / semantic / PTA` builder 写入 `BuildEdgeAccumulator`。
-- `ConstraintFacts.receiverVarByCallSiteKey` 与 method-level 的 `alloc/assign/field/array/native/return` 约束已经由 `ConstraintFactAssembler + BuildBytecodeWorkspace` 统一产出，`SelectivePtaRefiner` 也已切到 `snapshot + edges` 输入。
+- `ConstraintFacts.receiverVarByCallSiteKey` 与 method-level 的 `alloc/assign/field/array/native/return` 约束已经由 `ConstraintFactAssembler + BuildBytecodeWorkspace` 统一产出，reflection invoke / method-handle / class-new-instance hints 也已并入，`SelectivePtaRefiner` 与 `BytecodeMainlineReflectionResolver` 都已切到 `snapshot + edges` / `snapshot.constraints()` 输入。
 
 一句话总结：
 
@@ -387,24 +387,27 @@ frame 分析必须有唯一 owner。
 4. `DiscoveryRunner / ClassAnalysisRunner / BytecodeSymbolRunner` 已经变成共享 workspace 的消费者。
 5. `dispatch / reflection / PTA` 的主路径 facts 供给面已经统一到 `BytecodeFacts.workspace()`。
 
-本次关闭时仍然保留的边界：
+本次关闭后的稳定边界：
 
-- `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey` 和 method-level 的 `alloc/assign/field/array/native/return` 约束，但 reflection const/string/helper-flow hints 还没完全并入
-- `SelectivePtaRefiner` 已经去掉 `BuildContext` 前端依赖，也不再自己提取 method-level 约束；当前剩余输入主要是 workspace frame 与 `MethodFacts/TypeFacts`
+- `ConstraintFacts` 已经承接了 `receiverVarByCallSiteKey`、method-level 的 `alloc/assign/field/array/native/return` 约束，以及 reflection invoke / method-handle / class-new-instance hints
+- `SelectivePtaRefiner` 已经去掉 `BuildContext` 前端依赖，也不再自己提取 method-level 约束
+- `BytecodeMainlineReflectionResolver` 已优先消费 `MethodConstraintFacts.reflectionHints()`
 - `BuildFactAssembler.legacyView(...)` 仍保留桥接，但已不再承担默认主路径 owner
+- `CoreRunner` 中残留的 Tai-e oracle 运行/映射/入口拼装已经收进 `core/taie/TaieOracleCallGraphRunner`
 
 这意味着：
 
 - `JA-NT-106` 已经完成
-- 下一阶段的首要任务不是再做一轮前端收口，而是把 PTA/反射约束 owner 彻底下沉
+- Phase 4 的 PTA/反射约束 owner 收口也已经完成
+- Phase 5 的 `oracle-taie` 适配层压缩也已经完成，不需要再回头继续做前端 owner
 
 ## 10. 下一步边界
 
 下一步应直接进入：
 
-1. `ConstraintFacts` 唯一 owner 收口
-2. `SelectivePtaRefiner` 去前端化
-3. 继续压缩 Tai-e，仅保留 `oracle-taie` 对照用途
+1. 评估 `precision` 是否已经足够覆盖 Tai-e 对照用途
+2. 继续削薄 `core/taie/*` 剩余外围依赖
+3. 评估是否进入彻底删除 Tai-e 依赖的最后阶段
 
 一句话收尾：
 
