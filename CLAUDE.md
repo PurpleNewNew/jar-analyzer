@@ -15,7 +15,7 @@ mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile
 
 **Package (fat jar):**
 ```bash
-mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true package
+mvn -q -DskipTests package
 ```
 Output: `target/jar-analyzer-<version>-jar-with-dependencies.jar`
 
@@ -45,7 +45,7 @@ mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Pbench-search test
 python3 build.py --os windows --jbr /path/to/jbr-21 --clean
 ```
 
-Always pass `-Dskip.npm=true -Dskip.installnodenpm=true` to skip frontend build during development. The frontend is a separate Vite/TypeScript app under `frontend/cypher-workbench/` that gets built and bundled during `mvn package` via frontend-maven-plugin.
+开发时可在 `compile` 或目标测试中使用 `-Dskip.npm=true -Dskip.installnodenpm=true` 跳过前端构建；正式 `package` 不应携带该参数。前端位于 `frontend/cypher-workbench/`，通过 `frontend-maven-plugin` 在打包阶段构建并打进产物。
 
 ## Environment Requirements
 
@@ -70,8 +70,7 @@ Entry point: `me.n1ar4.jar.analyzer.starter.Application`. Three modes:
 
 | Package | Role |
 |---------|------|
-| `core/` | Build pipeline: discovery → scope classification → Tai-e call graph → Neo4j import |
-| `core/taie/` | Tai-e integration (sole call graph source) |
+| `core/` | Build pipeline: discovery → scope classification → bytecode-mainline call graph → Neo4j import |
 | `core/scope/` | APP/LIBRARY/SDK classification via `analysis-scope.json` rules |
 | `storage/neo4j/` | Neo4j embedded lifecycle, bulk import, project registry, custom procedures |
 | `graph/` | Graph queries, DFS path search, taint flow engine, Cypher execution |
@@ -90,7 +89,7 @@ Entry point: `me.n1ar4.jar.analyzer.starter.Application`. Three modes:
 ### Build pipeline (`CoreRunner`)
 1. **Discovery** — scan class/method/callsite/annotation metadata via ASM
 2. **Scope classification** — `forceTarget > sdk > commonLibrary > appHeuristic`
-3. **Call graph** — Tai-e analysis (sole engine; failure aborts build unless all-common)
+3. **Call graph** — bytecode-mainline analysis with semantic edges and selective PTA
 4. **Import** — batch write to Neo4j project store via `DatabaseManager`
 
 ### Single-active project model
@@ -126,7 +125,7 @@ English prefixes (`fix:`, `feat:`, `refactor:`) are forbidden. One clear topic p
 ## Key Constraints (from AGENTS.md)
 
 - **No legacy/classic fallbacks** — the project has completed a "rmclassic" hard-cut migration
-- **Tai-e is the sole call graph source** — no second edge generation path allowed
+- **Bytecode-mainline is the sole call graph source** — no second edge generation path allowed
 - **Neo4j is the sole storage** — no SQL compatibility remnants
 - **Convergence over coexistence** — same capability must have only one implementation path
 - **Dead code must be deleted completely** — not commented out or gated behind flags

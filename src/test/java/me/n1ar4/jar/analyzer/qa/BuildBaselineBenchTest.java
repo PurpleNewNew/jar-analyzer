@@ -42,19 +42,19 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Optional Phase 0 baseline harness.
+ * Optional build baseline harness.
  * <p>
  * Run with:
  * mvn -q -Dskip.npm=true -Dskip.installnodenpm=true \
- *   -Dtest=NoTaieBaselineBenchTest \
- *   -Dbench.no_taie=true \
- *   -Dbench.no_taie.iter=1 \
+ *   -Dtest=BuildBaselineBenchTest \
+ *   -Dbench.build_baseline=true \
+ *   -Dbench.build_baseline.iter=1 \
  *   test
  */
-public class NoTaieBaselineBenchTest {
-    private static final String ENABLE_PROP = "bench.no_taie";
-    private static final String ITER_PROP = "bench.no_taie.iter";
-    private static final String SCENARIOS_PROP = "bench.no_taie.scenarios";
+public class BuildBaselineBenchTest {
+    private static final String ENABLE_PROP = "bench.build_baseline";
+    private static final String ITER_PROP = "bench.build_baseline.iter";
+    private static final String SCENARIOS_PROP = "bench.build_baseline.scenarios";
     private static final String CALLGRAPH_STAGE_KEY = "callgraph";
 
     private static final List<String> STAGE_KEYS = List.of(
@@ -75,9 +75,9 @@ public class NoTaieBaselineBenchTest {
 
     @Test
     @SuppressWarnings("all")
-    public void benchmarkPhase0BaselineMatrix() throws Exception {
+    public void benchmarkBuildBaselineMatrix() throws Exception {
         Assumptions.assumeTrue(Boolean.getBoolean(ENABLE_PROP),
-                "set -D" + ENABLE_PROP + "=true to enable no-taie baseline benchmark");
+                "set -D" + ENABLE_PROP + "=true to enable build baseline benchmark");
 
         int iterations = resolveInt(ITER_PROP, 1, 1, 20);
         Set<String> selected = resolveScenarioSelection(System.getProperty(SCENARIOS_PROP));
@@ -215,8 +215,8 @@ public class NoTaieBaselineBenchTest {
             }
         }
         BenchReportWriter.writeMarkdown(
-                "no-taie-baseline-summary.md",
-                "No Tai-e Baseline Summary",
+                "build-baseline-summary.md",
+                "Build Baseline Summary",
                 lines
         );
     }
@@ -309,7 +309,7 @@ public class NoTaieBaselineBenchTest {
                     String.valueOf(record.stageDurationMs("neo4j_commit"))
             ));
         }
-        BenchReportWriter.writeCsv("no-taie-baseline-matrix.csv", rows);
+        BenchReportWriter.writeCsv("build-baseline-matrix.csv", rows);
     }
 
     private static void writeBreakdownCsv(List<RunRecord> records) {
@@ -331,7 +331,7 @@ public class NoTaieBaselineBenchTest {
                 ));
             }
         }
-        BenchReportWriter.writeCsv("no-taie-build-stage-breakdown.csv", rows);
+        BenchReportWriter.writeCsv("build-stage-breakdown.csv", rows);
     }
 
     private static void writeRegressionSummary(List<RunRecord> records, List<String> failures) {
@@ -352,8 +352,8 @@ public class NoTaieBaselineBenchTest {
             }
         }
         BenchReportWriter.writeMarkdown(
-                "no-taie-regression-summary.md",
-                "No Tai-e Regression Summary",
+                "build-regression-summary.md",
+                "Build Regression Summary",
                 lines
         );
     }
@@ -371,7 +371,7 @@ public class NoTaieBaselineBenchTest {
         lines.add("stage_keys=" + String.join(",", STAGE_KEYS));
         lines.add("peak_heap_used_mib=" + toMiB(maxPeakHeap(records)));
         lines.add("cwd=" + Path.of("").toAbsolutePath().normalize());
-        BenchReportWriter.writeText("no-taie-env.txt", lines);
+        BenchReportWriter.writeText("build-benchmark-env.txt", lines);
     }
 
     private static List<Scenario> allScenarios(Set<String> selected) {

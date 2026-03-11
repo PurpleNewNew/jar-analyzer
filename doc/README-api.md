@@ -18,8 +18,8 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
-- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。旧值 `taie` 与 `oracle-taie` 已从生产 build 移除并会显式报错。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
-- Tai-e 已从仓库构建与运行路径中彻底移除；不再对外暴露调用图 profile、edge policy 或 analysis profile 配置。
+- 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换；兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用。未知 profile/engine 会回落到默认 `balanced`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 通过更高 PTA 预算做同链精化，不再引入第二条隐藏调用图路径。
+- 调用图能力统一由字节码主链提供；对外只保留 `profile` 和 `engine` 两个配置面。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
   - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）

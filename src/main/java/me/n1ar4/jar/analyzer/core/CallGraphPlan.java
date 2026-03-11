@@ -52,12 +52,6 @@ public record CallGraphPlan(String analysisProfile,
 
     private static CallGraphPlan fromEngine(String engine) {
         return switch (engine) {
-            case "taie" -> throw new IllegalArgumentException(
-                    "call graph engine=taie was removed; bytecode-mainline is the only production engine"
-            );
-            case "oracle-taie" -> throw new IllegalArgumentException(
-                    "call graph engine=oracle-taie was removed; Tai-e is no longer available in this repository"
-            );
             case ENGINE_BYTECODE -> new CallGraphPlan(
                     PROFILE_BALANCED,
                     ENGINE_BYTECODE,
@@ -96,9 +90,6 @@ public record CallGraphPlan(String analysisProfile,
                     ENGINE_BYTECODE_PTA,
                     BytecodeMainlineCallGraphRunner.MODE_PRECISION_V1,
                     true
-            );
-            case "oracle-taie" -> throw new IllegalArgumentException(
-                    "call graph profile=oracle-taie was removed; Tai-e is no longer available in this repository"
             );
             default -> {
                 logger.warn("unknown call graph profile setting: {} (fallback to bytecode balanced)", profile);

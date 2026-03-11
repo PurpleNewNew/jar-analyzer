@@ -105,7 +105,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；旧值 `taie` 与 `oracle-taie` 已从生产 build 移除，显式设置会直接报错。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条隐藏调用图主路径
+3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；未知 profile/engine 会回落到默认 `balanced`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条隐藏调用图主路径
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
 5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `bytecode:semantic-v1`、`bytecode:fast-v1`、`bytecode:balanced-v1`、`bytecode:precision-v1` 或 `disabled-no-target`
 
@@ -242,7 +242,7 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 默认行为：
 1. 若未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`
 2. 若设置 `jar.analyzer.callgraph.profile=fast|balanced|precision`，分别走 `bytecode-mainline`、`bytecode-mainline+pta-refine`、`bytecode-mainline+pta-refine`
-3. 若显式设置 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine`，会覆盖 profile；旧值 `taie` 与 `oracle-taie` 已不再接受
+3. 若显式设置 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine`，会覆盖 profile；未知值会回落到默认 `balanced`
 4. 若输入全部命中 common library，默认 `jar.analyzer.all-common.policy=continue-no-callgraph`
 5. 非 all-common 场景不再回退 bytecode 调用图
 6. 项目库写入始终走 staging + atomic swap；失败不会先删旧库
@@ -250,9 +250,9 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 常用系统属性：
 1. `jar.analyzer.callgraph.profile`: `fast|balanced|precision`
 2. `jar.analyzer.callgraph.engine`: `bytecode-mainline|bytecode-mainline+pta-refine`（兼容入口，显式设置时优先于 profile）
-4. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
-5. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
-6. Tai-e 已从仓库构建与运行路径中彻底移除；相关历史配置值仅保留为显式失败入口
+3. `jar.analyzer.all-common.policy`: 默认 `continue-no-callgraph`
+4. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
+5. 调用图主链完全由字节码前端、语义补边与选择性 PTA 提供
 
 ### 启动 GUI + API
 

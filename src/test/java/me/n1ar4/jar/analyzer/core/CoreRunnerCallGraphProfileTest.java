@@ -12,7 +12,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CoreRunnerCallGraphProfileTest {
@@ -91,41 +90,30 @@ class CoreRunnerCallGraphProfileTest {
     }
 
     @Test
-    void retiredOracleProfileShouldFailFast() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "oracle-taie");
+    void invalidProfileShouldFallbackToBalancedBytecodeProfile() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "legacy-profile");
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CoreRunner.run(jar, null, false, false, null)
-        );
-        assertTrue(ex.getMessage().contains("no longer available"));
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
     }
 
     @Test
-    void removedTaieEngineShouldFailFast() {
-        System.setProperty("jar.analyzer.callgraph.engine", "taie");
+    void invalidEngineShouldFallbackToBalancedBytecodeProfile() {
+        System.setProperty("jar.analyzer.callgraph.engine", "legacy-engine");
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CoreRunner.run(jar, null, false, false, null)
-        );
-        assertTrue(ex.getMessage().contains("bytecode-mainline"));
-    }
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
 
-    @Test
-    void retiredOracleEngineShouldFailFast() {
-        System.setProperty("jar.analyzer.callgraph.engine", "oracle-taie");
-        Path jar = FixtureJars.callbackTestJar();
-        ProjectRuntimeContext.updateResolveInnerJars(false);
-
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CoreRunner.run(jar, null, false, false, null)
-        );
-        assertTrue(ex.getMessage().contains("no longer available"));
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
     }
 }

@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CallGraphPlanTest {
@@ -52,19 +51,20 @@ class CallGraphPlanTest {
     }
 
     @Test
-    void retiredOracleProfileShouldFailFast() {
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CallGraphPlan.resolve("", "oracle-taie")
-        );
-        assertTrue(ex.getMessage().contains("no longer available"));
+    void unknownProfileShouldFallbackToBalancedBytecode() {
+        CallGraphPlan plan = CallGraphPlan.resolve("", "legacy-profile");
+
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
+        assertTrue(plan.selectivePta());
     }
 
     @Test
     void explicitEngineShouldOverrideProfileSwitch() {
         CallGraphPlan plan = CallGraphPlan.resolve(
                 CallGraphPlan.ENGINE_BYTECODE,
-                "oracle-taie"
+                "legacy-profile"
         );
 
         assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
@@ -74,20 +74,12 @@ class CallGraphPlanTest {
     }
 
     @Test
-    void removedTaieEngineShouldFailFast() {
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CallGraphPlan.resolve("taie", "")
-        );
-        assertTrue(ex.getMessage().contains("bytecode-mainline"));
-    }
+    void unknownEngineShouldFallbackToBalancedBytecode() {
+        CallGraphPlan plan = CallGraphPlan.resolve("legacy-engine", "");
 
-    @Test
-    void retiredOracleEngineShouldFailFast() {
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> CallGraphPlan.resolve("oracle-taie", "")
-        );
-        assertTrue(ex.getMessage().contains("no longer available"));
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
+        assertTrue(plan.selectivePta());
     }
 }
