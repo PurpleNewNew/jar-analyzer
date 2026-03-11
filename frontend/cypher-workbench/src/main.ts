@@ -36,7 +36,7 @@ import {
   type ScriptListResponse,
   type UiContext
 } from './protocol'
-import { buildScriptsCountText, renderScriptList, type BuiltinScriptMode } from './scripts'
+import { buildScriptsCountText, renderScriptList } from './scripts'
 import { isRecord, toCell } from './view-helpers'
 
 declare global {
@@ -56,7 +56,6 @@ const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v3'
 const TRAVERSAL_MODE_STORAGE_KEY = 'ja.workbench.traversal-mode.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
-type WorkbenchGraphMode = Exclude<BuiltinScriptMode, 'all'>
 type TraversalMode = 'call-only' | 'call+alias'
 type GraphViewport = { x: number; y: number; k: number }
 type GraphNodePosition = { x: number; y: number }
@@ -114,7 +113,6 @@ const state = {
   scripts: [] as ScriptItem[],
   capabilities: null as Record<string, unknown> | null,
   queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions,
-  graphMode: 'call' as WorkbenchGraphMode,
   traversalMode: 'call-only' as TraversalMode
 }
 
@@ -144,13 +142,6 @@ app.innerHTML = `
     <section class="command-bar">
       <div class="prompt">$</div>
       <div class="editor-wrap"><div id="editor"></div></div>
-      <div class="graph-mode-toggle">
-        <span id="graph-mode-label">Mode</span>
-        <div class="graph-mode-segment">
-          <button class="graph-mode-btn active" id="mode-call" type="button">调用图</button>
-          <button class="graph-mode-btn" id="mode-structure" type="button">结构图</button>
-        </div>
-      </div>
       <div class="traversal-mode-toggle">
         <span id="traversal-mode-label">Traversal</span>
         <div class="traversal-mode-segment">
@@ -184,7 +175,6 @@ const titleEl = getRequired<HTMLElement>('title')
 const runtimeMetaEl = getRequired<HTMLElement>('runtime-meta')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
-const graphModeLabelEl = getRequired<HTMLElement>('graph-mode-label')
 const traversalModeLabelEl = getRequired<HTMLElement>('traversal-mode-label')
 const framesEl = getRequired<HTMLElement>('frames')
 const scriptListEl = getRequired<HTMLElement>('script-list')
@@ -196,8 +186,6 @@ const fullscreenButton = getRequired<HTMLButtonElement>('btn-fullscreen')
 const editorHost = getRequired<HTMLElement>('editor')
 const rowsLabelEl = getRequired<HTMLElement>('opt-rows-label')
 const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
-const modeCallButton = getRequired<HTMLButtonElement>('mode-call')
-const modeStructureButton = getRequired<HTMLButtonElement>('mode-structure')
 const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
 const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
@@ -280,14 +268,6 @@ maxRowsInput.addEventListener('change', () => {
   state.queryOptions.maxRows = clampInt(maxRowsInput.value, 1, 10000, state.queryOptions.maxRows)
   persistQueryOptions()
   syncQueryOptionControls()
-})
-
-modeCallButton.addEventListener('click', () => {
-  setGraphMode('call')
-})
-
-modeStructureButton.addEventListener('click', () => {
-  setGraphMode('structure')
 })
 
 modeCallOnlyButton.addEventListener('click', () => {
@@ -391,8 +371,7 @@ function refreshHeaderLabels(): void {
   titleEl.textContent = 'Graph Console'
   runtimeMetaEl.textContent = buildRuntimeMeta()
   scriptsTitleEl.textContent = tr('模板与脚本', 'Templates & Scripts')
-  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, state.graphMode, tr)
-  graphModeLabelEl.textContent = tr('模式', 'Mode')
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
   traversalModeLabelEl.textContent = tr('遍历', 'Traversal')
   runButton.textContent = tr('运行', 'Run')
   explainButton.textContent = tr('解释', 'Explain')
@@ -404,10 +383,6 @@ function refreshHeaderLabels(): void {
   fullscreenButton.title = state.fullscreen ? tr('退出全屏', 'Exit Fullscreen') : tr('全屏', 'Fullscreen')
   rowsLabelEl.textContent = tr('行数', 'Rows')
   maxRowsInput.title = tr('最大返回行数', 'Max result rows')
-  modeCallButton.textContent = tr('调用图', 'Call Graph')
-  modeStructureButton.textContent = tr('结构图', 'Structure Graph')
-  modeCallButton.classList.toggle('active', state.graphMode === 'call')
-  modeStructureButton.classList.toggle('active', state.graphMode === 'structure')
   modeCallOnlyButton.textContent = 'CALL'
   modeCallAliasButton.textContent = 'CALL + ALIAS'
   modeCallOnlyButton.classList.toggle('active', state.traversalMode === 'call-only')
@@ -427,17 +402,8 @@ function buildRuntimeMeta(): string {
       parts.push(tr('只读', 'read-only'))
     }
   }
-  parts.push(`${tr('模式', 'mode')}: ${state.graphMode === 'structure' ? tr('结构图', 'structure') : tr('调用图', 'call')}`)
   parts.push(`${tr('遍历', 'traversal')}: ${state.traversalMode === 'call+alias' ? 'CALL + ALIAS' : 'CALL'}`)
   return parts.join(' · ')
-}
-
-function setGraphMode(mode: WorkbenchGraphMode): void {
-  if (state.graphMode === mode) {
-    return
-  }
-  state.graphMode = mode
-  renderAll()
 }
 
 function normalizeTraversalMode(value: unknown): TraversalMode {
@@ -701,11 +667,10 @@ function renderAll(): void {
 }
 
 function renderScripts(): void {
-  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, state.graphMode, tr)
+  scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
   renderScriptList({
     container: scriptListEl,
     scripts: state.scripts,
-    graphMode: state.graphMode,
     tr,
     applyScriptBody,
     togglePinned: (item) => {
@@ -835,8 +800,7 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   const tabs = document.createElement('div')
   tabs.className = 'view-tabs'
 
-  const modeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
-  const filteredGraph = modeGraph ? applyGraphFilter(modeGraph, frame.graphFilter) : null
+  const filteredGraph = frame.graph ? applyGraphFilter(frame.graph, frame.graphFilter) : null
   const normalizedGraph = normalizeGraph(filteredGraph || undefined)
   const graphEnabled = !!normalizedGraph && normalizedGraph.nodes.length > 0
   const graphTab = createTabButton('Graph', frame.view === 'graph', !graphEnabled)
@@ -879,11 +843,7 @@ function buildFrameBody(frame: FrameState): HTMLElement {
       graphView.innerHTML = `<div class="empty">${tr('图渲染失败', 'Graph render failed')}: ${escapeHtml(message)}</div>`
     }
   } else {
-    const emptyReason = frame.graph && frame.graph.nodes.length > 0
-      ? state.graphMode === 'structure'
-        ? tr('当前结果在结构图模式下无可展示内容，切回调用图或改查类结构', 'No visible graph in structure mode. Switch back to call graph or query class structure.')
-        : tr('当前结果在调用图模式下无可展示内容，切到结构图可查看类结构', 'No visible graph in call mode. Switch to structure mode to inspect class graph.')
-      : tr('该结果不可图形化', 'Graph unavailable for this result')
+    const emptyReason = tr('该结果不可图形化', 'Graph unavailable for this result')
     graphView.innerHTML = `<div class="empty">${emptyReason}</div>`
   }
 
@@ -1541,62 +1501,6 @@ function applyGraphFilter(
   }
 }
 
-function applyWorkbenchGraphMode(graph: GraphFramePayload, mode: WorkbenchGraphMode): GraphFramePayload {
-  if (mode === 'structure') {
-    const edges = graph.edges.filter((edge) => {
-      const relType = String(edge.relType || edge.properties?.rel_type || '').toUpperCase()
-      return relType === 'HAS' || relType === 'EXTEND' || relType === 'INTERFACES'
-    })
-    if (edges.length === 0) {
-      return {
-        ...graph,
-        nodes: graph.nodes.filter((node) => isClassNode(node)),
-        edges: []
-      }
-    }
-    const nodeIds = new Set<number>()
-    edges.forEach((edge) => {
-      nodeIds.add(edge.source)
-      nodeIds.add(edge.target)
-    })
-    return {
-      ...graph,
-      nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
-      edges
-    }
-  }
-  const edges = graph.edges.filter((edge) => {
-    const relGroup = edgeDisplayGroup(edge)
-    const relType = String(edge.relType || edge.properties?.rel_type || '').toUpperCase()
-    return relGroup === 'CALL' || relGroup === 'ALIAS' || relType === 'PATH'
-  })
-  if (edges.length === 0) {
-    return {
-      ...graph,
-      nodes: graph.nodes.filter((node) => isMethodNode(node)),
-      edges: []
-    }
-  }
-  const nodeIds = new Set<number>()
-  edges.forEach((edge) => {
-    nodeIds.add(edge.source)
-    nodeIds.add(edge.target)
-  })
-  return {
-    ...graph,
-    nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
-    edges
-  }
-}
-
-function isClassNode(node: GraphNodePayload): boolean {
-  return String(node.kind || '').toLowerCase() === 'class' || node.labels.includes('Class')
-}
-
-function isMethodNode(node: GraphNodePayload): boolean {
-  return String(node.kind || '').toLowerCase() === 'method' || node.labels.includes('Method')
-}
-
 function graphHighlightState(frame: FrameState): {
   active: boolean
   nodeIds: Set<number>
@@ -1618,9 +1522,8 @@ function graphHighlightState(frame: FrameState): {
     frame.graphFocus.edgeIds.forEach((item) => edgeIds.add(item))
   }
   const edgeNodeIds = new Set<number>()
-  const activeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
-  if (activeGraph) {
-    for (const edge of activeGraph.edges) {
+  if (frame.graph) {
+    for (const edge of frame.graph.edges) {
       if (edgeIds.has(edge.id)) {
         edgeNodeIds.add(edge.source)
         edgeNodeIds.add(edge.target)
@@ -1692,8 +1595,7 @@ function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): v
   }
   const nextNodeIds = new Set<number>([node.id])
   const nextEdgeIds = new Set<number>()
-  const activeGraph = frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null
-  for (const edge of activeGraph?.edges || []) {
+  for (const edge of frame.graph?.edges || []) {
     if (edge.source === node.id || edge.target === node.id) {
       nextEdgeIds.add(edge.id)
       nextNodeIds.add(edge.source)
@@ -1724,7 +1626,7 @@ function activateTableRow(frame: FrameState, rowIndex: number, row: unknown[], s
     nodeIds: refs.nodeIds,
     edgeIds: refs.edgeIds
   }
-  const selection = resolveRowSelection(frame.graph ? applyWorkbenchGraphMode(frame.graph, state.graphMode) : null, refs)
+  const selection = resolveRowSelection(frame.graph, refs)
   if (selection) {
     frame.selection = selection
   }

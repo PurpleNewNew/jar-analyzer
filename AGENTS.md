@@ -73,7 +73,7 @@
 - 对外展示与查询心智必须收敛为逻辑关系类别：`CALL` `ALIAS` `HAS` `EXTEND` `INTERFACES`。
 - `CALLS_*` 只属于存储层与分析层；Workbench/Legend/Overview 默认显示聚合后的 `CALL`，细分类型只能作为 inspector/细分视图信息出现。
 - `ALIAS` 与 `CALL` 在图模型上是平级主边，不允许在展示层把 `ALIAS` 降级成附属边；是否默认参与路径搜索由遍历策略决定，不由图例层级决定。
-- `Class/HAS/EXTEND/INTERFACES` 与 `Method/CALL/ALIAS` 进入同一项目库，但默认主舞台仍是方法调用图；结构边只在“结构图模式”或结构模板中突出展示。
+- `Class/HAS/EXTEND/INTERFACES` 与 `Method/CALL/ALIAS` 进入同一项目库，但默认主舞台仍是方法调用图；结构边通过结构模板或显式结构查询突出展示，不再维护单独的“结构图模式”。
 
 ### 5.2 静态入图与动态语义边界
 - 必须静态入图的事实：`Method/Class` 节点、`CALLS_*`、`ALIAS`、`HAS`、`EXTEND`、`INTERFACES` 以及 `call_site_key/line_number/call_index/source_flags/confidence/evidence/alias_kind` 等构建期元数据。

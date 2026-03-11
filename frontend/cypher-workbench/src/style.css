@@ -118,7 +118,7 @@ body,
 
 .command-bar {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto auto;
   align-items: stretch;
   padding: 8px 10px;
   gap: 8px;
@@ -150,7 +150,6 @@ body,
   gap: 6px;
 }
 
-.graph-mode-toggle,
 .traversal-mode-toggle {
   display: grid;
   grid-template-rows: auto auto;
@@ -158,14 +157,12 @@ body,
   min-width: 136px;
 }
 
-.graph-mode-toggle > span,
 .traversal-mode-toggle > span {
   font-size: 10px;
   color: var(--subtext);
   line-height: 1;
 }
 
-.graph-mode-segment,
 .traversal-mode-segment {
   display: inline-flex;
   align-items: stretch;
@@ -175,7 +172,6 @@ body,
   background: var(--cmd-bg);
 }
 
-.graph-mode-btn,
 .traversal-mode-btn {
   border: 0;
   background: transparent;
@@ -187,18 +183,15 @@ body,
   min-width: 62px;
 }
 
-.graph-mode-btn + .graph-mode-btn,
 .traversal-mode-btn + .traversal-mode-btn {
   border-left: 1px solid var(--line);
 }
 
-.graph-mode-btn.active,
 .traversal-mode-btn.active {
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.graph-mode-btn:hover,
 .traversal-mode-btn:hover {
   background: var(--hover);
 }

@@ -267,14 +267,14 @@
     `MATCH (m:Method)-[r]->(n:Method) WHERE type(r) = $relType RETURN m,r,n LIMIT 50`
     `MATCH (c:Class)-[:HAS]->(m:Method) RETURN c,m LIMIT 50`
   - 纯节点结果（无边）同样可以直接在 `Graph` 视图查看
-  - Workbench 顶部支持 `调用图 / 结构图` 模式切换：调用图模式默认强调 `Method + CALL/ALIAS`；结构图模式默认强调 `Class + HAS/EXTEND/INTERFACES`，内置模板也会同步切到类结构浏览，不会把结构边直接污染默认调用图视图
+  - Workbench 现在只保留统一 `Graph` 视图，不再区分 `调用图 / 结构图` 顶层模式；结构关系通过显式结构查询模板或用户自写 Cypher 直接查看
   - 物理层仍保留 `JANode;Method` / `JANode;Class`，但 Workbench 与 API 公开标签默认只展示 `Method/Class`；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
   - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
   - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 默认把调用边聚合显示为 `CALL`，`ALIAS` 作为独立关系类别展示；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别、关系子类与 `alias_kind`
-  - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；只有结构图模式或显式结构查询模板会突出这些关系，默认主舞台仍是方法调用图
+  - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；这些关系通过显式结构查询模板或用户自写 Cypher 查看，不再依赖单独的结构图模式
   - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `type(r) = ...` / `ja.relSubtype(type(r)) = ...`
   - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
-  - 内置模板新增 `查看 Alias 关系`；结构模板与调用模板按当前图模式切换
+  - 内置模板新增 `查看 Alias 关系`；结构模板与调用模板统一常驻显示，由用户直接选择需要的 Cypher
 
 - `GET /api/security/rule-validation`
   直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。
