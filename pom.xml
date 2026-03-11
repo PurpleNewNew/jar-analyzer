@@ -97,7 +97,6 @@
         <tomcat.jasper.version>10.1.18</tomcat.jasper.version>
         <ant.version>1.10.12</ant.version>
         <neo4j.version>5.26.0</neo4j.version>
-        <jcef.tag.version>jcef-0b8e42e+cef-122.1.10+gc902316+chromium-122.0.6261.112</jcef.tag.version>
         <frontend.maven.version>1.15.1</frontend.maven.version>
         <node.version>v20.16.0</node.version>
         <npm.version>10.8.1</npm.version>
@@ -110,6 +109,8 @@
         <maven.compiler.version>3.13.0</maven.compiler.version>
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-surefire-plugin -->
         <maven.surefire.version>3.5.4</maven.surefire.version>
+        <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-antrun-plugin -->
+        <maven.antrun.version>3.1.0</maven.antrun.version>
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/exec-maven-plugin -->
         <maven.exec.version>3.5.0</maven.exec.version>
         <!-- https://mvnrepository.com/artifact/org.apache.maven.plugins/maven-dependency-plugin -->
@@ -117,7 +118,7 @@
         <!-- https://mvnrepository.com/artifact/org.codehaus.mojo/versions-maven-plugin -->
         <maven.versions.version>2.18.0</maven.versions.version>
         <!-- Java Compiler Version -->
-        <!-- Build with JDK 21 while still analyzing lower-version classfiles via ASM. -->
+        <!-- Use source/target 21 instead of the release flag because JBR-specific jcef module is not part of the standard Java SE release image. -->
         <maven.compiler.release>21</maven.compiler.release>
         <!-- Encoding -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -306,11 +307,6 @@
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>me.friwi</groupId>
-            <artifactId>jcef-api</artifactId>
-            <version>${jcef.tag.version}</version>
-        </dependency>
     </dependencies>
 
     <build>
@@ -335,6 +331,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven.surefire.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <version>${maven.antrun.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -421,6 +422,38 @@
                         </ignoreVersions>
                     </ruleSet>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>require-jbr-jcef-runtime</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <condition property="jar.analyzer.jbr.vendor">
+                                    <contains string="${java.vendor}" substring="JetBrains"/>
+                                </condition>
+                                <condition property="jar.analyzer.jbr.version">
+                                    <equals arg1="${java.specification.version}" arg2="21"/>
+                                </condition>
+                                <condition property="jar.analyzer.jbr.jcef.module">
+                                    <available file="${java.home}/jmods/jcef.jmod"/>
+                                </condition>
+                                <fail unless="jar.analyzer.jbr.vendor"
+                                      message="Jar Analyzer build requires JetBrains Runtime 21 with JCEF. Current java.vendor=${java.vendor}, java.home=${java.home}"/>
+                                <fail unless="jar.analyzer.jbr.version"
+                                      message="Jar Analyzer build requires Java 21. Current java.specification.version=${java.specification.version}, java.home=${java.home}"/>
+                                <fail unless="jar.analyzer.jbr.jcef.module"
+                                      message="Jar Analyzer build requires ${java.home}/jmods/jcef.jmod. Use JBR 21 + JCEF as JAVA_HOME."/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -518,7 +551,14 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <release>${maven.compiler.release}</release>
+                    <source>${maven.compiler.release}</source>
+                    <target>${maven.compiler.release}</target>
+                    <compilerArgs>
+                        <arg>--module-path</arg>
+                        <arg>${java.home}/jmods</arg>
+                        <arg>--add-modules</arg>
+                        <arg>jcef</arg>
+                    </compilerArgs>
                     <!-- Enforce official Neo4j artifacts only; do not compile vendored org/neo4j sources. -->
                     <excludes>
                         <exclude>org/neo4j/**/*.java</exclude>
@@ -529,6 +569,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <jvm>${java.home}/bin/java</jvm>
                     <!-- Preserve any externally provided argLine (e.g. jacoco) -->
                     <argLine>${surefireArgLine} ${argLine}</argLine>
                     <systemPropertyVariables>

@@ -6,6 +6,8 @@ package me.n1ar4.jar.analyzer.gui.swing.jcef;
 
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
@@ -15,10 +17,13 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class JcefBridgeRouter implements AutoCloseable {
+    private static final Logger logger = LogManager.getLogger();
     private final Map<String, ChannelHandler> handlers = new ConcurrentHashMap<>();
     private final CefMessageRouter router;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
     private final CefMessageRouterHandler routerHandler = new CefMessageRouterHandlerAdapter() {
         @Override
         public boolean onQuery(CefBrowser browser,
@@ -27,7 +32,7 @@ public final class JcefBridgeRouter implements AutoCloseable {
                                String request,
                                boolean persistent,
                                CefQueryCallback callback) {
-            return handleQuery(request, callback);
+            return dispatchQuery(request, callback);
         }
     };
 
@@ -37,7 +42,7 @@ public final class JcefBridgeRouter implements AutoCloseable {
     }
 
     public void register(String channel, ChannelHandler handler) {
-        if (channel == null || channel.isBlank() || handler == null) {
+        if (closed.get() || channel == null || channel.isBlank() || handler == null) {
             return;
         }
         handlers.put(channel.trim(), handler);
@@ -47,18 +52,22 @@ public final class JcefBridgeRouter implements AutoCloseable {
         return router;
     }
 
-    private boolean handleQuery(String request, CefQueryCallback callback) {
+    boolean dispatchQuery(String request, CefQueryCallback callback) {
+        if (closed.get()) {
+            reply(callback, CypherBridgeProtocol.error("", "bridge_closed", "bridge closed"), true);
+            return true;
+        }
         CypherBridgeProtocol.BridgeRequest bridgeRequest;
         try {
             bridgeRequest = CypherBridgeProtocol.parseRequest(request);
         } catch (CypherBridgeProtocol.BridgeException ex) {
-            callback.success(CypherBridgeProtocol.error("", ex.code(), ex.getMessage()));
+            reply(callback, CypherBridgeProtocol.error("", ex.code(), ex.getMessage()));
             return true;
         }
 
         ChannelHandler handler = handlers.get(bridgeRequest.channel());
         if (handler == null) {
-            callback.success(CypherBridgeProtocol.error(
+            reply(callback, CypherBridgeProtocol.error(
                     bridgeRequest.channel(),
                     "bridge_unknown_channel",
                     "unsupported channel"
@@ -69,12 +78,21 @@ public final class JcefBridgeRouter implements AutoCloseable {
         Thread.ofVirtual().name("jcef-bridge-" + bridgeRequest.channel()).start(() -> {
             try {
                 Object data = handler.handle(bridgeRequest.payload());
-                callback.success(CypherBridgeProtocol.success(bridgeRequest.channel(), data));
+                if (closed.get()) {
+                    return;
+                }
+                reply(callback, CypherBridgeProtocol.success(bridgeRequest.channel(), data));
             } catch (CypherBridgeProtocol.BridgeException ex) {
-                callback.success(CypherBridgeProtocol.error(bridgeRequest.channel(), ex.code(), ex.getMessage()));
+                if (closed.get()) {
+                    return;
+                }
+                reply(callback, CypherBridgeProtocol.error(bridgeRequest.channel(), ex.code(), ex.getMessage()));
             } catch (Throwable ex) {
+                if (closed.get()) {
+                    return;
+                }
                 CypherBridgeProtocol.BridgeException bridgeError = normalizeBridgeError(ex);
-                callback.success(CypherBridgeProtocol.error(
+                reply(callback, CypherBridgeProtocol.error(
                         bridgeRequest.channel(),
                         bridgeError.code(),
                         bridgeError.getMessage()
@@ -112,12 +130,31 @@ public final class JcefBridgeRouter implements AutoCloseable {
         return new CypherBridgeProtocol.BridgeException(code, publicMessage.isBlank() ? code : publicMessage);
     }
 
+    private void reply(CefQueryCallback callback, String payload) {
+        reply(callback, payload, false);
+    }
+
+    private void reply(CefQueryCallback callback, String payload, boolean allowWhenClosed) {
+        if (callback == null || (!allowWhenClosed && closed.get())) {
+            return;
+        }
+        try {
+            callback.success(payload);
+        } catch (Throwable ex) {
+            logger.debug("reply jcef bridge query failed: {}", ex.toString());
+        }
+    }
+
     private static String safe(String value) {
         return value == null ? "" : value.trim();
     }
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        handlers.clear();
         router.removeHandler(routerHandler);
         router.dispose();
     }

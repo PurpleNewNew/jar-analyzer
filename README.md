@@ -1,10 +1,10 @@
-# Jar Analyzer (JDK 21)
+# Jar Analyzer (JBR 21 + JCEF)
 
 `jar-analyzer` 是一个面向 Java 代码审计的离线静态分析工具：使用 **ASM** 扫描字节码，在本地用 **Neo4j Embedded（官方依赖）** 建库，然后在同一套数据上提供 **GUI / HTTP API / MCP** 三种使用方式。
 
 ## 关键点
 
-1. **运行/构建基线：JDK 21**（本项目自身用 JDK 21 编译与运行）
+1. **运行/构建基线：JBR 21 + JCEF**（Cypher Workbench 直接编译/运行在 JBR 自带 `jcef` 模块上）
 2. **分析目标兼容：低版本 JAR**（仍可分析 Java 6/7/8/11/17 等目标字节码，解析由 ASM 完成）
 3. **架构统一：不依赖外部服务/额外进程**（MCP 已内置为 Java 实现；Neo4j 以进程内 Embedded 方式运行）
 4. **数据库优先：先建库再查询/分析**（构建阶段写入当前 active project 的 Neo4j store，后续所有功能都围绕该 store 工作）
@@ -12,7 +12,7 @@
 
 ## 环境要求
 
-1. `Java 21+`（必须）
+1. `JBR 21 + JCEF`（必须；普通 OpenJDK 21 / Liberica 21 不够）
 2. `Maven 3.x`（从源码构建需要）
 3. `Python 3`（可选，用于 `build.py` 生成发版目录结构）
 
@@ -35,20 +35,31 @@ Release 目录结构（由 `build.py` 生成）仅保留一个包：
 构建完整可运行产物（fat jar）：
 
 ```bash
+export JAVA_HOME=/abs/path/to/jbrsdk_jcef-21
 mvn -B clean package -DskipTests
 ```
 
 仅验证后端编译时，可跳过前端构建：
 
 ```bash
+export JAVA_HOME=/abs/path/to/jbrsdk_jcef-21
 mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile
 ```
 
 PowerShell 请使用带引号的参数形式，避免 `-D...` 被误解析：
 
 ```powershell
+$env:JAVA_HOME="C:\path\to\jbrsdk_jcef-21"
 mvn -B clean package "-DskipTests"
 ```
+
+源码构建现在会在 `validate` 阶段强校验：
+
+1. `java.vendor=JetBrains`
+2. `java.specification.version=21`
+3. `${java.home}/jmods/jcef.jmod` 存在
+
+不满足时会直接失败，不再回退到 Maven `jcef-api` 依赖。
 
 产物：
 

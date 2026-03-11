@@ -12,12 +12,15 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class JcefAssetLoader {
     private static final Logger logger = LogManager.getLogger();
+    private static final byte[] EMPTY_BYTES = new byte[0];
 
     private static final String ENTRY = "cypher-workbench/index.html";
     private static final String PREFIX = "cypher-workbench/";
@@ -25,6 +28,7 @@ public final class JcefAssetLoader {
     private static final String SCHEME = "http";
     private static final String ENTRY_URL = SCHEME + "://" + HOST + "/index.html";
     private static final Map<String, String> MIME_TYPES = buildMimeTypes();
+    private static final Map<String, FrontendAsset> ASSET_CACHE = new ConcurrentHashMap<>();
     private static volatile boolean entryVerified;
 
     private JcefAssetLoader() {
@@ -64,12 +68,16 @@ public final class JcefAssetLoader {
         if (!hasFileExtension(normalizedPath)) {
             return loadClasspathAsset("index.html");
         }
-        return null;
+        return notFoundAsset(normalizedPath);
     }
 
     private static FrontendAsset loadClasspathAsset(String relativePath) {
         if (relativePath == null || relativePath.isBlank()) {
             return null;
+        }
+        FrontendAsset cached = ASSET_CACHE.get(relativePath);
+        if (cached != null) {
+            return cached;
         }
         String resourcePath = PREFIX + relativePath;
         try (InputStream in = JcefAssetLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
@@ -78,7 +86,9 @@ public final class JcefAssetLoader {
             }
             byte[] bytes = in.readAllBytes();
             String mimeType = detectMimeType(relativePath);
-            return new FrontendAsset(bytes, mimeType, relativePath);
+            FrontendAsset asset = FrontendAsset.ok(bytes, mimeType, relativePath);
+            FrontendAsset raced = ASSET_CACHE.putIfAbsent(relativePath, asset);
+            return raced == null ? asset : raced;
         } catch (IOException ex) {
             logger.warn("load cypher frontend resource failed: {} ({})", resourcePath, ex.toString());
             return null;
@@ -93,23 +103,15 @@ public final class JcefAssetLoader {
             if (entryVerified) {
                 return;
             }
-            byte[] bytes = readEntryBytes();
-            if (bytes.length == 0) {
+            FrontendAsset entry = loadClasspathAsset("index.html");
+            if (entry == null) {
+                throw new IllegalStateException("missing frontend entry: " + ENTRY);
+            }
+            if (entry.content().length == 0) {
                 throw new IllegalStateException("frontend entry empty: " + ENTRY);
             }
             entryVerified = true;
-            logger.info("cypher frontend mapped to custom origin: {}", ENTRY_URL);
-        }
-    }
-
-    private static byte[] readEntryBytes() {
-        try (InputStream in = JcefAssetLoader.class.getClassLoader().getResourceAsStream(ENTRY)) {
-            if (in == null) {
-                throw new IllegalStateException("missing frontend entry: " + ENTRY);
-            }
-            return in.readAllBytes();
-        } catch (IOException ex) {
-            throw new IllegalStateException("load frontend entry failed: " + ex.getMessage(), ex);
+            logger.debug("cypher frontend mapped to custom origin: {}", ENTRY_URL);
         }
     }
 
@@ -168,8 +170,8 @@ public final class JcefAssetLoader {
         map.put("html", "text/html");
         map.put("htm", "text/html");
         map.put("css", "text/css");
-        map.put("js", "text/javascript");
-        map.put("mjs", "text/javascript");
+        map.put("js", "application/javascript");
+        map.put("mjs", "application/javascript");
         map.put("json", "application/json");
         map.put("map", "application/json");
         map.put("svg", "image/svg+xml");
@@ -182,22 +184,30 @@ public final class JcefAssetLoader {
         map.put("woff2", "font/woff2");
         map.put("ttf", "font/ttf");
         map.put("txt", "text/plain");
-        return map;
+        return Collections.unmodifiableMap(map);
     }
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
     }
 
+    private static FrontendAsset notFoundAsset(String relativePath) {
+        return FrontendAsset.notFound(relativePath);
+    }
+
     public static final class FrontendAsset {
         private final byte[] content;
         private final String mimeType;
         private final String path;
+        private final int statusCode;
+        private final String statusText;
 
-        private FrontendAsset(byte[] content, String mimeType, String path) {
-            this.content = content == null ? new byte[0] : content;
+        private FrontendAsset(byte[] content, String mimeType, String path, int statusCode, String statusText) {
+            this.content = content == null ? EMPTY_BYTES : content;
             this.mimeType = safe(mimeType);
             this.path = safe(path);
+            this.statusCode = statusCode <= 0 ? 200 : statusCode;
+            this.statusText = safe(statusText);
         }
 
         public byte[] content() {
@@ -212,13 +222,36 @@ public final class JcefAssetLoader {
             return path;
         }
 
+        public int statusCode() {
+            return statusCode;
+        }
+
+        public String statusText() {
+            return statusText.isBlank() ? "OK" : statusText;
+        }
+
         @Override
         public String toString() {
-            return "FrontendAsset[path=" + path + ", size=" + content.length + ", mime=" + mimeType() + "]";
+            return "FrontendAsset[path=" + path + ", status=" + statusCode()
+                    + ", size=" + content.length + ", mime=" + mimeType() + "]";
         }
 
         public String asUtf8String() {
             return new String(content, StandardCharsets.UTF_8);
+        }
+
+        private static FrontendAsset ok(byte[] content, String mimeType, String path) {
+            return new FrontendAsset(content, mimeType, path, 200, "OK");
+        }
+
+        private static FrontendAsset notFound(String path) {
+            return new FrontendAsset(
+                    ("Not Found: " + safe(path)).getBytes(StandardCharsets.UTF_8),
+                    "text/plain",
+                    path,
+                    404,
+                    "Not Found"
+            );
         }
     }
 }

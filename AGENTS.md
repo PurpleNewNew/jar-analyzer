@@ -15,7 +15,7 @@
 
 ### 2.1 运行形态
 - 单进程架构：GUI + HTTP API + MCP + Neo4j Embedded 全部进程内运行。
-- 运行基线：JDK 21。
+- 运行/构建基线：JBR 21 + JCEF。
 - 分析输入：仅字节码（jar/war/class/目录），不支持源码索引链路。
 
 ### 2.2 核心技术栈
@@ -170,6 +170,10 @@
 - 只有“拆开会破坏可编译/可运行”时允许合并。
 
 ## 12. 交付前检查清单（必须执行）
+- 前置环境：
+  - `JAVA_HOME` 必须指向 **JBR 21 + JCEF**
+  - `java.vendor` 必须为 `JetBrains`
+  - `${java.home}/jmods/jcef.jmod` 必须存在
 - 编译：
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
 - 打包：
@@ -194,6 +198,7 @@
 - 禁止夸大：死代码清理不称为 Bug 修复。
 
 ## 14. 常用命令（仓库默认）
+- 前置：`JAVA_HOME=<JBR21+JCEF>`
 - 编译：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
 - 打包：`mvn -q -DskipTests package`
 - 打包约束：除非明确只验证后端且不需要可运行 GUI 产物，否则不要为 `package` 增加 `-Dskip.npm=true`

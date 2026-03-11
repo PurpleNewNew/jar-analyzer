@@ -54,6 +54,7 @@ import me.n1ar4.jar.analyzer.gui.swing.panel.ScaToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.SearchToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.StartToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.WebToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.jcef.JcefRuntime;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -4036,6 +4037,12 @@ public final class SwingMainFrame extends JFrame {
         }
         removeGlobalSearchDispatcher();
         RuntimeFacades.setToolingWindowConsumer(null);
+        try {
+            cypherPanel.shutdown();
+            JcefRuntime.shutdown();
+        } catch (Throwable ex) {
+            logger.debug("shutdown cypher workbench failed: {}", ex.toString());
+        }
         cleanupTemporaryProjects();
         dispose();
         System.exit(0);

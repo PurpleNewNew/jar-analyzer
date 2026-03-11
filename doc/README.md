@@ -1,6 +1,6 @@
-# 文档（JDK 21）
+# 文档（JBR 21 + JCEF）
 
-本目录存放 `jar-analyzer` 的文本说明文档（不依赖截图）。项目本身以 **JDK 21** 构建/运行，但仍可分析低版本目标字节码（由 ASM 解析 classfile）。
+本目录存放 `jar-analyzer` 的文本说明文档（不依赖截图）。项目本身以 **JBR 21 + JCEF** 构建/运行，但仍可分析低版本目标字节码（由 ASM 解析 classfile）。
 
 ## GUI 快速入口
 

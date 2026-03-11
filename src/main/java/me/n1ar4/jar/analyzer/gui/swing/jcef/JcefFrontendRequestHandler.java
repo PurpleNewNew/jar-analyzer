@@ -9,6 +9,7 @@ import me.n1ar4.log.Logger;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.callback.CefCallback;
+import org.cef.handler.CefLoadHandler;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.handler.CefResourceHandler;
 import org.cef.handler.CefResourceHandlerAdapter;
@@ -20,8 +21,6 @@ import org.cef.misc.StringRef;
 import org.cef.network.CefRequest;
 import org.cef.network.CefResponse;
 
-import java.util.Map;
-
 public final class JcefFrontendRequestHandler extends CefRequestHandlerAdapter {
     private static final Logger logger = LogManager.getLogger();
     private final CefResourceRequestHandler resourceRequestHandler = new CefResourceRequestHandlerAdapter() {
@@ -30,11 +29,9 @@ public final class JcefFrontendRequestHandler extends CefRequestHandlerAdapter {
             String url = request == null ? "" : request.getURL();
             JcefAssetLoader.FrontendAsset asset = JcefAssetLoader.resolveAsset(url);
             if (asset == null) {
-                logger.warn("jcef frontend resource missing: {}", safe(url));
+                logger.debug("jcef frontend resource missing: {}", safe(url));
                 return null;
             }
-            logger.info("jcef frontend resource hit: {} ({}, {} bytes)",
-                    safe(url), safe(asset.path()), asset.content().length);
             return new InMemoryResourceHandler(asset);
         }
     };
@@ -54,8 +51,6 @@ public final class JcefFrontendRequestHandler extends CefRequestHandlerAdapter {
         if (disableDefaultHandling != null) {
             disableDefaultHandling.set(true);
         }
-        logger.info("jcef resource request handler accepted: navigation={}, download={}, url={}",
-                isNavigation, isDownload, safe(url));
         return resourceRequestHandler;
     }
 
@@ -66,11 +61,15 @@ public final class JcefFrontendRequestHandler extends CefRequestHandlerAdapter {
     private static final class InMemoryResourceHandler extends CefResourceHandlerAdapter {
         private final byte[] content;
         private final String mimeType;
+        private final int statusCode;
+        private final String statusText;
         private int offset;
 
         private InMemoryResourceHandler(JcefAssetLoader.FrontendAsset asset) {
             this.content = asset.content();
             this.mimeType = asset.mimeType();
+            this.statusCode = asset.statusCode();
+            this.statusText = asset.statusText();
             this.offset = 0;
         }
 
@@ -86,13 +85,17 @@ public final class JcefFrontendRequestHandler extends CefRequestHandlerAdapter {
         @Override
         public void getResponseHeaders(CefResponse response, IntRef responseLength, StringRef redirectUrl) {
             String normalizedMime = normalizeMime(mimeType);
-            response.setStatus(200);
-            response.setStatusText("OK");
+            int normalizedStatusCode = Math.max(100, statusCode);
+            response.setStatus(normalizedStatusCode);
+            response.setStatusText(statusText);
+            if (normalizedStatusCode >= 400) {
+                response.setError(CefLoadHandler.ErrorCode.ERR_FILE_NOT_FOUND);
+            }
             response.setMimeType(normalizedMime);
             response.setHeaderByName("Content-Type", buildContentType(normalizedMime), true);
             response.setHeaderByName("Cache-Control", "no-cache, no-store, must-revalidate", true);
             response.setHeaderByName("Pragma", "no-cache", true);
-            response.setHeaderByName("Access-Control-Allow-Origin", "*", true);
+            response.setHeaderByName("X-Content-Type-Options", "nosniff", true);
             responseLength.set(content.length);
         }
 
