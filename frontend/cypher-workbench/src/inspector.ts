@@ -9,11 +9,8 @@ export type FrameSelection =
 export type GraphFilter =
   | { kind: 'label'; value: string }
   | { kind: 'relGroup'; value: string }
-  | { kind: 'relSubtype'; value: string }
   | { kind: 'neighbors'; nodeId: number; label: string; hops: 1 }
   | null
-
-export type GraphRelationMode = 'group' | 'detail'
 
 interface InspectorFrame {
   query: string
@@ -25,12 +22,11 @@ interface InspectorFrame {
   graph: GraphFramePayload | null
   selection: FrameSelection
   graphFilter: GraphFilter
-  graphRelationMode: GraphRelationMode
 }
 
 interface InspectorCallbacks {
   tr: (zh: string, en: string) => string
-  activateLegend: (kind: 'label' | 'relGroup' | 'relSubtype', value: string) => void
+  activateLegend: (kind: 'label' | 'relGroup', value: string) => void
   activateInspectorLink: (key: string, value: unknown, selected: Exclude<FrameSelection, null>) => void
   activateNeighborhoodFocus: (node: GraphNodePayload) => void
   clearGraphFilter: () => void
@@ -66,16 +62,12 @@ export function renderInspector(container: HTMLElement, frame: InspectorFrame, c
       appendProp(container, tr('结构标签数', 'Structure Labels'), String(stats.structureLabelCounts.length))
       appendProp(container, tr('语义摘要数', 'Semantic Badges'), String(stats.semanticCounts.length))
       appendProp(container, tr('关系类别数', 'Rel Groups'), String(stats.relGroupCounts.length))
-      appendProp(container, tr('关系子类数', 'Rel Subtypes'), String(stats.relSubtypeCounts.length))
       appendCountSection(container, tr('结构标签', 'Structure Labels'), stats.structureLabelCounts, (key) => {
         activateLegend('label', key)
       }, tr)
       appendCountSection(container, tr('节点语义', 'Node Semantics'), stats.semanticCounts, undefined, tr)
       appendCountSection(container, tr('关系类别', 'Relationship Groups'), stats.relGroupCounts, (key) => {
         activateLegend('relGroup', key)
-      }, tr)
-      appendCountSection(container, tr('关系子类', 'Relationship Subtypes'), stats.relSubtypeCounts, (key) => {
-        activateLegend('relSubtype', key)
       }, tr)
     }
     if ((frame.graph?.warnings || frame.warnings).length > 0) {
@@ -214,7 +206,7 @@ function formatGraphFilter(filter: GraphFilter, tr: InspectorCallbacks['tr']): s
   if (filter.kind === 'relGroup') {
     return `${tr('关系类别', 'Rel Group')}: ${filter.value}`
   }
-  return `${tr('关系子类', 'Rel Subtype')}: ${filter.value}`
+  return ''
 }
 
 function appendActionRow(
@@ -406,12 +398,10 @@ function graphOverviewStats(graph: GraphFramePayload): {
   structureLabelCounts: Array<[string, number]>
   semanticCounts: Array<[string, number]>
   relGroupCounts: Array<[string, number]>
-  relSubtypeCounts: Array<[string, number]>
 } {
   const labelCounter = new Map<string, number>()
   const semanticCounter = new Map<string, number>()
   const relGroupCounter = new Map<string, number>()
-  const relSubtypeCounter = new Map<string, number>()
   for (const node of graph.nodes || []) {
     const labels = Array.isArray(node.labels) && node.labels.length > 0 ? node.labels : [node.kind || 'node']
     labels.forEach((label) => {
@@ -426,15 +416,12 @@ function graphOverviewStats(graph: GraphFramePayload): {
   }
   for (const edge of graph.edges || []) {
     const group = edgeDisplayGroup(edge) || 'REL'
-    const subtype = edgeSubtype(edge) || 'rel'
     relGroupCounter.set(group, (relGroupCounter.get(group) || 0) + 1)
-    relSubtypeCounter.set(subtype, (relSubtypeCounter.get(subtype) || 0) + 1)
   }
   return {
     structureLabelCounts: sortCountEntries(labelCounter),
     semanticCounts: sortCountEntries(semanticCounter),
-    relGroupCounts: sortCountEntries(relGroupCounter),
-    relSubtypeCounts: sortCountEntries(relSubtypeCounter)
+    relGroupCounts: sortCountEntries(relGroupCounter)
   }
 }
 

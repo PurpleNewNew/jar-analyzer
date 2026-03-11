@@ -270,10 +270,10 @@
   - Workbench 现在只保留统一 `Graph` 视图，不再区分 `调用图 / 结构图` 顶层模式；结构关系通过显式结构查询模板或用户自写 Cypher 直接查看
   - 物理层仍保留 `JANode;Method` / `JANode;Class`，但 Workbench 与 API 公开标签默认只展示 `Method/Class`；`Source/SourceWeb` 这类语义不再作为官方查询入口，推荐 `MATCH (n:Method) WHERE ja.isSource(n) RETURN n`
   - `source_flags` 仍属于建库期元数据；`ja.isSource` 和 Workbench 的节点语义摘要固定按“当前规则 + 当前项目稳定 Web 入口”动态判定，不再回退旧 `source_flags`
-  - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 默认把调用边聚合显示为 `CALL`，`ALIAS` 作为独立关系类别展示；切到“细分”模式才展示 `DIRECT/DISPATCH/REFLECTION/...`，右侧 inspector 会同时展示关系类别、关系子类与 `alias_kind`
+  - 边底层仍存 `CALLS_*`，另有规则驱动导出的 `ALIAS`；Workbench 固定按聚合关系类别显示调用边标签：调用边展示为 `CALL`，`ALIAS` 作为独立关系类别展示；`rel_subtype` 与 `alias_kind` 保留在右侧 inspector 属性中查看
   - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；这些关系通过显式结构查询模板或用户自写 Cypher 查看，不再依赖单独的结构图模式
   - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `type(r) = ...` / `ja.relSubtype(type(r)) = ...`
-  - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
+  - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
   - 内置模板已收敛为高频集合，只保留调用、alias、source/sink、taint/gadget、类结构等主线查询，不再堆叠低价值样例
 
 - `GET /api/security/rule-validation`

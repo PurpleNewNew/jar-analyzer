@@ -8,11 +8,9 @@ import { bridgeCall, extractBridgeError, safeBridgeCall } from './bridge'
 import {
   buildGraphFilterBar,
   edgeDisplayGroup,
-  edgeSubtype,
   renderInspector,
   type FrameSelection,
-  type GraphFilter,
-  type GraphRelationMode
+  type GraphFilter
 } from './inspector'
 import {
   CHANNEL_QUERY_CAPABILITIES,
@@ -76,7 +74,6 @@ interface FrameState {
   tableFocus: { rowIndex: number; colIndex: number } | null
   graphFocus: { nodeIds: number[]; edgeIds: number[] } | null
   graphFilter: GraphFilter
-  graphRelationMode: GraphRelationMode
   graphViewport: GraphViewport | null
   graphPinnedNodeIds: number[]
   graphNodePositions: Record<number, GraphNodePosition>
@@ -528,7 +525,6 @@ async function runExplain(): Promise<void> {
       tableFocus: null,
       graphFocus: null,
       graphFilter: null,
-      graphRelationMode: 'group',
       graphViewport: null,
       graphPinnedNodeIds: [],
       graphNodePositions: {}
@@ -567,7 +563,6 @@ function toFrameState(frame: QueryFramePayload): FrameState {
     tableFocus: null,
     graphFocus: null,
     graphFilter: null,
-    graphRelationMode: 'group',
     graphViewport: null,
     graphPinnedNodeIds: [],
     graphNodePositions: {}
@@ -651,7 +646,6 @@ function buildErrorFrame(query: string, code: string, message: string): FrameSta
     tableFocus: null,
     graphFocus: null,
     graphFilter: null,
-    graphRelationMode: 'group',
     graphViewport: null,
     graphPinnedNodeIds: [],
     graphNodePositions: {},
@@ -897,8 +891,6 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
   const height = Math.max(260, stage.clientHeight || container.clientHeight || 420)
   const controls = document.createElement('div')
   controls.className = 'graph-zoom-controls'
-  const displayControls = document.createElement('div')
-  displayControls.className = 'graph-display-controls'
   const zoomReadout = document.createElement('div')
   zoomReadout.className = 'graph-zoom-readout'
   const zoomInButton = document.createElement('button')
@@ -918,34 +910,6 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
   fitButton.title = tr('重置视图', 'Reset view')
   controls.append(zoomReadout, zoomInButton, zoomOutButton, fitButton)
   stage.appendChild(controls)
-  const groupModeButton = document.createElement('button')
-  groupModeButton.className = `graph-display-btn${frame.graphRelationMode === 'group' ? ' active' : ''}`
-  groupModeButton.type = 'button'
-  groupModeButton.textContent = tr('聚合', 'Grouped')
-  groupModeButton.title = tr('显示关系类别，如 CALL', 'Show grouped relation labels such as CALL')
-  groupModeButton.addEventListener('click', () => {
-    if (frame.graphRelationMode === 'group') {
-      return
-    }
-    persistGraphNodePositions(frame, simNodes)
-    frame.graphRelationMode = 'group'
-    renderFrames()
-  })
-  const detailModeButton = document.createElement('button')
-  detailModeButton.className = `graph-display-btn${frame.graphRelationMode === 'detail' ? ' active' : ''}`
-  detailModeButton.type = 'button'
-  detailModeButton.textContent = tr('细分', 'Detailed')
-  detailModeButton.title = tr('显示关系子类，如 DIRECT / DISPATCH', 'Show relation subtypes such as DIRECT / DISPATCH')
-  detailModeButton.addEventListener('click', () => {
-    if (frame.graphRelationMode === 'detail') {
-      return
-    }
-    persistGraphNodePositions(frame, simNodes)
-    frame.graphRelationMode = 'detail'
-    renderFrames()
-  })
-  displayControls.append(groupModeButton, detailModeButton)
-  stage.appendChild(displayControls)
 
   const hint = document.createElement('div')
   hint.className = 'graph-zoom-hint'
@@ -1112,7 +1076,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .data(simEdges)
     .enter()
     .append('text')
-    .text((item) => truncateTextByWidth(edgeDisplayLabel(item, frame.graphRelationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
+    .text((item) => truncateTextByWidth(edgeDisplayLabel(item), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
     .attr('font-size', 9)
     .attr('font-weight', 700)
     .attr('fill', '#5f6b78')
@@ -1292,8 +1256,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
       edgeGeometry,
       focus,
       hoveredEdgeId,
-      currentTransform.k,
-      frame.graphRelationMode
+      currentTransform.k
     )
     links
       .attr('stroke', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? '#2f81f7' : '#8e98a6'))
@@ -1334,7 +1297,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return 0
       })
     edgeLabels
-      .text((item) => truncateTextByWidth(edgeDisplayLabel(item, frame.graphRelationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
+      .text((item) => truncateTextByWidth(edgeDisplayLabel(item), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
       .attr('opacity', (item) => {
         if (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id) {
           return 0.96
@@ -1483,12 +1446,7 @@ function applyGraphFilter(
       edges
     }
   }
-  const edges = graph.edges.filter((edge) => {
-    if (filter.kind === 'relGroup') {
-      return edgeDisplayGroup(edge) === filter.value
-    }
-    return edgeSubtype(edge) === filter.value
-  })
+  const edges = graph.edges.filter((edge) => edgeDisplayGroup(edge) === filter.value)
   const nodeIds = new Set<number>()
   edges.forEach((edge) => {
     nodeIds.add(edge.source)
@@ -1563,7 +1521,7 @@ function activateInspectorLink(
   renderFrames()
 }
 
-function activateLegend(frame: FrameState, kind: 'label' | 'relGroup' | 'relSubtype', value: string): void {
+function activateLegend(frame: FrameState, kind: 'label' | 'relGroup', value: string): void {
   const nextValue = String(value || '').trim()
   if (!nextValue) {
     return
@@ -1574,10 +1532,7 @@ function activateLegend(frame: FrameState, kind: 'label' | 'relGroup' | 'relSubt
     frame.graphFilter = { kind, value: nextValue }
   }
   frame.view = 'graph'
-  const fragment = buildInspectorFragment(
-    kind === 'label' ? 'label' : kind === 'relGroup' ? 'display_rel_type' : 'rel_subtype',
-    nextValue
-  )
+  const fragment = buildInspectorFragment(kind === 'label' ? 'label' : 'display_rel_type', nextValue)
   if (fragment) {
     insertQueryFragment(fragment)
   }
@@ -2125,26 +2080,8 @@ function estimateNodeLabelBox(node: GraphNodePayload, label: string): { left: nu
   }
 }
 
-function edgeDisplayLabel(edge: GraphEdgePayload, mode: GraphRelationMode): string {
-  if (mode === 'detail') {
-    return displayRelationSubtypeLabel(edgeSubtype(edge))
-  }
+function edgeDisplayLabel(edge: GraphEdgePayload): string {
   return edgeDisplayGroup(edge)
-}
-
-function displayRelationSubtypeLabel(subtype: string): string {
-  const normalized = String(subtype || '').trim()
-  if (!normalized) {
-    return ''
-  }
-  switch (normalized) {
-    case 'invoke_dynamic':
-      return 'INDY'
-    case 'method_handle':
-      return 'HANDLE'
-    default:
-      return normalized.replace(/-/g, '_').toUpperCase()
-  }
 }
 
 function computeVisibleEdgeLabelIds(
@@ -2152,24 +2089,23 @@ function computeVisibleEdgeLabelIds(
   edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>>,
   focus: ReturnType<typeof graphHighlightState>,
   hoveredEdgeId: number,
-  zoomScale: number,
-  relationMode: GraphRelationMode
+  zoomScale: number
 ): Set<number> {
   const out = new Set<number>()
   const accepted: Array<{ left: number; right: number; top: number; bottom: number }> = []
   const relTypeCounts = new Map<string, number>()
   for (const edge of edges) {
-    const key = edgeDisplayLabel(edge, relationMode) || '__unknown__'
+    const key = edgeDisplayLabel(edge) || '__unknown__'
     relTypeCounts.set(key, (relTypeCounts.get(key) || 0) + 1)
   }
   const baseLimit = zoomScale >= 1.6 ? 28 : zoomScale >= 1.25 ? 18 : zoomScale >= 0.95 ? 12 : 7
   const sorted = [...edges].sort((left, right) => {
-    return edgeLabelPriority(right, relTypeCounts, focus, hoveredEdgeId, relationMode)
-      - edgeLabelPriority(left, relTypeCounts, focus, hoveredEdgeId, relationMode)
+    return edgeLabelPriority(right, relTypeCounts, focus, hoveredEdgeId)
+      - edgeLabelPriority(left, relTypeCounts, focus, hoveredEdgeId)
   })
   for (const edge of sorted) {
-    const priority = edgeLabelPriority(edge, relTypeCounts, focus, hoveredEdgeId, relationMode)
-    const label = truncateTextByWidth(edgeDisplayLabel(edge, relationMode), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace')
+    const priority = edgeLabelPriority(edge, relTypeCounts, focus, hoveredEdgeId)
+    const label = truncateTextByWidth(edgeDisplayLabel(edge), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace')
     if (!label) {
       continue
     }
@@ -2197,8 +2133,7 @@ function edgeLabelPriority(
   edge: GraphEdgeSim,
   relTypeCounts: Map<string, number>,
   focus: ReturnType<typeof graphHighlightState>,
-  hoveredEdgeId: number,
-  relationMode: GraphRelationMode
+  hoveredEdgeId: number
 ): number {
   if (focus.edgeIds.has(edge.id)) {
     return 6
@@ -2206,12 +2141,12 @@ function edgeLabelPriority(
   if (hoveredEdgeId === edge.id) {
     return 5
   }
-  const relType = edgeDisplayLabel(edge, relationMode) || '__unknown__'
+  const relType = edgeDisplayLabel(edge) || '__unknown__'
   const count = relTypeCounts.get(relType) || 1
   if (count === 1) {
     return 4
   }
-  if (relType === 'CALL' || relType === 'ALIAS' || relType === 'DIRECT' || relType === 'DISPATCH') {
+  if (relType === 'CALL' || relType === 'ALIAS') {
     return 3
   }
   return 2
