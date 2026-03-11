@@ -74,22 +74,14 @@ export interface ScriptItem {
   updatedAt: number
 }
 
-export type QueryProfile = 'default' | 'long-chain'
-
 export interface QueryUiOptions {
-  profile: QueryProfile
   maxRows: number
   maxMs: number
-  maxHops: number
-  maxPaths: number
 }
 
 export const DEFAULT_QUERY_OPTIONS: QueryUiOptions = {
-  profile: 'default',
   maxRows: 500,
-  maxMs: 15000,
-  maxHops: 32,
-  maxPaths: 500
+  maxMs: 15000
 }
 
 export function normalizeCapabilities(raw: unknown): Record<string, unknown> | null {
@@ -102,10 +94,6 @@ export function normalizeCapabilities(raw: unknown): Record<string, unknown> | n
     return nested as Record<string, unknown>
   }
   return object
-}
-
-export function normalizeProfile(value: unknown): QueryProfile {
-  return value === 'long-chain' ? 'long-chain' : 'default'
 }
 
 export function clampInt(value: unknown, min: number, max: number, fallback: number): number {

@@ -94,10 +94,11 @@ class QueryApiHandlersTest {
         assertEquals(true, data.getBoolean("readOnly"));
         assertTrue(data.containsKey("procedures"));
         assertTrue(data.containsKey("functions"));
-        assertTrue(data.getJSONArray("profiles").contains("long-chain"));
         assertTrue(data.getJSONArray("options").contains("expandBudget"));
         assertTrue(data.getJSONArray("options").contains("pathBudget"));
         assertTrue(data.getJSONArray("options").contains("timeoutCheckInterval"));
+        assertFalse(data.getJSONArray("options").contains("profile"));
+        assertEquals("derived-from-explicit-limits", data.getString("budgetMode"));
         assertEquals("native-only", data.getString("procedureMode"));
         assertEquals("read-only-whitelist", data.getString("apocMode"));
         assertEquals("default", data.getString("apocWhitelistMode"));

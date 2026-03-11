@@ -618,7 +618,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(cypher, "query", true, "Cypher query text.");
         McpToolSchemas.addString(cypher, "params", false, "JSON object string for query params (optional).");
         McpToolSchemas.addString(cypher, "options", false,
-                "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,profile,expandBudget,pathBudget,timeoutCheckInterval).");
+                "JSON object string for options(maxRows,maxMs,maxHops,maxPaths,expandBudget,pathBudget,timeoutCheckInterval).");
         reg.add(new McpTool("query_cypher", cypher, (ctx, args) -> {
             try {
                 String query = require(args, "query");

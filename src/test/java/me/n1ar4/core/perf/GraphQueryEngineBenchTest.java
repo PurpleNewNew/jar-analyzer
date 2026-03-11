@@ -78,7 +78,6 @@ public class GraphQueryEngineBenchTest {
                 maxMs,
                 hops,
                 Math.min(pathBudget, 10_000),
-                QueryOptions.PROFILE_LONG_CHAIN,
                 expandBudget,
                 pathBudget,
                 64

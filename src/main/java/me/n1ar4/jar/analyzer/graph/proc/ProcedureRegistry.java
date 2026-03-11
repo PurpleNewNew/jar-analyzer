@@ -58,28 +58,27 @@ public final class ProcedureRegistry {
                                QueryOptions options,
                                GraphSnapshot snapshot) {
         QueryOptions effectiveOptions = options == null ? QueryOptions.defaults() : options;
-        QueryBudget budget = QueryBudget.of(effectiveOptions);
         String name = safe(procName).toLowerCase();
         if ("ja.path.shortest".equals(name)) {
-            return shortest(argExprs, params, effectiveOptions, snapshot, budget, false);
+            return shortest(argExprs, params, effectiveOptions, snapshot, false);
         }
         if ("ja.path.shortest_pruned".equals(name)) {
-            return shortest(argExprs, params, effectiveOptions, snapshot, budget, true);
+            return shortest(argExprs, params, effectiveOptions, snapshot, true);
         }
         if ("ja.path.from_to".equals(name)) {
-            return fromTo(argExprs, params, effectiveOptions, snapshot, budget, false);
+            return fromTo(argExprs, params, effectiveOptions, snapshot, false);
         }
         if ("ja.path.from_to_pruned".equals(name)) {
-            return fromTo(argExprs, params, effectiveOptions, snapshot, budget, true);
+            return fromTo(argExprs, params, effectiveOptions, snapshot, true);
         }
         if ("ja.path.gadget".equals(name)) {
-            return pathGadget(argExprs, params, effectiveOptions, snapshot, budget);
+            return pathGadget(argExprs, params, effectiveOptions, snapshot);
         }
         if ("ja.taint.track".equals(name)) {
-            return taintTrack(argExprs, params, effectiveOptions, snapshot, budget);
+            return taintTrack(argExprs, params, effectiveOptions, snapshot);
         }
         if ("ja.gadget.track".equals(name)) {
-            return gadgetTrack(argExprs, params, effectiveOptions, snapshot, budget);
+            return gadgetTrack(argExprs, params, effectiveOptions, snapshot);
         }
         throw new IllegalArgumentException("cypher_feature_not_supported");
     }
@@ -88,7 +87,6 @@ public final class ProcedureRegistry {
                                  Map<String, Object> params,
                                  QueryOptions options,
                                  GraphSnapshot snapshot,
-                                 QueryBudget budget,
                                  boolean pruned) {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
@@ -98,6 +96,7 @@ public final class ProcedureRegistry {
                 toString(resolveArg(argExprs, params, 4)),
                 pruned ? SearchDirection.FORWARD : SearchDirection.BIDIRECTIONAL
         );
+        QueryBudget budget = QueryBudget.of(options, maxHops, 1, null);
         if (pruned) {
             PrunedRunSelection selection = selectPrunedShortest(snapshot, from, to, maxHops, traversalMode, direction, budget);
             ensureWithinBudget(budget);
@@ -140,7 +139,6 @@ public final class ProcedureRegistry {
                                Map<String, Object> params,
                                QueryOptions options,
                                GraphSnapshot snapshot,
-                               QueryBudget budget,
                                boolean pruned) {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
@@ -151,6 +149,7 @@ public final class ProcedureRegistry {
                 toString(resolveArg(argExprs, params, 5)),
                 SearchDirection.FORWARD
         );
+        QueryBudget budget = QueryBudget.of(options, maxHops, maxPaths, null);
 
         if (pruned) {
             PrunedRunSelection selection = runPrunedPaths(snapshot, from, to, maxHops, maxPaths, traversalMode, direction, budget);
@@ -192,8 +191,7 @@ public final class ProcedureRegistry {
     private QueryResult taintTrack(List<String> argExprs,
                                    Map<String, Object> params,
                                    QueryOptions options,
-                                   GraphSnapshot snapshot,
-                                   QueryBudget budget) {
+                                   GraphSnapshot snapshot) {
         String sourceClass = normalizeClass(toString(resolveArg(argExprs, params, 0)));
         String sourceMethod = toString(resolveArg(argExprs, params, 1));
         String sourceDesc = normalizeDesc(toString(resolveArg(argExprs, params, 2)));
@@ -220,13 +218,17 @@ public final class ProcedureRegistry {
             throw new IllegalArgumentException("missing_param");
         }
 
-        int effectiveTimeoutMs = Math.min(options.getMaxMs(), budget.remainingMsOrDefault(options.getMaxMs()));
+        QueryBudget budget = QueryBudget.of(options, depth, maxPaths == null ? 0 : maxPaths, timeoutMs);
+        int effectiveTimeoutMs = Math.min(
+                options.effectiveBudgetMaxMs(depth, timeoutMs),
+                budget.remainingMsOrDefault(options.effectiveBudgetMaxMs(depth, timeoutMs))
+        );
         if (timeoutMs != null && timeoutMs > 0) {
             effectiveTimeoutMs = Math.min(effectiveTimeoutMs, timeoutMs);
         }
         Integer effectiveMaxPaths = null;
         if (maxPaths != null && maxPaths > 0) {
-            effectiveMaxPaths = Math.min(maxPaths, options.getMaxPaths());
+            effectiveMaxPaths = maxPaths;
         }
 
         FlowOptions flowOptions = FlowOptions.builder()
@@ -293,14 +295,14 @@ public final class ProcedureRegistry {
     private QueryResult pathGadget(List<String> argExprs,
                                    Map<String, Object> params,
                                    QueryOptions options,
-                                   GraphSnapshot snapshot,
-                                   QueryBudget budget) {
+                                   GraphSnapshot snapshot) {
         long from = resolveNodeRef(resolveArg(argExprs, params, 0), snapshot);
         long to = resolveNodeRef(resolveArg(argExprs, params, 1), snapshot);
         int maxHops = toInt(resolveArg(argExprs, params, 2), options.getMaxHops());
         int maxPaths = toInt(resolveArg(argExprs, params, 3), options.getMaxPaths());
         TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 4)));
         SearchDirection direction = SearchDirection.parse(toString(resolveArg(argExprs, params, 5)), SearchDirection.FORWARD);
+        QueryBudget budget = QueryBudget.of(options, maxHops, maxPaths, null);
 
         GadgetRunSelection selection = runGadgetSearch(snapshot, from, to, maxHops, maxPaths, traversalMode, direction, budget);
         ensureWithinBudget(budget);
@@ -335,8 +337,7 @@ public final class ProcedureRegistry {
     private QueryResult gadgetTrack(List<String> argExprs,
                                     Map<String, Object> params,
                                     QueryOptions options,
-                                    GraphSnapshot snapshot,
-                                    QueryBudget budget) {
+                                    GraphSnapshot snapshot) {
         String sourceClass = normalizeClass(toString(resolveArg(argExprs, params, 0)));
         String sourceMethod = toString(resolveArg(argExprs, params, 1));
         String sourceDesc = normalizeDesc(toString(resolveArg(argExprs, params, 2)));
@@ -359,8 +360,9 @@ public final class ProcedureRegistry {
 
         int maxPaths = options.getMaxPaths();
         if (maxPathsArg != null && maxPathsArg > 0) {
-            maxPaths = Math.min(maxPaths, maxPathsArg);
+            maxPaths = maxPathsArg;
         }
+        QueryBudget budget = QueryBudget.of(options, depth, maxPaths, null);
 
         long sinkNodeId = resolveMethodNodeRef(snapshot, sinkClass, sinkMethod, sinkDesc);
         List<Long> sourceNodeIds;
@@ -2062,13 +2064,13 @@ public final class ProcedureRegistry {
             this.ticks = 0;
         }
 
-        private static QueryBudget of(QueryOptions options) {
+        private static QueryBudget of(QueryOptions options, int maxHopsHint, int maxPathsHint, Integer timeoutMsHint) {
             QueryOptions effective = options == null ? QueryOptions.defaults() : options;
-            long deadlineNs = resolveDeadlineNs(effective.getMaxMs());
+            long deadlineNs = resolveDeadlineNs(effective.effectiveBudgetMaxMs(maxHopsHint, timeoutMsHint));
             return new QueryBudget(
                     deadlineNs,
-                    Math.max(1L, effective.getExpandBudget()),
-                    Math.max(1L, effective.getPathBudget()),
+                    Math.max(1L, effective.effectiveExpandBudget(maxHopsHint)),
+                    Math.max(1L, effective.effectivePathBudget(maxHopsHint, maxPathsHint)),
                     Math.max(DEFAULT_INTERVAL, effective.getTimeoutCheckInterval())
             );
         }

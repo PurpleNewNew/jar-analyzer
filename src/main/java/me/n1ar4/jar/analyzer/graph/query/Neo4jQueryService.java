@@ -99,8 +99,8 @@ public final class Neo4jQueryService {
                 "ja.ruleValidation",
                 "ja.ruleValidationIssues"
         ));
-        out.put("profiles", List.of(QueryOptions.PROFILE_DEFAULT, QueryOptions.PROFILE_LONG_CHAIN));
-        out.put("options", List.of("maxRows", "maxMs", "maxHops", "maxPaths", "profile", "expandBudget", "pathBudget", "timeoutCheckInterval"));
+        out.put("options", List.of("maxRows", "maxMs", "maxHops", "maxPaths", "expandBudget", "pathBudget", "timeoutCheckInterval"));
+        out.put("budgetMode", "derived-from-explicit-limits");
         out.put("procedureMode", "native-only");
         out.put("apocMode", "read-only-whitelist");
         out.put("apocWhitelistMode", ApocWhitelist.whitelistMode());
