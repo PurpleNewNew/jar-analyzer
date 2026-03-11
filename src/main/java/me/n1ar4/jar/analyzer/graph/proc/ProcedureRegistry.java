@@ -384,83 +384,59 @@ public final class ProcedureRegistry {
         List<List<Object>> rows = new ArrayList<>();
         Set<String> emitted = new LinkedHashSet<>();
         LinkedHashSet<String> warnings = new LinkedHashSet<>();
-        int totalNodeVisits = 0;
-        int totalExpandedEdges = 0;
-        int totalStateCuts = 0;
-        int totalDistanceCuts = 0;
-        long totalElapsedMs = 0L;
-        Map<String, Integer> routeCounts = new LinkedHashMap<>();
         boolean truncated = false;
         int pathId = 1;
 
-        for (Long sourceNodeId : sourceNodeIds) {
-            if (sourceNodeId == null || sourceNodeId <= 0L || rows.size() >= maxPaths) {
-                break;
-            }
-            int remainingPaths = Math.max(1, maxPaths - rows.size());
-            GadgetRunSelection selection = runGadgetSearch(
+        GadgetRunSelection selection;
+        if (searchAllSources) {
+            selection = runGadgetSearchAllSources(
+                    snapshot,
+                    sourceNodeIds,
+                    sinkNodeId,
+                    depth,
+                    maxPaths,
+                    traversalMode,
+                    budget
+            );
+        } else {
+            long sourceNodeId = sourceNodeIds.get(0);
+            selection = runGadgetSearch(
                     snapshot,
                     sourceNodeId,
                     sinkNodeId,
                     depth,
-                    remainingPaths,
+                    maxPaths,
                     traversalMode,
                     direction,
                     budget
             );
-            ensureWithinBudget(budget);
+        }
+        ensureWithinBudget(budget);
 
-            GraphGadgetEngine.Stats stats = selection.stats();
-            if (stats != null) {
-                totalNodeVisits += stats.nodeVisits();
-                totalExpandedEdges += stats.expandedEdges();
-                totalStateCuts += stats.prunedByState();
-                totalDistanceCuts += stats.prunedByDistance();
-                totalElapsedMs += stats.elapsedMs();
-                for (Map.Entry<String, Integer> entry : stats.routeCounts().entrySet()) {
-                    routeCounts.merge(entry.getKey(), entry.getValue(), Integer::sum);
-                }
+        for (GraphGadgetEngine.Candidate candidate : selection.candidates()) {
+            String key = joinLongs(candidate.nodeIds());
+            if (!emitted.add(key)) {
+                continue;
             }
-
-            for (GraphGadgetEngine.Candidate candidate : selection.candidates()) {
-                String key = joinLongs(candidate.nodeIds());
-                if (!emitted.add(key)) {
-                    continue;
-                }
-                rows.add(toRow(
-                        pathId++,
-                        new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
-                        safe(candidate.confidence()),
-                        gadgetEvidence("ja.gadget.track", candidate, traversalMode, direction)
-                ));
-                if (rows.size() >= maxPaths) {
-                    break;
-                }
-            }
-            if (selection.truncated()) {
-                truncated = true;
+            rows.add(toRow(
+                    pathId++,
+                    new Path(candidate.nodeIds(), edgeIds(candidate.edges())),
+                    safe(candidate.confidence()),
+                    gadgetEvidence("ja.gadget.track", candidate, traversalMode, direction)
+            ));
+            if (rows.size() >= maxPaths) {
+                break;
             }
         }
+        truncated = selection.truncated() || rows.size() >= maxPaths && selection.candidates().size() > rows.size();
 
-        GraphGadgetEngine.Stats aggregateStats = new GraphGadgetEngine.Stats(
-                totalNodeVisits,
-                totalExpandedEdges,
-                rows.size(),
-                totalStateCuts,
-                totalDistanceCuts,
-                totalElapsedMs,
-                routeCounts
-        );
         warnings.addAll(buildGadgetWarnings(
-                aggregateStats,
+                selection.stats(),
                 rows.isEmpty() ? "path_not_found" : null,
                 traversalMode,
                 direction,
                 searchAllSources ? sourceCandidates : null
         ));
-        if (rows.size() >= maxPaths && sourceCandidates > 1) {
-            truncated = true;
-        }
         return new QueryResult(DEFAULT_COLUMNS, rows, new ArrayList<>(warnings), truncated);
     }
 
@@ -495,9 +471,11 @@ public final class ProcedureRegistry {
                                                      TraversalMode traversalMode,
                                                      SearchDirection direction,
                                                      QueryBudget budget) {
+        GraphPrunedPathEngine engine = new GraphPrunedPathEngine();
+        GraphPrunedPathEngine.DistanceCache distanceCache = new GraphPrunedPathEngine.DistanceCache();
         BudgetedPrunedController controller = new BudgetedPrunedController(budget);
         if (direction == SearchDirection.BACKWARD) {
-            GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().searchBackward(
+            GraphPrunedPathEngine.Run run = engine.searchBackward(
                     snapshot,
                     new GraphPrunedPathEngine.ReverseSearchRequest(
                             to,
@@ -511,22 +489,24 @@ public final class ProcedureRegistry {
                             Set.of(),
                             "low"
                     ),
-                    controller
+                    controller,
+                    distanceCache
             );
             return new PrunedRunSelection(run.candidates(), run.stats(), run.candidates().size() >= maxPaths);
         }
         if (direction == SearchDirection.BIDIRECTIONAL) {
-            GraphPrunedPathEngine.Run forward = new GraphPrunedPathEngine().search(
+            GraphPrunedPathEngine.Run forward = engine.search(
                     snapshot,
                     new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
-                    controller
+                    controller,
+                    distanceCache
             );
             ensureWithinBudget(budget);
             int remaining = Math.max(0, maxPaths - forward.candidates().size());
             if (remaining <= 0) {
                 return new PrunedRunSelection(forward.candidates(), forward.stats(), true);
             }
-            GraphPrunedPathEngine.Run backward = new GraphPrunedPathEngine().searchBackward(
+            GraphPrunedPathEngine.Run backward = engine.searchBackward(
                     snapshot,
                     new GraphPrunedPathEngine.ReverseSearchRequest(
                             to,
@@ -540,7 +520,8 @@ public final class ProcedureRegistry {
                             Set.of(),
                             "low"
                     ),
-                    controller
+                    controller,
+                    distanceCache
             );
             List<GraphPrunedPathEngine.Candidate> merged = mergePrunedCandidates(forward.candidates(), backward.candidates(), maxPaths);
             return new PrunedRunSelection(
@@ -549,12 +530,59 @@ public final class ProcedureRegistry {
                     merged.size() >= maxPaths && (!forward.candidates().isEmpty() || !backward.candidates().isEmpty())
             );
         }
-        GraphPrunedPathEngine.Run run = new GraphPrunedPathEngine().search(
+        GraphPrunedPathEngine.Run run = engine.search(
                 snapshot,
                 new GraphPrunedPathEngine.SearchRequest(from, to, maxHops, maxPaths, traversalMode, Set.of(), "low"),
-                controller
+                controller,
+                distanceCache
         );
         return new PrunedRunSelection(run.candidates(), run.stats(), run.candidates().size() >= maxPaths);
+    }
+
+    private static GadgetRunSelection runGadgetSearchAllSources(GraphSnapshot snapshot,
+                                                                List<Long> sourceNodeIds,
+                                                                long sinkNodeId,
+                                                                int maxHops,
+                                                                int maxPaths,
+                                                                TraversalMode traversalMode,
+                                                                QueryBudget budget) {
+        Set<Long> candidates = new LinkedHashSet<>();
+        if (sourceNodeIds != null) {
+            for (Long sourceNodeId : sourceNodeIds) {
+                if (sourceNodeId != null && sourceNodeId > 0L) {
+                    candidates.add(sourceNodeId);
+                }
+            }
+        }
+        if (sinkNodeId <= 0L || candidates.isEmpty()) {
+            return new GadgetRunSelection(List.of(), null, false);
+        }
+        int internalMaxPaths = Math.max(maxPaths, Math.min(maxPaths * Math.max(1, candidates.size()), 64));
+        BudgetedGadgetController controller = new BudgetedGadgetController(budget);
+        GraphGadgetEngine.Run run = new GraphGadgetEngine().searchBackwardAllSources(
+                snapshot,
+                new GraphGadgetEngine.AllSourcesReverseSearchRequest(
+                        sinkNodeId,
+                        candidates,
+                        true,
+                        maxHops,
+                        internalMaxPaths,
+                        traversalMode,
+                        Set.of(),
+                        "low"
+                ),
+                controller
+        );
+        List<GraphGadgetEngine.Candidate> selected = selectBestGadgetCandidatesBySource(
+                sourceNodeIds,
+                run.candidates(),
+                maxPaths
+        );
+        return new GadgetRunSelection(
+                selected,
+                summarizeGadgetStats(run.stats(), selected),
+                run.truncated() || selected.size() < Math.min(maxPaths, candidates.size()) && run.candidates().size() > selected.size()
+        );
     }
 
     private static PathEnumeration enumeratePaths(GraphSnapshot snapshot,
@@ -1542,6 +1570,141 @@ public final class ProcedureRegistry {
                 return;
             }
         }
+    }
+
+    private static List<GraphGadgetEngine.Candidate> selectBestGadgetCandidatesBySource(List<Long> sourceNodeIds,
+                                                                                         List<GraphGadgetEngine.Candidate> candidates,
+                                                                                         int maxPaths) {
+        if (candidates == null || candidates.isEmpty() || maxPaths <= 0) {
+            return List.of();
+        }
+        Map<Long, GraphGadgetEngine.Candidate> bestBySource = new LinkedHashMap<>();
+        for (GraphGadgetEngine.Candidate candidate : candidates) {
+            if (candidate == null || candidate.nodeIds() == null || candidate.nodeIds().isEmpty()) {
+                continue;
+            }
+            long sourceNodeId = candidate.nodeIds().get(0);
+            GraphGadgetEngine.Candidate current = bestBySource.get(sourceNodeId);
+            if (current == null || compareGadgetCandidate(candidate, current) < 0) {
+                bestBySource.put(sourceNodeId, candidate);
+            }
+        }
+        if (bestBySource.isEmpty()) {
+            return List.of();
+        }
+        List<GraphGadgetEngine.Candidate> selected = new ArrayList<>();
+        Set<String> emitted = new LinkedHashSet<>();
+        if (sourceNodeIds != null) {
+            for (Long sourceNodeId : sourceNodeIds) {
+                if (sourceNodeId == null) {
+                    continue;
+                }
+                GraphGadgetEngine.Candidate candidate = bestBySource.get(sourceNodeId);
+                if (candidate == null) {
+                    continue;
+                }
+                String key = joinLongs(candidate.nodeIds());
+                if (emitted.add(key)) {
+                    selected.add(candidate);
+                }
+                if (selected.size() >= maxPaths) {
+                    return List.copyOf(selected);
+                }
+            }
+        }
+        if (selected.size() >= maxPaths) {
+            return List.copyOf(selected);
+        }
+        List<GraphGadgetEngine.Candidate> overflow = new ArrayList<>(bestBySource.values());
+        overflow.sort(ProcedureRegistry::compareGadgetCandidate);
+        for (GraphGadgetEngine.Candidate candidate : overflow) {
+            String key = joinLongs(candidate.nodeIds());
+            if (!emitted.add(key)) {
+                continue;
+            }
+            selected.add(candidate);
+            if (selected.size() >= maxPaths) {
+                break;
+            }
+        }
+        return List.copyOf(selected);
+    }
+
+    private static int compareGadgetCandidate(GraphGadgetEngine.Candidate left,
+                                              GraphGadgetEngine.Candidate right) {
+        if (left == right) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+        int route = Integer.compare(gadgetRoutePriority(safe(left.route())), gadgetRoutePriority(safe(right.route())));
+        if (route != 0) {
+            return route;
+        }
+        int confidence = Integer.compare(gadgetConfidenceRank(safe(right.confidence())), gadgetConfidenceRank(safe(left.confidence())));
+        if (confidence != 0) {
+            return confidence;
+        }
+        int length = Integer.compare(
+                left.nodeIds() == null ? Integer.MAX_VALUE : left.nodeIds().size(),
+                right.nodeIds() == null ? Integer.MAX_VALUE : right.nodeIds().size()
+        );
+        if (length != 0) {
+            return length;
+        }
+        return joinLongs(left.nodeIds()).compareTo(joinLongs(right.nodeIds()));
+    }
+
+    private static int gadgetRoutePriority(String route) {
+        return switch (safe(route)) {
+            case "container-callback" -> 0;
+            case "proxy-dynamic" -> 1;
+            case "container-trigger" -> 2;
+            case "reflection-trigger" -> 3;
+            case "proxy-trigger" -> 4;
+            case "reflection-callback" -> 5;
+            case "reflection-container" -> 6;
+            case "deserialization-trigger" -> 7;
+            default -> Integer.MAX_VALUE;
+        };
+    }
+
+    private static int gadgetConfidenceRank(String confidence) {
+        return switch (safe(confidence).toLowerCase(Locale.ROOT)) {
+            case "high" -> 3;
+            case "medium" -> 2;
+            case "low" -> 1;
+            default -> 0;
+        };
+    }
+
+    private static GraphGadgetEngine.Stats summarizeGadgetStats(GraphGadgetEngine.Stats stats,
+                                                                List<GraphGadgetEngine.Candidate> emitted) {
+        LinkedHashMap<String, Integer> routes = new LinkedHashMap<>();
+        if (emitted != null) {
+            for (GraphGadgetEngine.Candidate candidate : emitted) {
+                if (candidate == null || safe(candidate.route()).isBlank()) {
+                    continue;
+                }
+                routes.merge(candidate.route(), 1, Integer::sum);
+            }
+        }
+        if (stats == null) {
+            return new GraphGadgetEngine.Stats(0, 0, emitted == null ? 0 : emitted.size(), 0, 0, 0L, routes);
+        }
+        return new GraphGadgetEngine.Stats(
+                stats.nodeVisits(),
+                stats.expandedEdges(),
+                emitted == null ? 0 : emitted.size(),
+                stats.prunedByState(),
+                stats.prunedByDistance(),
+                stats.elapsedMs(),
+                routes
+        );
     }
 
     private static GraphGadgetEngine.Stats mergeGadgetStats(GraphGadgetEngine.Stats first,

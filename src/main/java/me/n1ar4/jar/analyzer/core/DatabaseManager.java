@@ -59,6 +59,7 @@ public class DatabaseManager {
 
     private static final AtomicLong BUILD_SEQ = new AtomicLong(0L);
     private static final AtomicLong PROJECT_BUILD_SEQ = new AtomicLong(0L);
+    private static final AtomicLong DATA_VERSION = new AtomicLong(0L);
     private static final AtomicBoolean BUILDING = new AtomicBoolean(false);
     private static final ReentrantReadWriteLock DATA_LOCK = new ReentrantReadWriteLock(true);
     private static final AtomicInteger NEXT_JAR_ID = new AtomicInteger(1);
@@ -183,6 +184,10 @@ public class DatabaseManager {
             return PROJECT_BUILD_SEQ.get();
         }
         return ProjectMetadataSnapshotStore.getInstance().readBuildSeq(resolvedProjectKey);
+    }
+
+    public static long dataVersion() {
+        return DATA_VERSION.get();
     }
 
     public static ProjectRuntimeSnapshot buildProjectRuntimeSnapshot(
@@ -1390,6 +1395,7 @@ public class DatabaseManager {
 
     private static void markLoadedProjectRuntimeCurrent() {
         loadedProjectKey = ActiveProjectContext.resolveRequestedOrActive(null);
+        DATA_VERSION.incrementAndGet();
     }
 
     private static boolean hasProjectModelData(ProjectModel model) {
@@ -1413,6 +1419,7 @@ public class DatabaseManager {
     }
 
     private static void clearProjectRuntimeLocked() {
+        DATA_VERSION.incrementAndGet();
         NEXT_JAR_ID.set(1);
         NEXT_RESOURCE_ID.set(1);
         PROJECT_BUILD_SEQ.set(0L);

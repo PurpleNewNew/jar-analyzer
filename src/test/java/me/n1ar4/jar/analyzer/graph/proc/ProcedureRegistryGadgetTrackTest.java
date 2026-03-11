@@ -98,6 +98,55 @@ class ProcedureRegistryGadgetTrackTest {
     }
 
     @Test
+    void gadgetTrackShouldEnumerateMultipleLiveSourcesInOnePass() {
+        GraphSnapshot snapshot = buildMultiSourceSearchAllSourcesSnapshot();
+
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.gadget.track",
+                List.of(
+                        "", "", "",
+                        "app/Sink", "sink", "()V",
+                        "8", "10", "true"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(2, result.getRows().size());
+        assertEquals(List.of("1,2,3,4", "5,6,7,4"),
+                result.getRows().stream().map(row -> String.valueOf(row.get(2))).toList());
+        assertTrue(result.getWarnings().contains("gadget_source_candidates=2"));
+        assertTrue(result.getWarnings().contains("gadget_route_container_callback=2"));
+    }
+
+    @Test
+    void gadgetTrackShouldSelectBestRoutePerSourceWhenSearchAllSourcesIsCapped() {
+        GraphSnapshot snapshot = buildPrioritizedMultiRouteSearchAllSourcesSnapshot();
+
+        QueryResult result = new ProcedureRegistry().execute(
+                "ja.gadget.track",
+                List.of(
+                        "", "", "",
+                        "app/Sink", "sink", "()V",
+                        "8", "2", "true"
+                ),
+                Map.of(),
+                QueryOptions.defaults(),
+                snapshot
+        );
+
+        assertEquals(2, result.getRows().size());
+        assertEquals(List.of("1,4,5,8", "6,7,8"),
+                result.getRows().stream().map(row -> String.valueOf(row.get(2))).toList());
+        assertTrue(String.valueOf(result.getRows().get(0).get(6)).contains("route=reflection-trigger"));
+        assertTrue(String.valueOf(result.getRows().get(1).get(6)).contains("route=proxy-dynamic"));
+        assertFalse(result.getRows().stream().anyMatch(row -> String.valueOf(row.get(6)).contains("route=reflection-container")));
+        assertTrue(result.getWarnings().contains("gadget_route_reflection_trigger=1"));
+        assertTrue(result.getWarnings().contains("gadget_route_proxy_dynamic=1"));
+    }
+
+    @Test
     void gadgetTrackShouldSupportBidirectionalDirection() {
         GraphSnapshot snapshot = buildSearchAllSourcesSnapshot();
 
@@ -251,6 +300,65 @@ class ProcedureRegistryGadgetTrackTest {
         addEdge(outgoing, incoming, edge(21L, 5L, 6L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
 
         return GraphSnapshot.of(32L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildMultiSourceSearchAllSourcesSnapshot() {
+        Map<Long, GraphNode> nodes = new HashMap<>();
+        nodes.put(1L, methodNode(1L, "app/SourceOne", "readObject", "(Ljava/io/ObjectInputStream;)V",
+                MethodSemanticFlags.SERIALIZABLE_OWNER | MethodSemanticFlags.DESERIALIZATION_CALLBACK));
+        nodes.put(2L, methodNode(2L, "java/util/PriorityQueue", "heapify", "()V",
+                MethodSemanticFlags.COLLECTION_CONTAINER));
+        nodes.put(3L, methodNode(3L, "app/ComparatorOne", "compare", "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                MethodSemanticFlags.COMPARATOR_CALLBACK));
+        nodes.put(4L, methodNode(4L, "app/Sink", "sink", "()V", 0));
+        nodes.put(5L, methodNode(5L, "app/SourceTwo", "readObject", "(Ljava/io/ObjectInputStream;)V",
+                MethodSemanticFlags.SERIALIZABLE_OWNER | MethodSemanticFlags.DESERIALIZATION_CALLBACK));
+        nodes.put(6L, methodNode(6L, "java/util/TreeMap", "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                MethodSemanticFlags.COLLECTION_CONTAINER));
+        nodes.put(7L, methodNode(7L, "app/ComparableTwo", "compareTo", "(Ljava/lang/Object;)I",
+                MethodSemanticFlags.COMPARABLE_CALLBACK));
+
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        addEdge(outgoing, incoming, edge(11L, 1L, 2L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(12L, 2L, 3L, "CALLS_CALLBACK", MethodCallMeta.EVIDENCE_CALLBACK));
+        addEdge(outgoing, incoming, edge(13L, 3L, 4L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(21L, 5L, 6L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(22L, 6L, 7L, "CALLS_CALLBACK", MethodCallMeta.EVIDENCE_CALLBACK));
+        addEdge(outgoing, incoming, edge(23L, 7L, 4L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+
+        return GraphSnapshot.of(320L, nodes, outgoing, incoming, Map.of());
+    }
+
+    private static GraphSnapshot buildPrioritizedMultiRouteSearchAllSourcesSnapshot() {
+        Map<Long, GraphNode> nodes = new HashMap<>();
+        nodes.put(1L, methodNode(1L, "app/SourceOne", "readObject", "(Ljava/io/ObjectInputStream;)V",
+                MethodSemanticFlags.SERIALIZABLE_OWNER | MethodSemanticFlags.DESERIALIZATION_CALLBACK));
+        nodes.put(2L, methodNode(2L, "java/util/PriorityQueue", "heapify", "()V",
+                MethodSemanticFlags.COLLECTION_CONTAINER));
+        nodes.put(3L, methodNode(3L, "app/ReflectiveBridge", "invoke", "()V", 0));
+        nodes.put(4L, methodNode(4L, "app/TriggerBean", "toString", "()Ljava/lang/String;",
+                MethodSemanticFlags.TOSTRING_TRIGGER));
+        nodes.put(5L, methodNode(5L, "app/ReflectiveGetter", "getOutputProperties", "()Ljava/util/Properties;", 0));
+        nodes.put(6L, methodNode(6L, "app/SourceTwo", "readObject", "(Ljava/io/ObjectInputStream;)V",
+                MethodSemanticFlags.SERIALIZABLE_OWNER | MethodSemanticFlags.DESERIALIZATION_CALLBACK));
+        nodes.put(7L, methodNode(7L, "app/Proxy", "invoke",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+                MethodSemanticFlags.INVOCATION_HANDLER));
+        nodes.put(8L, methodNode(8L, "app/Sink", "sink", "()V", 0));
+
+        Map<Long, List<GraphEdge>> outgoing = new HashMap<>();
+        Map<Long, List<GraphEdge>> incoming = new HashMap<>();
+        addEdge(outgoing, incoming, edge(11L, 1L, 2L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(12L, 2L, 3L, "CALLS_REFLECTION", MethodCallMeta.EVIDENCE_REFLECTION));
+        addEdge(outgoing, incoming, edge(13L, 3L, 8L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(14L, 1L, 4L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(15L, 4L, 5L, "CALLS_REFLECTION", MethodCallMeta.EVIDENCE_REFLECTION));
+        addEdge(outgoing, incoming, edge(16L, 5L, 8L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(21L, 6L, 7L, "CALLS_DIRECT", MethodCallMeta.EVIDENCE_DIRECT));
+        addEdge(outgoing, incoming, edge(22L, 7L, 8L, "CALLS_METHOD_HANDLE", MethodCallMeta.EVIDENCE_METHOD_HANDLE));
+
+        return GraphSnapshot.of(321L, nodes, outgoing, incoming, Map.of());
     }
 
     private static GraphSnapshot buildProxyDynamicSnapshot() {

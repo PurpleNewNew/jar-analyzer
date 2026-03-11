@@ -41,7 +41,9 @@ class QueryOptionsTest {
         ));
         assertEquals(QueryOptions.PROFILE_LONG_CHAIN, options.getProfile());
         assertEquals(128, options.getMaxHops());
-        assertEquals(20_000, options.getMaxMs());
+        assertEquals(32_000, options.getMaxMs());
+        assertEquals(1_536_000, options.getExpandBudget());
+        assertEquals(12_288, options.getPathBudget());
     }
 
     @Test
@@ -51,5 +53,18 @@ class QueryOptionsTest {
         ));
         assertEquals(QueryOptions.PROFILE_LONG_CHAIN, options.getProfile());
         assertEquals(128, options.getMaxHops());
+        assertEquals(32_000, options.getMaxMs());
+    }
+
+    @Test
+    void longChainProfileShouldScaleDefaultBudgetsWithHopCount() {
+        QueryOptions options = QueryOptions.fromMap(java.util.Map.of(
+                "profile", "long-chain",
+                "maxHops", 200
+        ));
+        assertEquals(200, options.getMaxHops());
+        assertEquals(50_000, options.getMaxMs());
+        assertEquals(2_400_000, options.getExpandBudget());
+        assertEquals(19_200, options.getPathBudget());
     }
 }

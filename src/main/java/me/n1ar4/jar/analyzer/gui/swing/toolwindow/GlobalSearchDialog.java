@@ -656,6 +656,7 @@ public final class GlobalSearchDialog extends JDialog {
         private final Path manifestPath = indexPath.resolve("manifest.properties");
         private volatile long indexedRuntimeVersion = Long.MIN_VALUE;
         private volatile long indexedProjectEpoch = Long.MIN_VALUE;
+        private volatile long indexedDataVersion = Long.MIN_VALUE;
         private volatile String buildInfo = "";
         private Directory directory;
         private DirectoryReader reader;
@@ -696,7 +697,8 @@ public final class GlobalSearchDialog extends JDialog {
                     && searcher != null
                     && reader != null
                     && fp.runtimeVersion() == indexedRuntimeVersion
-                    && fp.projectEpoch() == indexedProjectEpoch;
+                    && fp.projectEpoch() == indexedProjectEpoch
+                    && fp.dataVersion() == indexedDataVersion;
             if (unchanged) {
                 return;
             }
@@ -743,6 +745,7 @@ public final class GlobalSearchDialog extends JDialog {
             }
             indexedRuntimeVersion = fp.runtimeVersion();
             indexedProjectEpoch = fp.projectEpoch();
+            indexedDataVersion = fp.dataVersion();
             writeManifest(new IndexManifest(
                     INDEX_SCHEMA_VERSION,
                     indexedRuntimeVersion,
@@ -1404,7 +1407,8 @@ public final class GlobalSearchDialog extends JDialog {
         private Fingerprint readFingerprint() {
             long runtimeVersion = ProjectRuntimeContext.stateVersion();
             long projectEpoch = ActiveProjectContext.currentEpoch();
-            return new Fingerprint(runtimeVersion, projectEpoch);
+            long dataVersion = DatabaseManager.dataVersion();
+            return new Fingerprint(runtimeVersion, projectEpoch, dataVersion);
         }
 
         private record MethodKey(String className, String methodName, String methodDesc, int jarId) {
@@ -1464,6 +1468,6 @@ public final class GlobalSearchDialog extends JDialog {
         }
     }
 
-    private record Fingerprint(long runtimeVersion, long projectEpoch) {
+    private record Fingerprint(long runtimeVersion, long projectEpoch, long dataVersion) {
     }
 }

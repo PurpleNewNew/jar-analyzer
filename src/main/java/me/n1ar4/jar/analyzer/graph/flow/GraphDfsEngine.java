@@ -36,6 +36,7 @@ public final class GraphDfsEngine {
         }
         FlowOptions effective = options == null ? FlowOptions.builder().build() : options;
         Budget budget = new Budget(effective, cancelFlag, startNs);
+        DistanceCache distanceCache = new DistanceCache();
         List<DFSResult> out = new ArrayList<>();
         Set<String> seenPath = new HashSet<>();
 
@@ -43,10 +44,10 @@ public final class GraphDfsEngine {
             if (effective.isSearchAllSources()) {
                 runFindAllSources(snapshot, effective, budget, out, seenPath);
             } else {
-                runPreciseFromSink(snapshot, effective, budget, out, seenPath);
+                runPreciseFromSink(snapshot, effective, budget, out, seenPath, distanceCache);
             }
         } else {
-            runPreciseFromSource(snapshot, effective, budget, out, seenPath);
+            runPreciseFromSource(snapshot, effective, budget, out, seenPath, distanceCache);
         }
 
         FlowStats stats = buildStats(effective, budget, out.size());
@@ -58,7 +59,8 @@ public final class GraphDfsEngine {
                                       FlowOptions options,
                                       Budget budget,
                                       List<DFSResult> out,
-                                      Set<String> seenPath) {
+                                      Set<String> seenPath,
+                                      DistanceCache distanceCache) {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
                 options.getSourceClass(),
                 options.getSourceMethod(),
@@ -83,7 +85,7 @@ public final class GraphDfsEngine {
                 if (budget.shouldStop(out.size())) {
                     return;
                 }
-                enumerateFromTo(snapshot, sourceId, sinkId, options, budget, out, seenPath);
+                enumerateFromTo(snapshot, sourceId, sinkId, options, budget, out, seenPath, distanceCache);
             }
         }
     }
@@ -92,7 +94,8 @@ public final class GraphDfsEngine {
                                     FlowOptions options,
                                     Budget budget,
                                     List<DFSResult> out,
-                                    Set<String> seenPath) {
+                                    Set<String> seenPath,
+                                    DistanceCache distanceCache) {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
                 options.getSourceClass(),
                 options.getSourceMethod(),
@@ -117,7 +120,7 @@ public final class GraphDfsEngine {
                 if (budget.shouldStop(out.size())) {
                     return;
                 }
-                enumerateBackwardToSource(snapshot, sinkId, sourceId, options, budget, out, seenPath);
+                enumerateBackwardToSource(snapshot, sinkId, sourceId, options, budget, out, seenPath, distanceCache);
             }
         }
     }
@@ -153,8 +156,17 @@ public final class GraphDfsEngine {
                                  FlowOptions options,
                                  Budget budget,
                                  List<DFSResult> out,
-                                 Set<String> seenPath) {
-        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, to, options.getDepth(), options, budget, out.size());
+                                 Set<String> seenPath,
+                                 DistanceCache distanceCache) {
+        Map<Long, Integer> toTarget = boundedBackwardDistance(
+                snapshot,
+                to,
+                options.getDepth(),
+                options,
+                budget,
+                out.size(),
+                distanceCache
+        );
         if (budget.shouldStop(out.size()) || !toTarget.containsKey(from)) {
             return;
         }
@@ -301,8 +313,17 @@ public final class GraphDfsEngine {
                                            FlowOptions options,
                                            Budget budget,
                                            List<DFSResult> out,
-                                           Set<String> seenPath) {
-        Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, sourceId, options.getDepth(), options, budget, out.size());
+                                           Set<String> seenPath,
+                                           DistanceCache distanceCache) {
+        Map<Long, Integer> fromSource = boundedForwardDistance(
+                snapshot,
+                sourceId,
+                options.getDepth(),
+                options,
+                budget,
+                out.size(),
+                distanceCache
+        );
         if (budget.shouldStop(out.size()) || !fromSource.containsKey(sinkId)) {
             return;
         }
@@ -421,12 +442,22 @@ public final class GraphDfsEngine {
                                                        int maxHops,
                                                        FlowOptions options,
                                                        Budget budget,
-                                                       int currentPaths) {
+                                                       int currentPaths,
+                                                       DistanceCache distanceCache) {
+        Map<Long, Integer> cached = distanceCache == null ? null : distanceCache.backward(target);
+        if (cached != null) {
+            return cached;
+        }
         Map<Long, Integer> dist = new HashMap<>();
         ArrayDeque<Long> queue = new ArrayDeque<>();
         dist.put(target, 0);
         queue.add(target);
-        while (!queue.isEmpty() && !budget.shouldStop(currentPaths)) {
+        boolean complete = true;
+        while (!queue.isEmpty()) {
+            if (budget.shouldStop(currentPaths)) {
+                complete = false;
+                break;
+            }
             long node = queue.poll();
             int d = dist.get(node);
             if (d >= maxHops) {
@@ -448,6 +479,9 @@ public final class GraphDfsEngine {
                 }
             }
         }
+        if (complete && distanceCache != null) {
+            distanceCache.putBackward(target, dist);
+        }
         return dist;
     }
 
@@ -456,12 +490,22 @@ public final class GraphDfsEngine {
                                                       int maxHops,
                                                       FlowOptions options,
                                                       Budget budget,
-                                                      int currentPaths) {
+                                                      int currentPaths,
+                                                      DistanceCache distanceCache) {
+        Map<Long, Integer> cached = distanceCache == null ? null : distanceCache.forward(source);
+        if (cached != null) {
+            return cached;
+        }
         Map<Long, Integer> dist = new HashMap<>();
         ArrayDeque<Long> queue = new ArrayDeque<>();
         dist.put(source, 0);
         queue.add(source);
-        while (!queue.isEmpty() && !budget.shouldStop(currentPaths)) {
+        boolean complete = true;
+        while (!queue.isEmpty()) {
+            if (budget.shouldStop(currentPaths)) {
+                complete = false;
+                break;
+            }
             long node = queue.poll();
             int d = dist.get(node);
             if (d >= maxHops) {
@@ -482,6 +526,9 @@ public final class GraphDfsEngine {
                     queue.add(dst);
                 }
             }
+        }
+        if (complete && distanceCache != null) {
+            distanceCache.putForward(source, dist);
         }
         return dist;
     }
@@ -916,6 +963,33 @@ public final class GraphDfsEngine {
             this.incoming = incoming == null ? List.of() : incoming;
             this.cursor = 0;
             this.sourceEvaluated = false;
+        }
+    }
+
+    private static final class DistanceCache {
+        private final Map<Long, Map<Long, Integer>> backward = new HashMap<>();
+        private final Map<Long, Map<Long, Integer>> forward = new HashMap<>();
+
+        private Map<Long, Integer> backward(long targetNodeId) {
+            return backward.get(targetNodeId);
+        }
+
+        private void putBackward(long targetNodeId, Map<Long, Integer> dist) {
+            if (dist == null || dist.isEmpty()) {
+                return;
+            }
+            backward.put(targetNodeId, Map.copyOf(dist));
+        }
+
+        private Map<Long, Integer> forward(long sourceNodeId) {
+            return forward.get(sourceNodeId);
+        }
+
+        private void putForward(long sourceNodeId, Map<Long, Integer> dist) {
+            if (dist == null || dist.isEmpty()) {
+                return;
+            }
+            forward.put(sourceNodeId, Map.copyOf(dist));
         }
     }
 

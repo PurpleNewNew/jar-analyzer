@@ -38,14 +38,29 @@ public final class GraphPrunedPathEngine {
     }
 
     public Run search(GraphSnapshot snapshot, SearchRequest request, Controller controller) {
+        return search(snapshot, request, controller, null);
+    }
+
+    public Run search(GraphSnapshot snapshot,
+                      SearchRequest request,
+                      Controller controller,
+                      DistanceCache distanceCache) {
         long startNs = System.nanoTime();
         if (snapshot == null || request == null || request.fromNodeId() <= 0L || request.toNodeId() <= 0L) {
             return emptyRun(startNs);
         }
         semantics.refreshRuleContext();
         Controller effectiveController = controller == null ? Controller.noop() : controller;
-        Map<Long, Integer> toTarget = boundedBackwardDistance(snapshot, request.toNodeId(), request.maxHops(),
-                request.traversalMode(), request.blacklist(), request.minEdgeConfidence(), effectiveController);
+        Map<Long, Integer> toTarget = loadBackwardDistance(
+                snapshot,
+                request.toNodeId(),
+                request.maxHops(),
+                request.traversalMode(),
+                request.blacklist(),
+                request.minEdgeConfidence(),
+                effectiveController,
+                distanceCache
+        );
         if (!toTarget.containsKey(request.fromNodeId())) {
             return emptyRun(startNs);
         }
@@ -65,6 +80,13 @@ public final class GraphPrunedPathEngine {
     }
 
     public Run searchBackward(GraphSnapshot snapshot, ReverseSearchRequest request, Controller controller) {
+        return searchBackward(snapshot, request, controller, null);
+    }
+
+    public Run searchBackward(GraphSnapshot snapshot,
+                              ReverseSearchRequest request,
+                              Controller controller,
+                              DistanceCache distanceCache) {
         long startNs = System.nanoTime();
         if (snapshot == null || request == null || request.sinkNodeId() <= 0L) {
             return emptyRun(startNs);
@@ -88,8 +110,16 @@ public final class GraphPrunedPathEngine {
         if (request.sourceNodeId() <= 0L) {
             return emptyRun(startNs);
         }
-        Map<Long, Integer> fromSource = boundedForwardDistance(snapshot, request.sourceNodeId(), request.maxHops(),
-                request.traversalMode(), request.blacklist(), request.minEdgeConfidence(), effectiveController);
+        Map<Long, Integer> fromSource = loadForwardDistance(
+                snapshot,
+                request.sourceNodeId(),
+                request.maxHops(),
+                request.traversalMode(),
+                request.blacklist(),
+                request.minEdgeConfidence(),
+                effectiveController,
+                distanceCache
+        );
         if (!fromSource.containsKey(request.sinkNodeId())) {
             return emptyRun(startNs);
         }
@@ -482,6 +512,62 @@ public final class GraphPrunedPathEngine {
         return new ExpandResult(out, expandedEdges, prunedByState, prunedByDistance);
     }
 
+    private Map<Long, Integer> loadBackwardDistance(GraphSnapshot snapshot,
+                                                    long targetNodeId,
+                                                    int maxHops,
+                                                    TraversalMode traversalMode,
+                                                    Set<String> blacklist,
+                                                    String minEdgeConfidence,
+                                                    Controller controller,
+                                                    DistanceCache distanceCache) {
+        DistanceKey key = DistanceKey.backward(snapshot, targetNodeId, maxHops, traversalMode, blacklist, minEdgeConfidence);
+        Map<Long, Integer> cached = distanceCache == null ? null : distanceCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Map<Long, Integer> dist = boundedBackwardDistance(
+                snapshot,
+                targetNodeId,
+                maxHops,
+                traversalMode,
+                blacklist,
+                minEdgeConfidence,
+                controller
+        );
+        if (distanceCache != null) {
+            distanceCache.put(key, dist);
+        }
+        return dist;
+    }
+
+    private Map<Long, Integer> loadForwardDistance(GraphSnapshot snapshot,
+                                                   long sourceNodeId,
+                                                   int maxHops,
+                                                   TraversalMode traversalMode,
+                                                   Set<String> blacklist,
+                                                   String minEdgeConfidence,
+                                                   Controller controller,
+                                                   DistanceCache distanceCache) {
+        DistanceKey key = DistanceKey.forward(snapshot, sourceNodeId, maxHops, traversalMode, blacklist, minEdgeConfidence);
+        Map<Long, Integer> cached = distanceCache == null ? null : distanceCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Map<Long, Integer> dist = boundedForwardDistance(
+                snapshot,
+                sourceNodeId,
+                maxHops,
+                traversalMode,
+                blacklist,
+                minEdgeConfidence,
+                controller
+        );
+        if (distanceCache != null) {
+            distanceCache.put(key, dist);
+        }
+        return dist;
+    }
+
     private Map<Long, Integer> boundedBackwardDistance(GraphSnapshot snapshot,
                                                        long targetNodeId,
                                                        int maxHops,
@@ -806,6 +892,21 @@ public final class GraphPrunedPathEngine {
         }
     }
 
+    public static final class DistanceCache {
+        private final Map<DistanceKey, Map<Long, Integer>> distances = new HashMap<>();
+
+        private Map<Long, Integer> get(DistanceKey key) {
+            return key == null ? null : distances.get(key);
+        }
+
+        private void put(DistanceKey key, Map<Long, Integer> dist) {
+            if (key == null || dist == null || dist.isEmpty()) {
+                return;
+            }
+            distances.put(key, Map.copyOf(dist));
+        }
+    }
+
     public record SearchRequest(long fromNodeId,
                                 long toNodeId,
                                 int maxHops,
@@ -869,6 +970,54 @@ public final class GraphPrunedPathEngine {
         public Run {
             candidates = candidates == null ? List.of() : List.copyOf(candidates);
             stats = stats == null ? new Stats(0, 0, 0, 0, 0, 0L) : stats;
+        }
+    }
+
+    private record DistanceKey(long buildSeq,
+                               int nodeCount,
+                               int edgeCount,
+                               boolean backward,
+                               long anchorNodeId,
+                               int maxHops,
+                               TraversalMode traversalMode,
+                               Set<String> blacklist,
+                               String minEdgeConfidence) {
+        private static DistanceKey backward(GraphSnapshot snapshot,
+                                            long targetNodeId,
+                                            int maxHops,
+                                            TraversalMode traversalMode,
+                                            Set<String> blacklist,
+                                            String minEdgeConfidence) {
+            return new DistanceKey(
+                    snapshot == null ? -1L : snapshot.getBuildSeq(),
+                    snapshot == null ? 0 : snapshot.getNodeCount(),
+                    snapshot == null ? 0 : snapshot.getEdgeCount(),
+                    true,
+                    targetNodeId,
+                    maxHops,
+                    traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode,
+                    blacklist == null ? Set.of() : Set.copyOf(new LinkedHashSet<>(blacklist)),
+                    minEdgeConfidence == null || minEdgeConfidence.isBlank() ? "low" : minEdgeConfidence
+            );
+        }
+
+        private static DistanceKey forward(GraphSnapshot snapshot,
+                                           long sourceNodeId,
+                                           int maxHops,
+                                           TraversalMode traversalMode,
+                                           Set<String> blacklist,
+                                           String minEdgeConfidence) {
+            return new DistanceKey(
+                    snapshot == null ? -1L : snapshot.getBuildSeq(),
+                    snapshot == null ? 0 : snapshot.getNodeCount(),
+                    snapshot == null ? 0 : snapshot.getEdgeCount(),
+                    false,
+                    sourceNodeId,
+                    maxHops,
+                    traversalMode == null ? TraversalMode.CALL_ONLY : traversalMode,
+                    blacklist == null ? Set.of() : Set.copyOf(new LinkedHashSet<>(blacklist)),
+                    minEdgeConfidence == null || minEdgeConfidence.isBlank() ? "low" : minEdgeConfidence
+            );
         }
     }
 

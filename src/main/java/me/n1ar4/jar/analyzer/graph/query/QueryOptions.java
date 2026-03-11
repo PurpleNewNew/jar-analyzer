@@ -39,12 +39,13 @@ public final class QueryOptions {
                         int timeoutCheckInterval) {
         this.profile = normalizeProfile(profile);
         boolean longChain = isLongChainProfile(this.profile);
+        int resolvedMaxHops = clamp(maxHops, 1, longChain ? 256 : 64, longChain ? 128 : 8);
         this.maxRows = clamp(maxRows, 1, 10000, 500);
-        this.maxMs = clamp(maxMs, 100, 180000, longChain ? 20000 : 15000);
-        this.maxHops = clamp(maxHops, 1, longChain ? 256 : 64, longChain ? 128 : 8);
-        this.expandBudget = clamp(expandBudget, 1000, 20_000_000, longChain ? 150_000 : 300_000);
-        this.pathBudget = clamp(pathBudget, 16, 1_000_000, longChain ? 2000 : 5000);
-        int clampedMaxPaths = clamp(maxPaths, 1, 5000, 500);
+        this.maxMs = clamp(maxMs, 100, 180000, defaultMaxMs(longChain, resolvedMaxHops));
+        this.maxHops = resolvedMaxHops;
+        this.expandBudget = clamp(expandBudget, 1000, 20_000_000, defaultExpandBudget(longChain, resolvedMaxHops));
+        this.pathBudget = clamp(pathBudget, 16, 1_000_000, defaultPathBudget(longChain, resolvedMaxHops));
+        int clampedMaxPaths = clamp(maxPaths, 1, 5000, longChain ? 1000 : 500);
         this.maxPaths = Math.min(clampedMaxPaths, this.pathBudget);
         this.timeoutCheckInterval = clamp(timeoutCheckInterval, 8, 4096, longChain ? 64 : 128);
     }
@@ -151,6 +152,27 @@ public final class QueryOptions {
             return min;
         }
         return Math.min(value, max);
+    }
+
+    private static int defaultMaxMs(boolean longChain, int maxHops) {
+        if (!longChain) {
+            return 15000;
+        }
+        return Math.max(20000, Math.min(60000, maxHops * 250));
+    }
+
+    private static int defaultExpandBudget(boolean longChain, int maxHops) {
+        if (!longChain) {
+            return 300_000;
+        }
+        return Math.max(600_000, Math.min(4_000_000, maxHops * 12_000));
+    }
+
+    private static int defaultPathBudget(boolean longChain, int maxHops) {
+        if (!longChain) {
+            return 5000;
+        }
+        return Math.max(8000, Math.min(100_000, maxHops * 96));
     }
 
     private static int toInt(Object value, int def) {
