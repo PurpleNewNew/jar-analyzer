@@ -14,8 +14,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class CoreRunnerBuildMetricsTest {
     @AfterEach
@@ -45,7 +47,12 @@ class CoreRunnerBuildMetricsTest {
         assertTrue(metrics.containsKey("method_semantic"));
         assertTrue(metrics.containsKey("bytecode_symbol"));
         assertTrue(metrics.containsKey("callgraph"));
+        assertTrue(metrics.containsKey("neo4j_csv_payload"));
+        assertTrue(metrics.containsKey("neo4j_bulk_import"));
+        assertTrue(metrics.containsKey("neo4j_write_build_meta"));
         assertTrue(metrics.containsKey("build_runtime_snapshot"));
+        assertTrue(metrics.containsKey("neo4j_persist_runtime_snapshot"));
+        assertTrue(metrics.containsKey("neo4j_swap_home"));
         assertTrue(metrics.containsKey("publish_runtime"));
         assertTrue(metrics.containsKey("refresh_caches"));
         assertTrue(metrics.containsKey("neo4j_commit"));
@@ -86,12 +93,28 @@ class CoreRunnerBuildMetricsTest {
             assertEquals(discovery.getDurationMs(), ((Number) meta.getProperty("build_stage_discovery_ms")).longValue());
             assertEquals(callGraph.getDurationMs(), ((Number) meta.getProperty("build_stage_callgraph_ms")).longValue());
             assertEquals(commit.getDurationMs(), ((Number) meta.getProperty("build_stage_neo4j_commit_ms")).longValue());
+            assertTrue(meta.hasProperty("build_stage_neo4j_csv_payload_ms"));
+            assertTrue(meta.hasProperty("build_stage_neo4j_bulk_import_ms"));
+            assertTrue(meta.hasProperty("build_stage_neo4j_persist_runtime_snapshot_ms"));
             assertEquals(intMetric(symbol, "call_sites"),
                     ((Number) meta.getProperty("build_stage_bytecode_symbol_call_sites")).intValue());
             assertEquals(intMetric(symbol, "local_vars"),
                     ((Number) meta.getProperty("build_stage_bytecode_symbol_local_vars")).intValue());
             tx.commit();
         }
+
+        Object prewarmStatus = awaitMetaProperty("async_prewarm_status", 5_000L);
+        String status = assertInstanceOf(String.class, prewarmStatus);
+        assertTrue("completed".equals(status) || "stale".equals(status));
+        Object prewarmCompleted = awaitMetaProperty("async_prewarm_completed", 5_000L);
+        boolean completed = assertInstanceOf(Boolean.class, prewarmCompleted);
+        if ("completed".equals(status)) {
+            assertTrue(completed);
+        } else {
+            assertFalse(completed);
+        }
+        Object prewarmTotalMs = awaitMetaProperty("async_prewarm_total_ms", 5_000L);
+        assertTrue(assertInstanceOf(Number.class, prewarmTotalMs).longValue() >= 0L);
     }
 
     private static int intMetric(CoreRunner.BuildStageMetric metric, String key) {
@@ -99,5 +122,32 @@ class CoreRunnerBuildMetricsTest {
         Object value = metric.getDetails().get(key);
         assertNotNull(value, "missing metric detail: " + key);
         return ((Number) value).intValue();
+    }
+
+    private static Object awaitMetaProperty(String key, long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (System.nanoTime() < deadline) {
+            var database = Neo4jProjectStore.getInstance().database(ActiveProjectContext.getActiveProjectKey());
+            try (var tx = database.beginTx();
+                 var it = tx.findNodes(Label.label("JAMeta"), "key", "build_meta")) {
+                if (it.hasNext()) {
+                    var meta = it.next();
+                    if (meta.hasProperty(key)) {
+                        Object value = meta.getProperty(key);
+                        tx.commit();
+                        return value;
+                    }
+                }
+                tx.commit();
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                fail("interrupted while waiting for build meta property: " + key);
+            }
+        }
+        fail("timed out waiting for build meta property: " + key);
+        return null;
     }
 }

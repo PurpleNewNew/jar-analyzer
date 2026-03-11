@@ -74,6 +74,10 @@ public final class Neo4jBulkImportService {
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
 
+    public interface StageObserver {
+        void onStage(String stageKey, long durationMs, Map<String, Object> details);
+    }
+
     public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
                                                      long buildSeq,
                                                      boolean quickMode,
@@ -84,6 +88,32 @@ public final class Neo4jBulkImportService {
                                                      GraphPayloadData graphPayloadData,
                                                      Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier,
                                                      Map<String, Object> buildMeta) {
+        return replaceFromAnalysis(
+                projectKey,
+                buildSeq,
+                quickMode,
+                callGraphMode,
+                methods,
+                methodCalls,
+                methodCallMeta,
+                graphPayloadData,
+                runtimeSnapshotSupplier,
+                buildMeta,
+                null
+        );
+    }
+
+    public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
+                                                     long buildSeq,
+                                                     boolean quickMode,
+                                                     String callGraphMode,
+                                                     Set<MethodReference> methods,
+                                                     Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
+                                                     Map<MethodCallKey, MethodCallMeta> methodCallMeta,
+                                                     GraphPayloadData graphPayloadData,
+                                                     Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier,
+                                                     Map<String, Object> buildMeta,
+                                                     StageObserver stageObserver) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         Path projectHome = PROJECT_STORE.resolveProjectHome(normalized);
         Path stagingHome = resolveStagingHome(projectHome, buildSeq);
@@ -101,7 +131,15 @@ public final class Neo4jBulkImportService {
             Files.createDirectories(stagingDir);
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
+            long csvStartNs = System.nanoTime();
             csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, graphPayloadData);
+            notifyStage(stageObserver, "neo4j_csv_payload", csvStartNs, detailMap(
+                    "class_nodes", csvResult.classNodes(),
+                    "method_nodes", csvResult.methodNodes(),
+                    "alias_edges", csvResult.aliasEdges(),
+                    "call_site_edges", csvResult.callSiteEdges(),
+                    "edges", csvResult.edgeCount()
+            ));
             logger.info("neo4j bulk csv payload written: key={} buildSeq={} classNodes={} methodNodes={} aliasEdges={} edges={} callSiteEdges={} heap={}",
                     normalized,
                     buildSeq,
@@ -114,13 +152,20 @@ public final class Neo4jBulkImportService {
 
             PROJECT_STORE.beginProjectImport(normalized);
             importLockHeld = true;
+            long importStartNs = System.nanoTime();
             runFullImport(stagingHome, csvResult.nodesFile(), csvResult.relationshipsFile(), stagingDir.resolve("import.report"));
+            notifyStage(stageObserver, "neo4j_bulk_import", importStartNs, detailMap(
+                    "nodes", csvResult.totalNodes(),
+                    "edges", csvResult.edgeCount(),
+                    "call_site_edges", csvResult.callSiteEdges()
+            ));
             logger.info("neo4j bulk import finished: key={} buildSeq={} heap={}",
                     normalized,
                     buildSeq,
                     heapUsage());
 
             try {
+                long buildMetaStartNs = System.nanoTime();
                 writeBuildMeta(
                         stagingHome,
                         buildSeq,
@@ -130,13 +175,28 @@ public final class Neo4jBulkImportService {
                         csvResult.edgeCount(),
                         buildMeta
                 );
+                notifyStage(stageObserver, "neo4j_write_build_meta", buildMetaStartNs, detailMap(
+                        "nodes", csvResult.totalNodes(),
+                        "edges", csvResult.edgeCount()
+                ));
                 runtimeSnapshot = requireRuntimeSnapshot(runtimeSnapshotSupplier);
+                long persistSnapshotStartNs = System.nanoTime();
                 ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, projectHome, runtimeSnapshot);
+                notifyStage(stageObserver, "neo4j_persist_runtime_snapshot", persistSnapshotStartNs, detailMap(
+                        "build_seq", buildSeq,
+                        "runtime_jars", runtimeSnapshot.jars() == null ? 0 : runtimeSnapshot.jars().size(),
+                        "class_files", runtimeSnapshot.classFiles() == null ? 0 : runtimeSnapshot.classFiles().size(),
+                        "methods", runtimeSnapshot.methodReferences() == null ? 0 : runtimeSnapshot.methodReferences().size()
+                ));
                 logger.info("neo4j bulk metadata snapshot written: key={} buildSeq={} heap={}",
                         normalized,
                         buildSeq,
                         heapUsage());
+                long swapStartNs = System.nanoTime();
                 backupHome = replaceProjectHome(projectHome, stagingHome, buildSeq);
+                notifyStage(stageObserver, "neo4j_swap_home", swapStartNs, detailMap(
+                        "backup_created", backupHome != null
+                ));
             } finally {
                 Neo4jGraphSnapshotLoader.invalidate(normalized);
             }
@@ -1307,6 +1367,38 @@ public final class Neo4jBulkImportService {
 
     private static long msSince(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000L;
+    }
+
+    private static void notifyStage(StageObserver stageObserver,
+                                    String stageKey,
+                                    long startNs,
+                                    Map<String, Object> details) {
+        if (stageObserver == null) {
+            return;
+        }
+        stageObserver.onStage(stageKey, msSince(startNs), details);
+    }
+
+    private static Map<String, Object> detailMap(Object... items) {
+        if (items == null || items.length == 0) {
+            return Map.of();
+        }
+        LinkedHashMap<String, Object> details = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < items.length; i += 2) {
+            Object key = items[i];
+            Object value = items[i + 1];
+            if (key == null || value == null) {
+                continue;
+            }
+            String normalizedKey = safe(String.valueOf(key)).trim().toLowerCase(Locale.ROOT)
+                    .replace('-', '_')
+                    .replace(' ', '_');
+            if (normalizedKey.isBlank()) {
+                continue;
+            }
+            details.put(normalizedKey, value);
+        }
+        return details.isEmpty() ? Map.of() : Map.copyOf(details);
     }
 
     private static String heapUsage() {

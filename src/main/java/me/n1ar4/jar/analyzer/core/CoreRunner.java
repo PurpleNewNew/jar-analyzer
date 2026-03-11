@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver.JdkResolution;
 import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier;
 import me.n1ar4.jar.analyzer.core.scope.ArchiveScopeClassifier.ScopeSummary;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
@@ -830,7 +831,12 @@ public class CoreRunner {
                         callGraphStage.scopeSummary(),
                         callGraphStage.jdkResolution(),
                         callGraphStage.explicitEntryCount()
-                )
+                ),
+                (stageKey, durationMs, details) -> {
+                    if (metrics != null) {
+                        metrics.record(stageKey, durationMs, details);
+                    }
+                }
         );
         markBuildStage("publish-runtime");
         long publishStartNs = System.nanoTime();
@@ -886,6 +892,7 @@ public class CoreRunner {
         } catch (Exception ex) {
             logger.warn("update structured build meta fail: {}", ex.toString());
         }
+        scheduleBackgroundPrewarm(targetProjectKey, buildSeq);
         progress.accept(100);
 
         return new BuildResult(
@@ -959,6 +966,31 @@ public class CoreRunner {
             LAST_BUILD_STAGE.set(normalized);
         }
         logger.info("build stage enter: {} (heap={})", normalized, heapUsage());
+    }
+
+    private static void scheduleBackgroundPrewarm(String projectKey, long buildSeq) {
+        boolean scheduled = EngineContext.scheduleProjectPrewarm(projectKey, buildSeq, report -> {
+            try {
+                GRAPH_BUILD_SERVICE.updateBuildMeta(
+                        report.projectKey(),
+                        report.buildSeq(),
+                        metricMap(
+                                "async_prewarm_status", report.status(),
+                                "async_prewarm_completed", report.completed(),
+                                "async_prewarm_query_snapshot_ms", report.querySnapshotMs(),
+                                "async_prewarm_flow_snapshot_ms", report.flowSnapshotMs(),
+                                "async_prewarm_call_graph_cache_ms", report.callGraphCacheMs(),
+                                "async_prewarm_total_ms", report.totalMs(),
+                                "async_prewarm_error", report.error()
+                        )
+                );
+            } catch (Exception ex) {
+                logger.debug("persist async prewarm meta fail: {}", ex.toString());
+            }
+        });
+        if (scheduled) {
+            logger.info("background prewarm scheduled: key={} buildSeq={}", projectKey, buildSeq);
+        }
     }
 
     private static void releaseCommittedBuildData(BuildContext context, List<LocalVarEntity> localVars) {
