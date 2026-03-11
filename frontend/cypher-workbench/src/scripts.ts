@@ -11,25 +11,18 @@ export interface BuiltinScript {
 
 export const BUILTIN_SCRIPTS: BuiltinScript[] = [
   {
+    titleZh: '浏览方法调用',
+    titleEn: 'Browse Calls',
+    tagsZh: 'graph,call',
+    tagsEn: 'graph,call',
+    body: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m,r,n LIMIT 50'
+  },
+  {
     titleZh: '浏览方法节点',
     titleEn: 'Browse Methods',
     tagsZh: 'graph,node',
     tagsEn: 'graph,node',
     body: 'MATCH (m:Method) RETURN m LIMIT 50'
-  },
-  {
-    titleZh: '浏览方法调用',
-    titleEn: 'Browse Calls',
-    tagsZh: 'graph,edge',
-    tagsEn: 'graph,edge',
-    body: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m,r,n LIMIT 50'
-  },
-  {
-    titleZh: '查看调用细分',
-    titleEn: 'Browse Call Subtypes',
-    tagsZh: 'graph,call,subtype',
-    tagsEn: 'graph,call,subtype',
-    body: 'MATCH (m:Method)-[r:CALL]->(n:Method) RETURN m, ja.relSubtype(type(r)) AS relSubtype, r, n LIMIT 50'
   },
   {
     titleZh: '查看 Alias 关系',
@@ -39,32 +32,46 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     body: 'MATCH (m:Method)-[r:ALIAS]->(n:Method) RETURN m,r,n LIMIT 50'
   },
   {
-    titleZh: '按 alias_kind 查看',
-    titleEn: 'Browse alias_kind',
-    tagsZh: 'graph,alias,kind',
-    tagsEn: 'graph,alias,kind',
-    body: 'MATCH (m:Method)-[r:ALIAS]->(n:Method) RETURN m, r.alias_kind AS aliasKind, r, n LIMIT 50'
-  },
-  {
-    titleZh: '浏览短路径',
-    titleEn: 'Browse Short Paths',
-    tagsZh: 'graph,path',
-    tagsEn: 'graph,path',
-    body: 'MATCH p=(m:Method)-[*1..3]->(n:Method) RETURN p LIMIT 12'
-  },
-  {
-    titleZh: '过程最短路径',
-    titleEn: 'Procedure Shortest Path',
+    titleZh: '最短路径示例',
+    titleEn: 'Shortest Path Example',
     tagsZh: 'ja,path',
     tagsEn: 'ja,path',
     body: 'CALL ja.path.shortest("node:1", "node:2", 6, {{TRAVERSAL_MODE_LITERAL}}) YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
   },
   {
-    titleZh: '过程多路径',
-    titleEn: 'Procedure Multi Paths',
-    tagsZh: 'ja,path',
-    tagsEn: 'ja,path',
-    body: 'CALL ja.path.from_to("node:1", "node:2", 6, 10, {{TRAVERSAL_MODE_LITERAL}}) YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
+    titleZh: '查看 Sources',
+    titleEn: 'Find Sources',
+    tagsZh: 'rule,source',
+    tagsEn: 'rule,source',
+    body: 'MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50'
+  },
+  {
+    titleZh: '查看 Sinks',
+    titleEn: 'Find Sinks',
+    tagsZh: 'rule,sink',
+    tagsEn: 'rule,sink',
+    body: 'MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50'
+  },
+  {
+    titleZh: '污点追踪示例',
+    titleEn: 'Taint Track Example',
+    tagsZh: 'ja,taint',
+    tagsEn: 'ja,taint',
+    body: 'CALL ja.taint.track("", "", "", "app/Sink", "sink", "()V", 8, 15000, 10, "sink", true, false, {{TRAVERSAL_MODE_LITERAL}}, "backward") YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
+  },
+  {
+    titleZh: 'Gadget 追踪示例',
+    titleEn: 'Gadget Track Example',
+    tagsZh: 'ja,gadget',
+    tagsEn: 'ja,gadget',
+    body: 'CALL ja.gadget.track("", "", "", "app/Sink", "sink", "()V", 8, 10, true, {{TRAVERSAL_MODE_LITERAL}}, "forward") YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
+  },
+  {
+    titleZh: '规则校验摘要',
+    titleEn: 'Rule Validation',
+    tagsZh: 'rules,validation',
+    tagsEn: 'rules,validation',
+    body: 'RETURN ja.ruleValidation() AS validation'
   },
   {
     titleZh: '浏览类节点',
@@ -86,41 +93,6 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     tagsZh: 'structure,extend',
     tagsEn: 'structure,extend',
     body: 'MATCH (c1:Class)-[r:EXTEND]->(c2:Class) RETURN c1,r,c2 LIMIT 50'
-  },
-  {
-    titleZh: '查看接口实现',
-    titleEn: 'Interface Impl',
-    tagsZh: 'structure,interfaces',
-    tagsEn: 'structure,interfaces',
-    body: 'MATCH (c1:Class)-[r:INTERFACES]->(c2:Class) RETURN c1,r,c2 LIMIT 50'
-  },
-  {
-    titleZh: '查看某方法所属类',
-    titleEn: 'Method Owner',
-    tagsZh: 'structure,owner',
-    tagsEn: 'structure,owner',
-    body: 'MATCH (c:Class)-[r:HAS]->(m:Method) WHERE m.method_name = "main" RETURN c,r,m LIMIT 50'
-  },
-  {
-    titleZh: '查看 Sources',
-    titleEn: 'Find Sources',
-    tagsZh: 'rule,source',
-    tagsEn: 'rule,source',
-    body: 'MATCH (n:Method) WHERE ja.isSource(n) RETURN n LIMIT 50'
-  },
-  {
-    titleZh: '查看 Sinks',
-    titleEn: 'Find Sinks',
-    tagsZh: 'rule,sink',
-    tagsEn: 'rule,sink',
-    body: 'MATCH (n:Method) WHERE ja.isSink(n) RETURN n LIMIT 50'
-  },
-  {
-    titleZh: '规则校验摘要',
-    titleEn: 'Rule Validation',
-    tagsZh: 'rules,validation',
-    tagsEn: 'rules,validation',
-    body: 'RETURN ja.ruleValidation() AS validation'
   }
 ]
 

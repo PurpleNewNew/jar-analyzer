@@ -274,7 +274,7 @@
   - 同一项目库也会写入 `Class` 节点与 `HAS/EXTEND/INTERFACES` 结构边；这些关系通过显式结构查询模板或用户自写 Cypher 查看，不再依赖单独的结构图模式
   - Graph inspector 中的可点击属性会优先定位对应 table 行/列并高亮，同时把条件片段插入查询编辑器当前光标位置；`display_rel_type` / `rel_subtype` 会分别插入 `type(r) = ...` / `ja.relSubtype(type(r)) = ...`
   - Table 行会反向关联出当前行涉及的 graph 节点/边并做高亮；双击行可直接切回 `Graph` 查看；Overview 中的结构标签 / 关系类别 / 关系子类 legend 会生成显式可清除的 graph filter chips，并同步向查询编辑器插入片段
-  - 内置模板新增 `查看 Alias 关系`；结构模板与调用模板统一常驻显示，由用户直接选择需要的 Cypher
+  - 内置模板已收敛为高频集合，只保留调用、alias、source/sink、taint/gadget、类结构等主线查询，不再堆叠低价值样例
 
 - `GET /api/security/rule-validation`
   直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。
