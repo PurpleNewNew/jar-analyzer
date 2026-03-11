@@ -1,6 +1,10 @@
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.config.ConfigFile;
+import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.support.FixtureJars;
@@ -8,9 +12,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -20,6 +26,7 @@ class CoreRunnerCallGraphProfileTest {
         System.clearProperty("jar.analyzer.callgraph.engine");
         System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
         GraphStore.invalidateCache();
+        EngineContext.setEngine(null);
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
         ProjectRegistryService.getInstance().cleanupTemporaryProject();
@@ -87,6 +94,74 @@ class CoreRunnerCallGraphProfileTest {
         assertEquals(CallGraphPlan.PROFILE_PRECISION, details.get("analysis_profile"));
         assertTrue((Boolean) details.get("precision_mode"));
         assertEquals("precision", details.get("pta_budget_profile"));
+        assertTrue(((Number) details.get("pta_precision_selected_call_sites")).intValue() > 0);
+        assertTrue(((Number) details.get("pta_precision_semantic_call_sites")).intValue() > 0);
+    }
+
+    @Test
+    void balancedProfileShouldNotEscalateSemanticConcreteReceiverSite() {
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
+        GraphStore.invalidateCache();
+        EngineContext.setEngine(null);
+        CoreEngine engine = new CoreEngine(config());
+        EngineContext.setEngine(engine);
+        ArrayList<MethodCallResult> invokeEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/MyInvocationHandler",
+                "invoke",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+                0,
+                Integer.MAX_VALUE
+        );
+        assertFalse(invokeEdges.isEmpty());
+        assertFalse(invokeEdges.stream().anyMatch(edge ->
+                "me/n1ar4/cb/FastTask".equals(edge.getCalleeClassName())
+                        && "run".equals(edge.getCalleeMethodName())
+                        && "()V".equals(edge.getCalleeMethodDesc())
+                        && edge.getEdgeEvidence() != null
+                        && edge.getEdgeEvidence().contains("pta_selector=semantic")));
+    }
+
+    @Test
+    void precisionProfileShouldEscalateSemanticConcreteReceiverSite() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_PRECISION);
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.PROFILE_PRECISION, result.getAnalysisProfile());
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
+        assertNotNull(metric);
+        Map<String, Object> details = metric.getDetails();
+        assertTrue(((Number) details.get("pta_precision_selected_call_sites")).intValue() > 0);
+        assertTrue(((Number) details.get("pta_precision_semantic_call_sites")).intValue() > 0);
+
+        GraphStore.invalidateCache();
+        EngineContext.setEngine(null);
+        CoreEngine engine = new CoreEngine(config());
+        EngineContext.setEngine(engine);
+        ArrayList<MethodCallResult> invokeEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/MyInvocationHandler",
+                "invoke",
+                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
+                0,
+                Integer.MAX_VALUE
+        );
+        assertFalse(invokeEdges.isEmpty());
+        assertTrue(invokeEdges.stream().anyMatch(edge ->
+                "me/n1ar4/cb/FastTask".equals(edge.getCalleeClassName())
+                        && "run".equals(edge.getCalleeMethodName())
+                        && "()V".equals(edge.getCalleeMethodDesc())
+                        && "pta".equals(edge.getEdgeType())
+                        && edge.getEdgeEvidence() != null
+                        && edge.getEdgeEvidence().contains("semantic")));
     }
 
     @Test
@@ -115,5 +190,11 @@ class CoreRunnerCallGraphProfileTest {
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
         assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
+    }
+
+    private static ConfigFile config() {
+        ConfigFile config = new ConfigFile();
+        config.setDbPath("test-db");
+        return config;
     }
 }

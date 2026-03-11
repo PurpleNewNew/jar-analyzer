@@ -20,6 +20,7 @@ import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Opcodes;
@@ -62,6 +63,25 @@ public final class SelectivePtaRefiner {
     private static final PtaBudget DEFAULT_BUDGET = new PtaBudget(8, 64, 64, 64, 8, 32, 8);
     private static final PtaBudget PRECISION_BUDGET = new PtaBudget(12, 128, 128, 128, 12, 64, 16);
     private static final int MAX_SOURCES_PER_VALUE = 8;
+    private static final String JAVA_LANG_OBJECT = "java/lang/Object";
+    private static final int PRECISION_SEMANTIC_MASK = MethodSemanticFlags.WEB_ENTRY
+            | MethodSemanticFlags.RPC_ENTRY
+            | MethodSemanticFlags.SPRING_ENDPOINT
+            | MethodSemanticFlags.JSP_ENDPOINT
+            | MethodSemanticFlags.STRUTS_ACTION
+            | MethodSemanticFlags.SERVLET_CALLBACK
+            | MethodSemanticFlags.NETTY_HANDLER
+            | MethodSemanticFlags.MYBATIS_DYNAMIC_SQL
+            | MethodSemanticFlags.SERIALIZABLE_OWNER
+            | MethodSemanticFlags.DESERIALIZATION_CALLBACK
+            | MethodSemanticFlags.INVOCATION_HANDLER
+            | MethodSemanticFlags.COMPARATOR_CALLBACK
+            | MethodSemanticFlags.TRANSFORMER_CALLBACK
+            | MethodSemanticFlags.COLLECTION_CONTAINER
+            | MethodSemanticFlags.COMPARABLE_CALLBACK
+            | MethodSemanticFlags.TOSTRING_TRIGGER
+            | MethodSemanticFlags.HASHCODE_TRIGGER
+            | MethodSemanticFlags.EQUALS_TRIGGER;
     private SelectivePtaRefiner() {
     }
 
@@ -98,18 +118,47 @@ public final class SelectivePtaRefiner {
         if (methodUnits.isEmpty()) {
             return Result.empty();
         }
-        PtaBudget budget = precisionMode ? PRECISION_BUDGET : DEFAULT_BUDGET;
         int hotspotSites = 0;
         int refinedSites = 0;
         int ptaEdges = 0;
         int fieldSites = 0;
         int arraySites = 0;
         int arrayCopySites = 0;
+        int precisionSelectedSites = 0;
+        int precisionSemanticSites = 0;
+        int precisionReflectionSites = 0;
+        int precisionTriggerSites = 0;
+        int precisionHighFanoutSites = 0;
         for (CallSiteEntity site : snapshot.symbols().callSites()) {
-            if (!isHotspot(site, snapshot.types().classesByHandle(), inheritanceMap)) {
+            PrecisionSelection selection = selectHotspot(
+                    site,
+                    snapshot,
+                    edges,
+                    inheritanceMap,
+                    precisionMode,
+                    lookup,
+                    methodUnits
+            );
+            if (!selection.enabled()) {
                 continue;
             }
             hotspotSites++;
+            if (selection.highPrecision()) {
+                precisionSelectedSites++;
+                if (selection.semanticSelected()) {
+                    precisionSemanticSites++;
+                }
+                if (selection.reflectionSelected()) {
+                    precisionReflectionSites++;
+                }
+                if (selection.triggerSelected()) {
+                    precisionTriggerSites++;
+                }
+                if (selection.highFanoutSelected()) {
+                    precisionHighFanoutSites++;
+                }
+            }
+            PtaBudget budget = selection.highPrecision() ? PRECISION_BUDGET : DEFAULT_BUDGET;
             MethodReference.Handle caller = lookup.resolve(
                     site.getCallerClassName(),
                     site.getCallerMethodName(),
@@ -171,7 +220,8 @@ public final class SelectivePtaRefiner {
             String reason = buildReason(
                     receiver.evidence(),
                     invokeSite.context(),
-                    snapshot.constraints().receiverVarByCallSiteKey().get(invokeSite.callSiteKey())
+                    snapshot.constraints().receiverVarByCallSiteKey().get(invokeSite.callSiteKey()),
+                    selection.selectorTags()
             );
             String confidence = targets.size() == 1 ? MethodCallMeta.CONF_HIGH : MethodCallMeta.CONF_MEDIUM;
             for (MethodReference.Handle target : targets) {
@@ -208,13 +258,72 @@ public final class SelectivePtaRefiner {
                 fieldSites,
                 arraySites,
                 arrayCopySites,
-                methodUnits.size()
+                methodUnits.size(),
+                precisionSelectedSites,
+                precisionSemanticSites,
+                precisionReflectionSites,
+                precisionTriggerSites,
+                precisionHighFanoutSites
         );
     }
 
-    private static boolean isHotspot(CallSiteEntity site,
-                                     Map<ClassReference.Handle, ClassReference> classMap,
-                                     InheritanceMap inheritanceMap) {
+    private static PrecisionSelection selectHotspot(CallSiteEntity site,
+                                                    BuildFactSnapshot snapshot,
+                                                    BuildEdgeAccumulator edges,
+                                                    InheritanceMap inheritanceMap,
+                                                    boolean precisionMode,
+                                                    MethodLookup lookup,
+                                                    Map<MethodReference.Handle, MethodUnit> methodUnits) {
+        if (!isEligibleInvokeSite(site)) {
+            return PrecisionSelection.disabled();
+        }
+        boolean dispatchHotspot = isDispatchHotspot(site, snapshot.types().classesByHandle(), inheritanceMap);
+        if (!precisionMode) {
+            return dispatchHotspot ? PrecisionSelection.dispatchOnly() : PrecisionSelection.disabled();
+        }
+        MethodReference.Handle caller = lookup.resolve(
+                site.getCallerClassName(),
+                site.getCallerMethodName(),
+                site.getCallerMethodDesc(),
+                site.getJarId()
+        );
+        MethodUnit unit = caller == null ? null : methodUnits.get(caller);
+        boolean semantic = caller != null && hasPrecisionSemanticSignal(snapshot, caller);
+        boolean reflection = unit != null && hasReflectionPrecisionSignal(unit.constraints());
+        boolean trigger = isTriggerBridgeSite(site);
+        boolean highFanout = caller != null && isHighFanoutSite(edges, caller, site);
+        boolean enabled = dispatchHotspot || semantic || reflection || trigger || highFanout;
+        if (!enabled) {
+            return PrecisionSelection.disabled();
+        }
+        boolean highPrecision = semantic || reflection || trigger || highFanout;
+        LinkedHashSet<String> selectorTags = new LinkedHashSet<>();
+        if (semantic) {
+            selectorTags.add("semantic");
+        }
+        if (reflection) {
+            selectorTags.add("reflection");
+        }
+        if (trigger) {
+            selectorTags.add("trigger");
+        }
+        if (highFanout) {
+            selectorTags.add("fanout");
+        }
+        return new PrecisionSelection(
+                true,
+                highPrecision,
+                semantic,
+                reflection,
+                trigger,
+                highFanout,
+                selectorTags.isEmpty() ? Set.of() : Set.copyOf(selectorTags)
+        );
+    }
+
+    private static boolean isDispatchHotspot(CallSiteEntity site,
+                                             Map<ClassReference.Handle, ClassReference> classMap,
+                                             InheritanceMap inheritanceMap) {
         if (site == null || site.getOpCode() == null) {
             return false;
         }
@@ -252,9 +361,84 @@ public final class SelectivePtaRefiner {
         return (access & Opcodes.ACC_ABSTRACT) != 0;
     }
 
+    private static boolean isEligibleInvokeSite(CallSiteEntity site) {
+        if (site == null || site.getOpCode() == null) {
+            return false;
+        }
+        int opcode = site.getOpCode();
+        if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKEINTERFACE) {
+            return false;
+        }
+        return site.getCallIndex() != null && site.getCallIndex() >= 0;
+    }
+
+    private static boolean hasPrecisionSemanticSignal(BuildFactSnapshot snapshot,
+                                                      MethodReference.Handle caller) {
+        if (snapshot == null || caller == null) {
+            return false;
+        }
+        int explicitFlags = snapshot.semantics().explicitSourceMethodFlags().getOrDefault(caller, 0);
+        if (explicitFlags != 0) {
+            return true;
+        }
+        int semanticFlags = snapshot.semantics().methodSemanticFlags().getOrDefault(caller, 0);
+        return (semanticFlags & PRECISION_SEMANTIC_MASK) != 0;
+    }
+
+    private static boolean hasReflectionPrecisionSignal(BuildFactSnapshot.MethodConstraintFacts constraints) {
+        if (constraints == null) {
+            return false;
+        }
+        return !constraints.reflectionHints().isEmpty() || !constraints.nativeModelHints().isEmpty();
+    }
+
+    private static boolean isTriggerBridgeSite(CallSiteEntity site) {
+        if (site == null) {
+            return false;
+        }
+        if (!JAVA_LANG_OBJECT.equals(normalizeClassName(site.getCalleeOwner()))) {
+            return false;
+        }
+        String name = safe(site.getCalleeMethodName());
+        String desc = safe(site.getCalleeMethodDesc());
+        return ("toString".equals(name) && "()Ljava/lang/String;".equals(desc))
+                || ("hashCode".equals(name) && "()I".equals(desc))
+                || ("equals".equals(name) && "(Ljava/lang/Object;)Z".equals(desc));
+    }
+
+    private static boolean isHighFanoutSite(BuildEdgeAccumulator edges,
+                                            MethodReference.Handle caller,
+                                            CallSiteEntity site) {
+        if (edges == null || caller == null || site == null) {
+            return false;
+        }
+        Set<MethodReference.Handle> callees = edges.methodCalls().get(caller);
+        if (callees == null || callees.isEmpty()) {
+            return false;
+        }
+        int matches = 0;
+        for (MethodReference.Handle callee : callees) {
+            if (callee == null) {
+                continue;
+            }
+            if (!safe(callee.getName()).equals(safe(site.getCalleeMethodName()))) {
+                continue;
+            }
+            if (!safe(callee.getDesc()).equals(safe(site.getCalleeMethodDesc()))) {
+                continue;
+            }
+            matches++;
+            if (matches >= 3) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String buildReason(Set<String> evidence,
                                       PtaContext context,
-                                      String receiverVar) {
+                                      String receiverVar,
+                                      Set<String> selectorTags) {
         StringBuilder sb = new StringBuilder();
         if (evidence != null && !evidence.isEmpty()) {
             int i = 0;
@@ -276,6 +460,9 @@ public final class SelectivePtaRefiner {
         }
         if (receiverVar != null && !receiverVar.isBlank()) {
             sb.append("+receiver=").append(receiverVar.trim());
+        }
+        if (selectorTags != null && !selectorTags.isEmpty()) {
+            sb.append("+pta_selector=").append(String.join(",", selectorTags));
         }
         return sb.toString();
     }
@@ -1023,11 +1210,33 @@ public final class SelectivePtaRefiner {
                          int fieldSites,
                          int arraySites,
                          int arrayCopySites,
-                         int scannedMethods) {
+                         int scannedMethods,
+                         int precisionSelectedCallSites,
+                         int precisionSemanticCallSites,
+                         int precisionReflectionCallSites,
+                         int precisionTriggerCallSites,
+                         int precisionHighFanoutCallSites) {
         public static Result empty() {
-            return new Result(0, 0, 0, 0, 0, 0, 0);
+            return new Result(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
+
+    private record PrecisionSelection(boolean enabled,
+                                      boolean highPrecision,
+                                      boolean semanticSelected,
+                                      boolean reflectionSelected,
+                                      boolean triggerSelected,
+                                      boolean highFanoutSelected,
+                                      Set<String> selectorTags) {
+        private static PrecisionSelection disabled() {
+            return new PrecisionSelection(false, false, false, false, false, false, Set.of());
+        }
+
+        private static PrecisionSelection dispatchOnly() {
+            return new PrecisionSelection(true, false, false, false, false, false, Set.of());
+        }
+    }
+
 
     private record PtaBudget(int maxResolutionDepth,
                              int maxFieldStoreScan,

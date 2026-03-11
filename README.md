@@ -105,7 +105,7 @@ GUI 启动时会同时启动内置 HTTP API 服务：
 
 1. 发现/解析阶段：收集 class/header、方法签名、注解、资源索引、callsite/局部变量等元数据
 2. 归属分类阶段：按 `forceTarget > sdk > commonLibrary > appHeuristic` 划分 APP/LIBRARY/SDK
-3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；未知 profile/engine 会回落到默认 `balanced`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并对超出阈值的多目标点只记录 `imprecise-threshold` 诊断而不是静默扩边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 以及 lambda 的 static/constructor reference 已并入同一条主链；`precision` 在同一条主链上启用更高 PTA 预算，而不是重新拉起第二条隐藏调用图主路径
+3. 调用图阶段：若未设置 `jar.analyzer.callgraph.profile` 或 `jar.analyzer.callgraph.engine`，默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`；推荐用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换，其中 `fast/balanced/precision` 都走字节码主链。兼容入口 `jar.analyzer.callgraph.engine=bytecode-mainline|bytecode-mainline+pta-refine` 仍可使用；未知 profile/engine 会回落到默认 `balanced`。当前字节码主链覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并对超出阈值的多目标点只记录 `imprecise-threshold` 诊断而不是静默扩边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 以及 lambda 的 static/constructor reference 已并入同一条主链；`precision` 不再只是全局加 budget，而是只对 semantic/reflection/trigger/high-fanout 这些高价值调用点提一档精度，其余热点仍保持 `balanced` 成本模型
 4. 全 common jar 策略：默认 `continue-no-callgraph`（继续建库但不产出调用图边）
 5. 写库阶段：写入 Neo4j，`call_graph_mode` 元数据为 `bytecode:semantic-v1`、`bytecode:fast-v1`、`bytecode:balanced-v1`、`bytecode:precision-v1` 或 `disabled-no-target`
 
@@ -247,6 +247,7 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 4. 若输入全部命中 common library，默认 `jar.analyzer.all-common.policy=continue-no-callgraph`
 5. 非 all-common 场景不再回退 bytecode 调用图
 6. 项目库写入始终走 staging + atomic swap；失败不会先删旧库
+7. `precision` 会把 semantic/reflection/trigger/high-fanout 调用点纳入选择性高精度 PTA，并在 `callgraph` stage metrics 中暴露 `pta_precision_*` 计数
 
 常用系统属性：
 1. `jar.analyzer.callgraph.profile`: `fast|balanced|precision`

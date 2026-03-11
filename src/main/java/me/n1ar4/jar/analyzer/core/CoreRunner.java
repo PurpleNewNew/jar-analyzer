@@ -636,7 +636,7 @@ public class CoreRunner {
                     callGraphPlan.bytecodeSettings()
             );
             facts.edges().copyInto(context);
-            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+            logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, ptaPrecisionSelectedCallSites={}, ptaPrecisionSemanticCallSites={}, ptaPrecisionReflectionCallSites={}, ptaPrecisionTriggerCallSites={}, ptaPrecisionHighFanoutCallSites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                     msSince(stageStartNs),
                     callGraphModeMeta,
                     callGraphPlan.bytecodeSettings().precisionMode(),
@@ -663,6 +663,11 @@ public class CoreRunner {
                     bytecodeResult.ptaFieldSites(),
                     bytecodeResult.ptaArraySites(),
                     bytecodeResult.ptaArrayCopySites(),
+                    bytecodeResult.ptaPrecisionSelectedCallSites(),
+                    bytecodeResult.ptaPrecisionSemanticCallSites(),
+                    bytecodeResult.ptaPrecisionReflectionCallSites(),
+                    bytecodeResult.ptaPrecisionTriggerCallSites(),
+                    bytecodeResult.ptaPrecisionHighFanoutCallSites(),
                     bytecodeResult.instantiatedClassCount(),
                     bytecodeResult.unresolvedCallerCount(),
                     bytecodeResult.unresolvedDeclaredTargetCount(),
@@ -709,6 +714,11 @@ public class CoreRunner {
             callGraphMetrics.put("pta_field_sites", bytecodeResult.ptaFieldSites());
             callGraphMetrics.put("pta_array_sites", bytecodeResult.ptaArraySites());
             callGraphMetrics.put("pta_array_copy_sites", bytecodeResult.ptaArrayCopySites());
+            callGraphMetrics.put("pta_precision_selected_call_sites", bytecodeResult.ptaPrecisionSelectedCallSites());
+            callGraphMetrics.put("pta_precision_semantic_call_sites", bytecodeResult.ptaPrecisionSemanticCallSites());
+            callGraphMetrics.put("pta_precision_reflection_call_sites", bytecodeResult.ptaPrecisionReflectionCallSites());
+            callGraphMetrics.put("pta_precision_trigger_call_sites", bytecodeResult.ptaPrecisionTriggerCallSites());
+            callGraphMetrics.put("pta_precision_high_fanout_call_sites", bytecodeResult.ptaPrecisionHighFanoutCallSites());
             callGraphMetrics.put("precision_mode", callGraphPlan.bytecodeSettings().precisionMode());
             callGraphMetrics.put("pta_budget_profile", callGraphPlan.bytecodeSettings().ptaBudgetProfile());
             callGraphMetrics.put("instantiated_classes", bytecodeResult.instantiatedClassCount());

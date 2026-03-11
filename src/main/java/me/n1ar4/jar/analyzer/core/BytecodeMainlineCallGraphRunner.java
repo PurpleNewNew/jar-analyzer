@@ -134,6 +134,11 @@ public final class BytecodeMainlineCallGraphRunner {
                 ptaResult.fieldSites(),
                 ptaResult.arraySites(),
                 ptaResult.arrayCopySites(),
+                ptaResult.precisionSelectedCallSites(),
+                ptaResult.precisionSemanticCallSites(),
+                ptaResult.precisionReflectionCallSites(),
+                ptaResult.precisionTriggerCallSites(),
+                ptaResult.precisionHighFanoutCallSites(),
                 instantiatedClasses.size(),
                 seeded.unresolvedCallerCount(),
                 seeded.unresolvedDeclaredTargetCount(),
@@ -277,6 +282,11 @@ public final class BytecodeMainlineCallGraphRunner {
                          int ptaFieldSites,
                          int ptaArraySites,
                          int ptaArrayCopySites,
+                         int ptaPrecisionSelectedCallSites,
+                         int ptaPrecisionSemanticCallSites,
+                         int ptaPrecisionReflectionCallSites,
+                         int ptaPrecisionTriggerCallSites,
+                         int ptaPrecisionHighFanoutCallSites,
                          int instantiatedClassCount,
                          int unresolvedCallerCount,
                          int unresolvedDeclaredTargetCount,
@@ -284,7 +294,7 @@ public final class BytecodeMainlineCallGraphRunner {
         static Result empty() {
             return new Result(
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0L
             );
         }
