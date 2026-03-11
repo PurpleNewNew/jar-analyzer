@@ -1,5 +1,4 @@
 export const CHANNEL_QUERY_EXECUTE = 'ja.query.execute'
-export const CHANNEL_QUERY_EXPLAIN = 'ja.query.explain'
 export const CHANNEL_QUERY_CAPABILITIES = 'ja.query.capabilities'
 export const CHANNEL_SCRIPT_LIST = 'ja.script.list'
 export const CHANNEL_SCRIPT_SAVE = 'ja.script.save'

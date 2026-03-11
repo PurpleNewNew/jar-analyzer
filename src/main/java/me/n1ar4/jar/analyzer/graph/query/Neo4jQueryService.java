@@ -16,7 +16,6 @@ import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.storage.neo4j.procedure.ApocWhitelist;
 import me.n1ar4.jar.analyzer.storage.neo4j.procedure.NativeJaQueryContext;
-import org.neo4j.graphdb.ExecutionPlanDescription;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.QueryExecutionException;
@@ -57,21 +56,6 @@ public final class Neo4jQueryService {
             throw new IllegalArgumentException("cypher_feature_not_supported");
         }
         return executeNative(CypherLogicalModelRewriter.rewrite(cypher), safeParams, safeOptions, projectKey);
-    }
-
-    public Map<String, Object> explain(String query) {
-        return explain(query, null);
-    }
-
-    public Map<String, Object> explain(String query, String projectKey) {
-        String cypher = query == null ? "" : query.trim();
-        if (cypher.isEmpty()) {
-            throw new IllegalArgumentException("cypher_empty_query");
-        }
-        if (containsWriteClause(cypher)) {
-            throw new IllegalArgumentException("cypher_feature_not_supported");
-        }
-        return explainNative(CypherLogicalModelRewriter.rewrite(cypher), projectKey);
     }
 
     public Map<String, Object> capabilities() {
@@ -145,25 +129,6 @@ public final class Neo4jQueryService {
         });
     }
 
-    private Map<String, Object> explainNative(String query, String projectKey) {
-        String resolvedProject = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        DatabaseManager.ensureProjectReadable(resolvedProject);
-        return ActiveProjectContext.withProject(resolvedProject, () -> {
-            try {
-                return NativeJaQueryContext.with(QueryOptions.defaults(), resolvedProject, () ->
-                        projectStore.read(resolvedProject, QueryOptions.defaults().getMaxMs(), tx -> explainQuery(tx, query)));
-            } catch (IllegalArgumentException ex) {
-                throw ex;
-            } catch (Exception ex) {
-                String msg = ex.getMessage() == null ? "cypher_explain_error" : ex.getMessage();
-                if (msg.toLowerCase(Locale.ROOT).contains("timeout")) {
-                    throw new IllegalArgumentException("cypher_query_timeout");
-                }
-                throw new IllegalArgumentException(msg, ex);
-            }
-        });
-    }
-
     private static QueryResult executeReadQuery(Transaction tx,
                                                 String query,
                                                 Map<String, Object> params,
@@ -185,18 +150,6 @@ public final class Neo4jQueryService {
                 rows.add(values);
             }
             return new QueryResult(columns, rows, warnings, false);
-        }
-    }
-
-    private static Map<String, Object> explainQuery(Transaction tx, String query) {
-        try (Result result = tx.execute("EXPLAIN " + query)) {
-            ExecutionPlanDescription plan = result.getExecutionPlanDescription();
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("engine", "neo4j");
-            out.put("kind", "read");
-            out.put("operators", flattenOperators(plan));
-            out.put("arguments", plan == null ? Map.of() : plan.getArguments());
-            return out;
         }
     }
 
@@ -468,25 +421,6 @@ public final class Neo4jQueryService {
             return out;
         }
         return value;
-    }
-
-    private static List<String> flattenOperators(ExecutionPlanDescription root) {
-        if (root == null) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>();
-        flatten(root, out);
-        return out;
-    }
-
-    private static void flatten(ExecutionPlanDescription node, List<String> out) {
-        if (node == null || out == null) {
-            return;
-        }
-        out.add(node.getName());
-        for (ExecutionPlanDescription child : node.getChildren()) {
-            flatten(child, out);
-        }
     }
 
     private static String safe(String value) {

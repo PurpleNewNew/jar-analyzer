@@ -114,7 +114,6 @@ Jar Analyzer MCP 同时提供两种传输：
 ### Cypher 工具
 
 - `query_cypher`：只读 Cypher 查询（支持 `params/options`）
-- `cypher_explain`：解释计划
 - `taint_chain_cypher`：基于原生 `CALL ja.taint.track(...) YIELD ... RETURN ...` 的全局数据流跟踪
 
 ### 项目管理工具

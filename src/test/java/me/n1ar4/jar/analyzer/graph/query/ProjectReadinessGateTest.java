@@ -52,7 +52,7 @@ class ProjectReadinessGateTest {
         DatabaseManager.beginBuild();
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> new Neo4jQueryService().explain("MATCH (n) RETURN n LIMIT 1"));
+                () -> new Neo4jQueryService().execute("MATCH (n) RETURN n LIMIT 1", Map.of(), QueryOptions.defaults()));
         assertEquals("project_build_in_progress", ex.getMessage());
     }
 
@@ -96,16 +96,16 @@ class ProjectReadinessGateTest {
     }
 
     @Test
-    void queryServiceShouldAllowExplicitReadyProjectWhileAnotherProjectIsBuilding() {
+    void queryServiceShouldAllowExplicitReadyProjectWhileAnotherProjectIsBuilding() throws Exception {
         String projectKey = "readiness-query-" + Long.toHexString(System.nanoTime());
         try {
             prepareReadyProject(projectKey, 44L);
             DatabaseManager.clearAllData();
             DatabaseManager.beginBuild();
 
-            Map<String, Object> explain = new Neo4jQueryService()
-                    .explain("MATCH (n:JANode) RETURN n LIMIT 1", projectKey);
-            assertEquals("neo4j", explain.get("engine"));
+            QueryResult result = new Neo4jQueryService()
+                    .execute("MATCH (n:JANode) RETURN n LIMIT 1", Map.of(), QueryOptions.defaults(), projectKey);
+            assertNotNull(result);
         } finally {
             DatabaseManagerTestHook.finishBuild();
             Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);

@@ -15,7 +15,6 @@ import {
 import {
   CHANNEL_QUERY_CAPABILITIES,
   CHANNEL_QUERY_EXECUTE,
-  CHANNEL_QUERY_EXPLAIN,
   CHANNEL_SCRIPT_DELETE,
   CHANNEL_SCRIPT_LIST,
   CHANNEL_SCRIPT_SAVE,
@@ -132,7 +131,6 @@ app.innerHTML = `
       <div class="wb-actions">
         <button class="wb-btn" id="btn-save" title="Save Script">☆</button>
         <button class="wb-btn" id="btn-refresh" title="Refresh Scripts">↻</button>
-        <button class="wb-btn" id="btn-explain" title="Explain">Explain</button>
         <button class="wb-btn" id="btn-fullscreen" title="Fullscreen">全屏</button>
       </div>
     </header>
@@ -177,7 +175,6 @@ const framesEl = getRequired<HTMLElement>('frames')
 const scriptListEl = getRequired<HTMLElement>('script-list')
 const runButton = getRequired<HTMLButtonElement>('btn-run')
 const refreshButton = getRequired<HTMLButtonElement>('btn-refresh')
-const explainButton = getRequired<HTMLButtonElement>('btn-explain')
 const saveButton = getRequired<HTMLButtonElement>('btn-save')
 const fullscreenButton = getRequired<HTMLButtonElement>('btn-fullscreen')
 const editorHost = getRequired<HTMLElement>('editor')
@@ -251,10 +248,6 @@ saveButton.addEventListener('click', () => {
 
 fullscreenButton.addEventListener('click', () => {
   void requestFullscreen(!state.fullscreen)
-})
-
-explainButton.addEventListener('click', () => {
-  void runExplain()
 })
 
 hydrateQueryOptions()
@@ -371,7 +364,6 @@ function refreshHeaderLabels(): void {
   scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
   traversalModeLabelEl.textContent = tr('遍历', 'Traversal')
   runButton.textContent = tr('运行', 'Run')
-  explainButton.textContent = tr('解释', 'Explain')
   refreshButton.textContent = tr('刷新', 'Refresh')
   saveButton.textContent = tr('收藏', 'Save')
   fullscreenButton.textContent = state.fullscreen
@@ -497,41 +489,6 @@ async function runQuery(queryInput?: string): Promise<void> {
     pushFrame(buildErrorFrame(query, bridgeError.code, bridgeError.message))
   } finally {
     runButton.disabled = false
-  }
-}
-
-async function runExplain(): Promise<void> {
-  const rawQuery = editor.state.doc.toString().trim()
-  if (!rawQuery) {
-    return
-  }
-  const query = materializeQuery(rawQuery)
-  try {
-    const result = await bridgeCall<Record<string, unknown>>(CHANNEL_QUERY_EXPLAIN, { query })
-    const text = JSON.stringify(result, null, 2)
-    pushFrame({
-      frameId: `explain-${Date.now()}`,
-      query,
-      columns: ['key', 'value'],
-      rows: Object.entries(result).map(([k, v]) => [k, toCell(v)]),
-      warnings: [],
-      truncated: false,
-      elapsedMs: 0,
-      graph: null,
-      text,
-      collapsed: false,
-      view: 'text',
-      selection: null,
-      tableFocus: null,
-      graphFocus: null,
-      graphFilter: null,
-      graphViewport: null,
-      graphPinnedNodeIds: [],
-      graphNodePositions: {}
-    })
-  } catch (error) {
-    const bridgeError = extractBridgeError(error, 'cypher_explain_error')
-    pushFrame(buildErrorFrame(query, bridgeError.code, bridgeError.message))
   }
 }
 

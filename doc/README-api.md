@@ -60,7 +60,7 @@
 3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
 4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
 5. active project 未构建（含切换项目后未重建）统一返回 `project_model_missing_rebuild`
-6. active project 构建进行中时，图查询 / DFS / Taint / Cypher Explain 统一返回 `project_build_in_progress`
+6. active project 构建进行中时，图查询 / DFS / Taint 统一返回 `project_build_in_progress`
 7. DFS / Taint / Cypher 仅面向当前 active project；如需访问其他项目，先调用 `/api/projects/switch`
 8. 建库失败不会回退旧快照；失败项目保持 `project_model_missing_rebuild`
 
@@ -240,17 +240,6 @@
     `apoc.map.fromPairs` `apoc.map.fromLists` `apoc.map.values` `apoc.map.merge` `apoc.map.mergeList` `apoc.map.get` `apoc.map.removeKeys`
     `apoc.text.indexOf` `apoc.text.replace` `apoc.text.split` `apoc.text.join` `apoc.text.clean` `apoc.text.urlencode` `apoc.text.urldecode`
   - 查询对象固定为当前 active project
-  - active project 构建中会返回 `project_build_in_progress`
-
-- `POST /api/query/cypher/explain`
-  Body:
-  ```json
-  {
-    "query": "MATCH (n:Method) RETURN n LIMIT 10"
-  }
-  ```
-  说明:
-  - 解释对象固定为当前 active project
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`

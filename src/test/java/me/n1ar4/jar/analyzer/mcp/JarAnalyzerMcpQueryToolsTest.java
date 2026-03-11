@@ -58,7 +58,6 @@ class JarAnalyzerMcpQueryToolsTest {
         assertNotNull(registry.get("project_switch"));
         assertNotNull(registry.get("project_remove"));
         assertNotNull(registry.get("query_cypher"));
-        assertNotNull(registry.get("cypher_explain"));
         assertNotNull(registry.get("taint_chain_cypher"));
     }
 

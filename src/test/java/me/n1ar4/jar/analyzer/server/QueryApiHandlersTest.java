@@ -76,16 +76,9 @@ class QueryApiHandlersTest {
     }
 
     @Test
-    void cypherExplainAndCapabilitiesShouldWork() throws Exception {
+    void cypherCapabilitiesShouldWork() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();
-
-        JSONObject explainBody = new JSONObject();
-        explainBody.put("query", "MATCH (m:Method)-[r]->(n) RETURN m, r, n LIMIT 3");
-        String explainOut = api.postJson("/api/query/cypher/explain", explainBody.toJSONString());
-        JSONObject explainJson = JSON.parseObject(explainOut);
-        assertEquals(true, explainJson.getBoolean("ok"));
-        assertTrue(explainJson.getJSONObject("data").containsKey("operators"));
 
         String capabilitiesOut = api.get("/api/query/cypher/capabilities", Map.of());
         JSONObject capabilitiesJson = JSON.parseObject(capabilitiesOut);
@@ -139,9 +132,6 @@ class QueryApiHandlersTest {
                 () -> api.get("/api/query/cypher", Map.of("query", "MATCH (m:JANode) RETURN m LIMIT 1")));
         assertTrue(cypher.getMessage().contains("\"code\":\"method_not_allowed\""));
 
-        Exception explain = assertThrows(Exception.class,
-                () -> api.get("/api/query/cypher/explain", Map.of("query", "MATCH (m:JANode) RETURN m LIMIT 1")));
-        assertTrue(explain.getMessage().contains("\"code\":\"method_not_allowed\""));
     }
 
     @Test
@@ -151,10 +141,6 @@ class QueryApiHandlersTest {
         Exception cypher = assertThrows(Exception.class,
                 () -> api.postJson("/api/query/cypher", "{invalid-json"));
         assertTrue(cypher.getMessage().contains("\"code\":\"invalid_request\""));
-
-        Exception explain = assertThrows(Exception.class,
-                () -> api.postJson("/api/query/cypher/explain", "{invalid-json"));
-        assertTrue(explain.getMessage().contains("\"code\":\"invalid_request\""));
 
         Exception register = assertThrows(Exception.class,
                 () -> api.postJson("/api/projects/register", "{invalid-json"));
@@ -303,15 +289,6 @@ class QueryApiHandlersTest {
         assertEquals("CALL", relJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(0));
         assertEquals("direct", relJson.getJSONObject("data").getJSONArray("rows").getJSONArray(0).getString(1));
 
-        JSONObject explainBody = new JSONObject();
-        explainBody.put("query",
-                "CALL ja.path.shortest(1, 3, 4) " +
-                        "YIELD path_id, node_ids, edge_ids, confidence, evidence " +
-                        "RETURN path_id, node_ids, edge_ids, confidence, evidence");
-        String explainOut = api.postJson("/api/query/cypher/explain", explainBody.toJSONString());
-        JSONObject explainJson = JSON.parseObject(explainOut);
-        assertEquals(true, explainJson.getBoolean("ok"));
-        assertEquals("neo4j", explainJson.getJSONObject("data").getString("engine"));
     }
 
     @Test
@@ -349,10 +326,6 @@ class QueryApiHandlersTest {
         assertEquals("CALL", firstEdge.getJSONObject("properties").getString("display_rel_type"));
         assertEquals("CALLS_DIRECT", firstEdge.getString("type"));
 
-        JSONObject explainBody = new JSONObject();
-        explainBody.put("query", "MATCH (m:Method)-[:CALL]->(n:Method) RETURN m, n LIMIT 1");
-        JSONObject explainJson = JSON.parseObject(api.postJson("/api/query/cypher/explain", explainBody.toJSONString()));
-        assertEquals(true, explainJson.getBoolean("ok"));
     }
 
     @Test
@@ -536,11 +509,6 @@ class QueryApiHandlersTest {
                 () -> api.postJson("/api/query/cypher", pathBody.toJSONString()));
         assertTrue(pathEx.getMessage().contains("\"code\":\"cypher_query_invalid\""));
 
-        JSONObject explainBody = new JSONObject();
-        explainBody.put("query", "CALL ja.path.shortest(1, 3, 4) RETURN *");
-        Exception explainEx = assertThrows(Exception.class,
-                () -> api.postJson("/api/query/cypher/explain", explainBody.toJSONString()));
-        assertTrue(explainEx.getMessage().contains("\"code\":\"cypher_query_invalid\""));
     }
 
     private String prepareReadyProject() {

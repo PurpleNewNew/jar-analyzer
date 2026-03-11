@@ -633,19 +633,6 @@ public final class JarAnalyzerMcpTools {
             }
         }));
 
-        JSONObject explain = McpToolSchemas.tool("cypher_explain", "Explain Cypher logical plan.");
-        McpToolSchemas.addString(explain, "query", true, "Cypher query text.");
-        reg.add(new McpTool("cypher_explain", explain, (ctx, args) -> {
-            try {
-                String query = require(args, "query");
-                JSONObject body = new JSONObject();
-                body.put("query", query);
-                return callPost(api, "/api/query/cypher/explain", body);
-            } catch (Exception ex) {
-                return McpToolResult.error(ex.getMessage());
-            }
-        }));
-
         JSONObject taint = McpToolSchemas.tool("taint_chain_cypher",
                 "Run taint chain tracking through Cypher procedure ja.taint.track.");
         McpToolSchemas.addString(taint, "sourceClass", true, "Source class.");

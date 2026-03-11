@@ -14,7 +14,6 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.CypherWorkbenchService;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.DeleteScriptRequest;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
 import me.n1ar4.jar.analyzer.gui.swing.jcef.JcefAssetLoader;
@@ -54,7 +53,6 @@ import java.util.function.Consumer;
 public final class CypherToolPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger();
     private static final String CHANNEL_QUERY_EXECUTE = "ja.query.execute";
-    private static final String CHANNEL_QUERY_EXPLAIN = "ja.query.explain";
     private static final String CHANNEL_QUERY_CAPABILITIES = "ja.query.capabilities";
     private static final String CHANNEL_SCRIPT_LIST = "ja.script.list";
     private static final String CHANNEL_SCRIPT_SAVE = "ja.script.save";
@@ -364,7 +362,6 @@ public final class CypherToolPanel extends JPanel {
 
     private void registerBridgeChannels(JcefBridgeRouter router) {
         router.register(CHANNEL_QUERY_EXECUTE, payload -> service.execute(parseExecuteRequest(payload)));
-        router.register(CHANNEL_QUERY_EXPLAIN, payload -> service.explain(parseExplainRequest(payload)));
         router.register(CHANNEL_QUERY_CAPABILITIES, payload -> service.capabilities());
         router.register(CHANNEL_SCRIPT_LIST, payload -> service.listScripts());
         router.register(CHANNEL_SCRIPT_SAVE, payload -> service.saveScript(parseSaveScriptRequest(payload)));
@@ -385,11 +382,6 @@ public final class CypherToolPanel extends JPanel {
         Map<String, Object> params = asMap(payload == null ? null : payload.getJSONObject("params"));
         Map<String, Object> options = asMap(payload == null ? null : payload.getJSONObject("options"));
         return new QueryFrameRequest(query, params, options);
-    }
-
-    private ExplainRequest parseExplainRequest(JSONObject payload) {
-        String query = safe(payload == null ? null : payload.getString("query"));
-        return new ExplainRequest(query);
     }
 
     private SaveScriptRequest parseSaveScriptRequest(JSONObject payload) {

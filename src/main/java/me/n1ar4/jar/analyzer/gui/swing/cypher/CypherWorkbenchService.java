@@ -11,8 +11,6 @@ import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.DeleteScriptRequest;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainRequest;
-import me.n1ar4.jar.analyzer.gui.swing.cypher.model.ExplainResponse;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameRequest;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.QueryFrameResponse;
 import me.n1ar4.jar.analyzer.gui.swing.cypher.model.SaveScriptRequest;
@@ -91,32 +89,6 @@ public final class CypherWorkbenchService {
                 return QueryFrameResponse.error(code, QueryErrorClassifier.publicMessage(message, "cypher query failed"));
             }
             return QueryFrameResponse.error("cypher_query_error", message.isBlank() ? "cypher query failed" : message);
-        }
-    }
-
-    public ExplainResponse explain(ExplainRequest request) {
-        String query = request == null ? "" : safe(request.query());
-        if (query.isBlank()) {
-            throw new IllegalArgumentException("cypher_empty_query");
-        }
-        try {
-            return new ExplainResponse(QueryServices.cypher().explain(query));
-        } catch (IllegalArgumentException ex) {
-            String message = safe(ex.getMessage());
-            String code = QueryErrorClassifier.codeOf(message);
-            String normalizedMessage = QueryErrorClassifier.publicMessage(message, "cypher query invalid");
-            String normalized = normalizedMessage.isBlank() ? code : code + ": " + normalizedMessage;
-            throw new IllegalArgumentException(normalized, ex);
-        } catch (Exception ex) {
-            String message = safe(ex.getMessage());
-            String code = QueryErrorClassifier.codeOf(message);
-            if (QueryErrorClassifier.CYPHER_QUERY_INVALID.equals(code)
-                    && message.toLowerCase().contains("timeout")) {
-                code = QueryErrorClassifier.CYPHER_QUERY_TIMEOUT;
-            }
-            String normalizedMessage = QueryErrorClassifier.publicMessage(message, "cypher query invalid");
-            String normalized = normalizedMessage.isBlank() ? code : code + ": " + normalizedMessage;
-            throw new IllegalArgumentException(normalized, ex);
         }
     }
 
