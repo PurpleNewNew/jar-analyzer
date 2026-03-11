@@ -107,7 +107,10 @@ final class BytecodeMainlineReflectionResolver {
                 || context.methodMap.isEmpty()) {
             return Result.empty();
         }
-        Map<String, InstanceFieldFacts> instanceFieldFacts = collectInstanceFieldFacts(workspace);
+        Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts =
+                snapshot == null || snapshot.constraints().instanceFieldFactsByKey().isEmpty()
+                        ? collectInstanceFieldFacts(workspace)
+                        : snapshot.constraints().instanceFieldFactsByKey();
         int reflectionEdges = 0;
         int methodHandleEdges = 0;
         int invokeDynamicEdges = 0;
@@ -162,6 +165,7 @@ final class BytecodeMainlineReflectionResolver {
                             cn.name,
                             cn,
                             parsedMethod.sourceFrames(),
+                            constraints,
                             staticStrings,
                             instanceFieldFacts,
                             context.methodCalls,
@@ -191,13 +195,19 @@ final class BytecodeMainlineReflectionResolver {
     static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
             BuildBytecodeWorkspace workspace,
             Map<MethodReference.Handle, MethodReference> methodMap) {
+        return collectReflectionHints(workspace, methodMap, collectInstanceFieldFacts(workspace));
+    }
+
+    static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
+            BuildBytecodeWorkspace workspace,
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts) {
         if (workspace == null
                 || workspace.parsedClasses().isEmpty()
                 || methodMap == null
                 || methodMap.isEmpty()) {
             return Map.of();
         }
-        Map<String, InstanceFieldFacts> instanceFieldFacts = collectInstanceFieldFacts(workspace);
         LinkedHashMap<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> out = new LinkedHashMap<>();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
             if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
@@ -235,7 +245,7 @@ final class BytecodeMainlineReflectionResolver {
     private static BuildFactSnapshot.MethodReflectionHints collectMethodHints(ClassNode classNode,
                                                                               BuildBytecodeWorkspace.ParsedMethod parsedMethod,
                                                                               Map<String, String> staticStrings,
-                                                                              Map<String, InstanceFieldFacts> instanceFieldFacts,
+                                                                              Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts,
                                                                               Map<MethodReference.Handle, MethodReference> methodMap) {
         MethodNode mn = parsedMethod == null ? null : parsedMethod.methodNode();
         if (classNode == null
@@ -652,8 +662,9 @@ final class BytecodeMainlineReflectionResolver {
                                                        String owner,
                                                        ClassNode classNode,
                                                        Frame<SourceValue>[] precomputedFrames,
+                                                       BuildFactSnapshot.MethodConstraintFacts methodConstraints,
                                                        Map<String, String> staticStrings,
-                                                       Map<String, InstanceFieldFacts> instanceFieldFacts,
+                                                       Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts,
                                                        Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                                                        Map<MethodReference.Handle, MethodReference> methodMap,
                                                        Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
@@ -663,7 +674,14 @@ final class BytecodeMainlineReflectionResolver {
                 Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
                 frames = analyzer.analyze(owner, mn);
             }
-            ResolveContext ctx = new ResolveContext(frames, mn.instructions, classNode, staticStrings, instanceFieldFacts);
+            ResolveContext ctx = new ResolveContext(
+                    frames,
+                    mn.instructions,
+                    classNode,
+                    staticStrings,
+                    instanceFieldFacts,
+                    methodConstraints
+            );
             int reflectionEdges = 0;
             int methodHandleEdges = 0;
             for (int i = 0, n = mn.instructions.size(); i < n; i++) {
@@ -1386,6 +1404,9 @@ final class BytecodeMainlineReflectionResolver {
                 return resolveRuntimeObjectTypeFromInsn(previous, ctx, depth + 1);
             }
         }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementObjectType(insn, ctx, depth + 1);
+        }
         if (src instanceof TypeInsnNode typeInsn) {
             if (typeInsn.desc != null && !typeInsn.desc.isBlank()) {
                 String reason = typeInsn.getOpcode() == Opcodes.CHECKCAST
@@ -1469,7 +1490,7 @@ final class BytecodeMainlineReflectionResolver {
         if (fin == null || ctx == null || fin.getOpcode() != Opcodes.GETFIELD) {
             return null;
         }
-        InstanceFieldFacts facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
+        BuildFactSnapshot.AliasValueFact facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
         if (facts == null) {
             return null;
         }
@@ -1482,12 +1503,77 @@ final class BytecodeMainlineReflectionResolver {
         if (fin == null || ctx == null || fin.getOpcode() != Opcodes.GETFIELD) {
             return null;
         }
-        InstanceFieldFacts facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
+        BuildFactSnapshot.AliasValueFact facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
         if (facts == null) {
             return null;
         }
         String value = facts.uniqueObjectType();
         return value == null ? null : new ResolvedString(value, "field_fact");
+    }
+
+    private static ResolvedString resolveArrayElementString(AbstractInsnNode src,
+                                                            ResolveContext ctx,
+                                                            int depth) {
+        BuildFactSnapshot.AliasValueFact facts = resolveArrayElementFacts(src, ctx, depth);
+        if (facts == null) {
+            return null;
+        }
+        String value = facts.uniqueStringValue();
+        return value == null ? null : new ResolvedString(value, "array_fact");
+    }
+
+    private static ResolvedString resolveArrayElementObjectType(AbstractInsnNode src,
+                                                                ResolveContext ctx,
+                                                                int depth) {
+        BuildFactSnapshot.AliasValueFact facts = resolveArrayElementFacts(src, ctx, depth);
+        if (facts == null) {
+            return null;
+        }
+        String value = facts.uniqueObjectType();
+        return value == null ? null : new ResolvedString(value, "array_fact");
+    }
+
+    private static BuildFactSnapshot.AliasValueFact resolveArrayElementFacts(AbstractInsnNode src,
+                                                                             ResolveContext ctx,
+                                                                             int depth) {
+        if (!(src instanceof InsnNode insn)
+                || ctx == null
+                || ctx.methodConstraints == null
+                || insn.getOpcode() != Opcodes.AALOAD
+                || depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        int insnIndex = ctx.instructions.indexOf(insn);
+        if (insnIndex < 0 || insnIndex >= ctx.frames.length) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[insnIndex];
+        if (frame == null || frame.getStackSize() < 2) {
+            return null;
+        }
+        int stackSize = frame.getStackSize();
+        Integer elementIndex = resolveStableIntFact(getSingleInsn(frame.getStack(stackSize - 1), ctx), ctx, depth + 1);
+        if (elementIndex == null || elementIndex < 0) {
+            elementIndex = resolveIntConstant(frame.getStack(stackSize - 1));
+        }
+        if (elementIndex == null || elementIndex < 0) {
+            return null;
+        }
+        BuildFactSnapshot.AliasValueFact found = null;
+        for (Integer arrayVar : resolveArrayVars(frame.getStack(stackSize - 2), ctx, depth + 1)) {
+            BuildFactSnapshot.AliasValueFact candidate = ctx.methodConstraints.arrayElementFact(arrayVar, elementIndex);
+            if (candidate == null || candidate.isEmpty()) {
+                continue;
+            }
+            if (found == null) {
+                found = candidate;
+                continue;
+            }
+            if (!found.equals(candidate)) {
+                return null;
+            }
+        }
+        return found;
     }
 
     private static ResolvedString resolveStringConstantWithReason(SourceValue value,
@@ -1564,6 +1650,9 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
             return normalizeResolvedString(stringValue, REASON_CONST);
         }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementString(insn, ctx, depth + 1);
+        }
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
@@ -1630,6 +1719,9 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
             return normalizeResolvedString(stringValue, REASON_CONST);
         }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementString(insn, ctx, depth + 1);
+        }
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
@@ -1654,6 +1746,9 @@ final class BytecodeMainlineReflectionResolver {
         }
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
             return normalizeResolvedString(stringValue, REASON_CONST);
+        }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementString(insn, ctx, depth + 1);
         }
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
@@ -1711,6 +1806,40 @@ final class BytecodeMainlineReflectionResolver {
         return getSingleInsn(storeFrame.getStack(storeFrame.getStackSize() - 1), ctx);
     }
 
+    private static Set<Integer> resolveArrayVars(SourceValue value,
+                                                 ResolveContext ctx,
+                                                 int depth) {
+        if (value == null || value.insns == null || value.insns.isEmpty() || ctx == null || depth > MAX_CONST_DEPTH) {
+            return Set.of();
+        }
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
+        for (AbstractInsnNode src : value.insns) {
+            collectArrayVar(canonicalInsn(src, ctx), ctx, depth + 1, out);
+        }
+        return out.isEmpty() ? Set.of() : Set.copyOf(out);
+    }
+
+    private static void collectArrayVar(AbstractInsnNode src,
+                                        ResolveContext ctx,
+                                        int depth,
+                                        Set<Integer> out) {
+        if (src == null || ctx == null || out == null || depth > MAX_CONST_DEPTH) {
+            return;
+        }
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
+            out.add(varInsn.var);
+            return;
+        }
+        if (src instanceof InsnNode insn && isDupInsn(insn.getOpcode())) {
+            AbstractInsnNode previous = previousValueProducer(ctx.instructions, ctx.instructions.indexOf(insn));
+            collectArrayVar(previous, ctx, depth + 1, out);
+            return;
+        }
+        if (src instanceof VarInsnNode varInsn) {
+            collectArrayVar(getStoredSourceInsn(varInsn, ctx), ctx, depth + 1, out);
+        }
+    }
+
     private static ResolvedString resolveClassNameForReflection(SourceValue value,
                                                                 ResolveContext ctx) {
         AbstractInsnNode src = getSingleInsn(value, ctx);
@@ -1740,6 +1869,9 @@ final class BytecodeMainlineReflectionResolver {
         }
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
             return normalizeResolvedString(stringValue, REASON_CONST);
+        }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementString(insn, ctx, depth + 1);
         }
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
@@ -1893,6 +2025,7 @@ final class BytecodeMainlineReflectionResolver {
                         ctx.classNode,
                         ctx.staticStrings,
                         ctx.instanceFieldFacts,
+                        BuildFactSnapshot.MethodConstraintFacts.empty(),
                         ctx.methodReturnCache,
                         ctx.methodReturnInProgress
                 );
@@ -1995,6 +2128,14 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof Type type) {
             return new ResolvedString(type.getInternalName(), REASON_CLASS_CONST);
         }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            ResolvedString className = resolveArrayElementString(insn, ctx, 0);
+            if (className == null || className.value == null) {
+                return null;
+            }
+            String normalized = normalizeClassName(className.value);
+            return normalized == null ? null : new ResolvedString(normalized, className.reason);
+        }
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
             return resolveInstanceFieldObjectType(fin, ctx);
         }
@@ -2028,6 +2169,9 @@ final class BytecodeMainlineReflectionResolver {
         }
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
             return normalizeResolvedString(stringValue, REASON_CONST);
+        }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.AALOAD) {
+            return resolveArrayElementString(insn, ctx, depth + 1);
         }
         if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
             int loadIndex = ctx.instructions.indexOf(varInsn);
@@ -2515,7 +2659,7 @@ final class BytecodeMainlineReflectionResolver {
         return out;
     }
 
-    private static Map<String, InstanceFieldFacts> collectInstanceFieldFacts(BuildBytecodeWorkspace workspace) {
+    static Map<String, BuildFactSnapshot.AliasValueFact> collectInstanceFieldFacts(BuildBytecodeWorkspace workspace) {
         if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return Map.of();
         }
@@ -2598,9 +2742,10 @@ final class BytecodeMainlineReflectionResolver {
         if (builders.isEmpty()) {
             return Map.of();
         }
-        Map<String, InstanceFieldFacts> out = new LinkedHashMap<>();
+        Map<String, BuildFactSnapshot.AliasValueFact> out = new LinkedHashMap<>();
         for (Map.Entry<String, InstanceFieldFactsBuilder> entry : builders.entrySet()) {
-            InstanceFieldFacts facts = entry.getValue() == null ? InstanceFieldFacts.empty() : entry.getValue().build();
+            BuildFactSnapshot.AliasValueFact facts =
+                    entry.getValue() == null ? BuildFactSnapshot.AliasValueFact.empty() : entry.getValue().build();
             if (!facts.isEmpty()) {
                 out.put(entry.getKey(), facts);
             }
@@ -3539,6 +3684,7 @@ final class BytecodeMainlineReflectionResolver {
                     ctx.classNode,
                     ctx.staticStrings,
                     ctx.instanceFieldFacts,
+                    BuildFactSnapshot.MethodConstraintFacts.empty(),
                     ctx.methodReturnCache,
                     ctx.methodReturnInProgress
             );
@@ -3789,33 +3935,6 @@ final class BytecodeMainlineReflectionResolver {
                                 String literal) {
     }
 
-    private record InstanceFieldFacts(Set<String> stringValues,
-                                      Set<String> objectTypes) {
-        private static InstanceFieldFacts empty() {
-            return new InstanceFieldFacts(Set.of(), Set.of());
-        }
-
-        private boolean isEmpty() {
-            return stringValues.isEmpty() && objectTypes.isEmpty();
-        }
-
-        private String uniqueStringValue() {
-            return uniqueValue(stringValues);
-        }
-
-        private String uniqueObjectType() {
-            return uniqueValue(objectTypes);
-        }
-
-        private static String uniqueValue(Set<String> values) {
-            if (values == null || values.size() != 1) {
-                return null;
-            }
-            String value = values.iterator().next();
-            return value == null || value.isBlank() ? null : value;
-        }
-    }
-
     private static final class InstanceFieldFactsBuilder {
         private final LinkedHashSet<String> stringValues = new LinkedHashSet<>();
         private final LinkedHashSet<String> objectTypes = new LinkedHashSet<>();
@@ -3834,8 +3953,8 @@ final class BytecodeMainlineReflectionResolver {
             }
         }
 
-        private InstanceFieldFacts build() {
-            return new InstanceFieldFacts(
+        private BuildFactSnapshot.AliasValueFact build() {
+            return new BuildFactSnapshot.AliasValueFact(
                     stringValues.isEmpty() ? Set.of() : Set.copyOf(stringValues),
                     objectTypes.isEmpty() ? Set.of() : Set.copyOf(objectTypes)
             );
@@ -3847,7 +3966,8 @@ final class BytecodeMainlineReflectionResolver {
         private final InsnList instructions;
         private final ClassNode classNode;
         private final Map<String, String> staticStrings;
-        private final Map<String, InstanceFieldFacts> instanceFieldFacts;
+        private final Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts;
+        private final BuildFactSnapshot.MethodConstraintFacts methodConstraints;
         private final Map<AbstractInsnNode, ResolvedConst> constCache = new IdentityHashMap<>();
         private final Map<AbstractInsnNode, List<Type>> classArrayCache = new IdentityHashMap<>();
         private final Set<AbstractInsnNode> classArrayMiss =
@@ -3859,22 +3979,32 @@ final class BytecodeMainlineReflectionResolver {
                                InsnList instructions,
                                ClassNode classNode,
                                Map<String, String> staticStrings) {
-            this(frames, instructions, classNode, staticStrings, Map.of(), new HashMap<>(), new HashSet<>());
+            this(frames, instructions, classNode, staticStrings, Map.of(), BuildFactSnapshot.MethodConstraintFacts.empty(), new HashMap<>(), new HashSet<>());
         }
 
         private ResolveContext(Frame<SourceValue>[] frames,
                                InsnList instructions,
                                ClassNode classNode,
                                Map<String, String> staticStrings,
-                               Map<String, InstanceFieldFacts> instanceFieldFacts) {
-            this(frames, instructions, classNode, staticStrings, instanceFieldFacts, new HashMap<>(), new HashSet<>());
+                               Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts) {
+            this(frames, instructions, classNode, staticStrings, instanceFieldFacts, BuildFactSnapshot.MethodConstraintFacts.empty(), new HashMap<>(), new HashSet<>());
         }
 
         private ResolveContext(Frame<SourceValue>[] frames,
                                InsnList instructions,
                                ClassNode classNode,
                                Map<String, String> staticStrings,
-                               Map<String, InstanceFieldFacts> instanceFieldFacts,
+                               Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts,
+                               BuildFactSnapshot.MethodConstraintFacts methodConstraints) {
+            this(frames, instructions, classNode, staticStrings, instanceFieldFacts, methodConstraints, new HashMap<>(), new HashSet<>());
+        }
+
+        private ResolveContext(Frame<SourceValue>[] frames,
+                               InsnList instructions,
+                               ClassNode classNode,
+                               Map<String, String> staticStrings,
+                               Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFacts,
+                               BuildFactSnapshot.MethodConstraintFacts methodConstraints,
                                Map<String, ResolvedConst> methodReturnCache,
                                Set<String> methodReturnInProgress) {
             this.frames = frames;
@@ -3882,6 +4012,9 @@ final class BytecodeMainlineReflectionResolver {
             this.classNode = classNode;
             this.staticStrings = staticStrings == null ? Map.of() : staticStrings;
             this.instanceFieldFacts = instanceFieldFacts == null ? Map.of() : instanceFieldFacts;
+            this.methodConstraints = methodConstraints == null
+                    ? BuildFactSnapshot.MethodConstraintFacts.empty()
+                    : methodConstraints;
             this.methodReturnCache = methodReturnCache == null ? new HashMap<>() : methodReturnCache;
             this.methodReturnInProgress = methodReturnInProgress == null ? new HashSet<>() : methodReturnInProgress;
         }

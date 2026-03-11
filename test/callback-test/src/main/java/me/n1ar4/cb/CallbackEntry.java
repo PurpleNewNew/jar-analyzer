@@ -136,6 +136,22 @@ public class CallbackEntry {
         clazz.getDeclaredMethod(method, new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
     }
 
+    public void reflectViaFieldAliasFacts() throws Exception {
+        ReflectionBox box = new ReflectionBox("me.n1ar4.cb.ReflectionTarget", "target");
+        Class<?> clazz = Class.forName(box.className);
+        clazz.getDeclaredMethod(box.methodName, new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
+    }
+
+    public void reflectViaStringArrayCopyAlias() throws Exception {
+        String[] src = new String[2];
+        src[0] = "me.n1ar4.cb.ReflectionTarget";
+        src[1] = "target";
+        String[] dst = new String[2];
+        System.arraycopy(src, 0, dst, 0, 2);
+        Class<?> clazz = Class.forName(dst[0]);
+        clazz.getDeclaredMethod(dst[1], new Class[0]).invoke(clazz.getDeclaredConstructor().newInstance(), new Object[0]);
+    }
+
     public void reflectViaCastFallback(String className) throws Exception {
         Class<?> clazz = Class.forName(className);
         Object receiver = clazz.getDeclaredConstructor().newInstance();

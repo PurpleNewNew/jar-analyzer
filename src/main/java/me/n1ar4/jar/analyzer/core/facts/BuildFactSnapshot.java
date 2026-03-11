@@ -197,14 +197,25 @@ public record BuildFactSnapshot(ArchiveFacts archives,
     }
 
     public record ConstraintFacts(Map<String, String> receiverVarByCallSiteKey,
+                                  Map<String, AliasValueFact> instanceFieldFactsByKey,
                                   Map<MethodReference.Handle, MethodConstraintFacts> methodsByHandle) {
         public ConstraintFacts {
             receiverVarByCallSiteKey = receiverVarByCallSiteKey == null || receiverVarByCallSiteKey.isEmpty()
                     ? Map.of()
                     : Map.copyOf(receiverVarByCallSiteKey);
+            instanceFieldFactsByKey = immutableAliasFactMap(instanceFieldFactsByKey);
             methodsByHandle = methodsByHandle == null || methodsByHandle.isEmpty()
                     ? Map.of()
                     : Map.copyOf(methodsByHandle);
+        }
+
+        public AliasValueFact instanceFieldFact(String owner,
+                                                String name) {
+            if (instanceFieldFactsByKey.isEmpty()) {
+                return AliasValueFact.empty();
+            }
+            AliasValueFact facts = instanceFieldFactsByKey.get(safe(owner) + "#" + safe(name));
+            return facts == null ? AliasValueFact.empty() : facts;
         }
 
         public MethodConstraintFacts methodConstraints(MethodReference.Handle handle) {
@@ -216,7 +227,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         }
 
         public static ConstraintFacts empty() {
-            return new ConstraintFacts(Map.of(), Map.of());
+            return new ConstraintFacts(Map.of(), Map.of(), Map.of());
         }
     }
 
@@ -227,6 +238,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                                         Map<String, List<FieldEdge>> fieldStoreEdgesByFieldKey,
                                         List<ArrayAccessEdge> arrayLoadEdges,
                                         List<ArrayAccessEdge> arrayStoreEdges,
+                                        Map<Integer, Map<Integer, AliasValueFact>> arrayElementFactsByVar,
                                         List<ArrayCopyEdge> arrayCopyEdges,
                                         List<ReturnEdge> returnEdges,
                                         List<NativeModelHint> nativeModelHints,
@@ -239,6 +251,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
             fieldStoreEdgesByFieldKey = immutableMapOfLists(fieldStoreEdgesByFieldKey);
             arrayLoadEdges = immutableList(arrayLoadEdges);
             arrayStoreEdges = immutableList(arrayStoreEdges);
+            arrayElementFactsByVar = immutableNestedAliasFactMap(arrayElementFactsByVar);
             arrayCopyEdges = immutableList(arrayCopyEdges);
             returnEdges = immutableList(returnEdges);
             nativeModelHints = immutableList(nativeModelHints);
@@ -269,6 +282,19 @@ public record BuildFactSnapshot(ArchiveFacts archives,
             return fieldLoadEdgesByFieldKey.getOrDefault(FieldEdge.key(owner, name, desc), List.of());
         }
 
+        public AliasValueFact arrayElementFact(int arrayVar,
+                                               int elementIndex) {
+            if (arrayElementFactsByVar.isEmpty()) {
+                return AliasValueFact.empty();
+            }
+            Map<Integer, AliasValueFact> elements = arrayElementFactsByVar.get(arrayVar);
+            if (elements == null || elements.isEmpty()) {
+                return AliasValueFact.empty();
+            }
+            AliasValueFact facts = elements.get(elementIndex);
+            return facts == null ? AliasValueFact.empty() : facts;
+        }
+
         public static MethodConstraintFacts empty() {
             return new MethodConstraintFacts(
                     List.of(),
@@ -278,6 +304,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                     Map.of(),
                     List.of(),
                     List.of(),
+                    Map.of(),
                     List.of(),
                     List.of(),
                     List.of(),
@@ -318,6 +345,70 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                 out.put(entry.getKey(), List.copyOf(entry.getValue()));
             }
             return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        }
+
+        private static Map<Integer, Map<Integer, AliasValueFact>> immutableNestedAliasFactMap(
+                Map<Integer, Map<Integer, AliasValueFact>> values) {
+            if (values == null || values.isEmpty()) {
+                return Map.of();
+            }
+            java.util.LinkedHashMap<Integer, Map<Integer, AliasValueFact>> out = new java.util.LinkedHashMap<>();
+            for (Map.Entry<Integer, Map<Integer, AliasValueFact>> entry : values.entrySet()) {
+                if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                Map<Integer, AliasValueFact> nested = immutableAliasFactMap(entry.getValue());
+                if (!nested.isEmpty()) {
+                    out.put(entry.getKey(), nested);
+                }
+            }
+            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        }
+    }
+
+    public record AliasValueFact(Set<String> stringValues,
+                                 Set<String> objectTypes) {
+        public AliasValueFact {
+            stringValues = immutableSet(stringValues);
+            objectTypes = immutableSet(objectTypes);
+        }
+
+        public boolean isEmpty() {
+            return stringValues.isEmpty() && objectTypes.isEmpty();
+        }
+
+        public String uniqueStringValue() {
+            return uniqueValue(stringValues);
+        }
+
+        public String uniqueObjectType() {
+            return uniqueValue(objectTypes);
+        }
+
+        public static AliasValueFact empty() {
+            return new AliasValueFact(Set.of(), Set.of());
+        }
+
+        private static Set<String> immutableSet(Set<String> values) {
+            if (values == null || values.isEmpty()) {
+                return Set.of();
+            }
+            java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+            for (String value : values) {
+                String normalized = safe(value);
+                if (!normalized.isBlank()) {
+                    out.add(normalized);
+                }
+            }
+            return out.isEmpty() ? Set.of() : Set.copyOf(out);
+        }
+
+        private static String uniqueValue(Set<String> values) {
+            if (values == null || values.size() != 1) {
+                return null;
+            }
+            String value = values.iterator().next();
+            return value == null || value.isBlank() ? null : value;
         }
     }
 
@@ -461,5 +552,23 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                                   String owner,
                                   String name,
                                   String desc) {
+    }
+
+    private static <K> Map<K, AliasValueFact> immutableAliasFactMap(Map<K, AliasValueFact> values) {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        java.util.LinkedHashMap<K, AliasValueFact> out = new java.util.LinkedHashMap<>();
+        for (Map.Entry<K, AliasValueFact> entry : values.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            out.put(entry.getKey(), entry.getValue());
+        }
+        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 }

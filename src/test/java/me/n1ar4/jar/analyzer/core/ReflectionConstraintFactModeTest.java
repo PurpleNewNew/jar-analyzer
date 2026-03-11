@@ -35,6 +35,13 @@ class ReflectionConstraintFactModeTest {
     void shouldCollectReflectionAndMethodHandleHintsIntoConstraintFacts() {
         BuildFactSnapshot snapshot = buildCallbackSnapshot();
 
+        BuildFactSnapshot.AliasValueFact fieldClassFacts = snapshot.constraints()
+                .instanceFieldFact("me/n1ar4/cb/ReflectionBox", "className");
+        BuildFactSnapshot.AliasValueFact fieldMethodFacts = snapshot.constraints()
+                .instanceFieldFact("me/n1ar4/cb/ReflectionBox", "methodName");
+        assertEquals("me.n1ar4.cb.ReflectionTarget", fieldClassFacts.uniqueStringValue());
+        assertEquals("target", fieldMethodFacts.uniqueStringValue());
+
         MethodReference.Handle reflectHelper = new MethodReference.Handle(
                 new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
                 "reflectViaHelperFlow",
@@ -115,6 +122,22 @@ class ReflectionConstraintFactModeTest {
         assertEquals(BuildFactSnapshot.ReflectionHintTier.CAST, diagnostic.tier());
         assertTrue(diagnostic.reason().contains("cast"));
         assertEquals(5, diagnostic.candidateCount());
+
+        MethodReference.Handle arrayCopyAlias = new MethodReference.Handle(
+                new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
+                "reflectViaStringArrayCopyAlias",
+                "()V"
+        );
+        BuildFactSnapshot.MethodConstraintFacts arrayFacts = snapshot.constraints().methodConstraints(arrayCopyAlias);
+        assertFalse(arrayFacts.arrayCopyEdges().isEmpty());
+        assertTrue(arrayFacts.arrayElementFactsByVar().values().stream()
+                .flatMap(entry -> entry.values().stream())
+                .flatMap(fact -> fact.stringValues().stream())
+                .anyMatch("me.n1ar4.cb.ReflectionTarget"::equals));
+        assertTrue(arrayFacts.arrayElementFactsByVar().values().stream()
+                .flatMap(entry -> entry.values().stream())
+                .flatMap(fact -> fact.stringValues().stream())
+                .anyMatch("target"::equals));
     }
 
     private static BuildFactSnapshot buildCallbackSnapshot() {

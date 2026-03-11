@@ -162,6 +162,20 @@ class CoreRunnerBytecodeMainlineTest {
                 0,
                 Integer.MAX_VALUE
         );
+        ArrayList<MethodCallResult> reflectFieldAliasEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "reflectViaFieldAliasFacts",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
+        ArrayList<MethodCallResult> reflectArrayCopyAliasEdges = engine.getCallEdgesByCaller(
+                "me/n1ar4/cb/CallbackEntry",
+                "reflectViaStringArrayCopyAlias",
+                "()V",
+                0,
+                Integer.MAX_VALUE
+        );
         ArrayList<MethodCallResult> methodHandleEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleDirect",
@@ -256,6 +270,8 @@ class CoreRunnerBytecodeMainlineTest {
         assertEdge(reflectLoaderChainEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "for_name");
         assertEdge(reflectLoadClassApiEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "class_local+for_name");
         assertEdge(reflectHelperFlowEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "class_local+for_name");
+        assertEdge(reflectFieldAliasEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "field_fact");
+        assertEdge(reflectArrayCopyAliasEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "array_fact");
         assertEdge(reflectCastFallbackEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "tier=cast");
         assertEdge(methodHandleEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");
         assertEdge(methodHandleHelperFlowEdges, "me/n1ar4/cb/ReflectionTarget", "target", "()V", "method_handle");

@@ -23,6 +23,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -36,8 +37,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class ConstraintFactAssembler {
     private ConstraintFactAssembler() {
@@ -50,8 +53,10 @@ final class ConstraintFactAssembler {
             return BuildFactSnapshot.ConstraintFacts.empty();
         }
         Map<String, ParsedMethodBinding> methodsByKey = indexParsedMethods(workspace);
+        Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey =
+                ReflectionConstraintAnalyzer.collectInstanceFieldFacts(workspace);
         Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> reflectionHintsByHandle =
-                ReflectionConstraintAnalyzer.collect(workspace, methodMap);
+                ReflectionConstraintAnalyzer.collect(workspace, methodMap, instanceFieldFactsByKey);
         LinkedHashMap<MethodReference.Handle, BuildFactSnapshot.MethodConstraintFacts> methodsByHandle = new LinkedHashMap<>();
         for (ParsedMethodBinding binding : methodsByKey.values()) {
             if (binding == null || binding.handle() == null || binding.parsedMethod() == null) {
@@ -61,15 +66,22 @@ final class ConstraintFactAssembler {
                     binding.handle(),
                     buildMethodConstraints(
                             binding.parsedMethod(),
-                            reflectionHintsByHandle.get(binding.handle())
+                            reflectionHintsByHandle.get(binding.handle()),
+                            instanceFieldFactsByKey
                     )
             );
         }
         LinkedHashMap<String, String> receiverVarByCallSiteKey = buildReceiverVarFacts(callSites, methodsByKey);
-        if (receiverVarByCallSiteKey.isEmpty() && methodsByHandle.isEmpty()) {
+        if (receiverVarByCallSiteKey.isEmpty()
+                && instanceFieldFactsByKey.isEmpty()
+                && methodsByHandle.isEmpty()) {
             return BuildFactSnapshot.ConstraintFacts.empty();
         }
-        return new BuildFactSnapshot.ConstraintFacts(receiverVarByCallSiteKey, methodsByHandle);
+        return new BuildFactSnapshot.ConstraintFacts(
+                receiverVarByCallSiteKey,
+                instanceFieldFactsByKey,
+                methodsByHandle
+        );
     }
 
     private static LinkedHashMap<String, String> buildReceiverVarFacts(List<CallSiteEntity> callSites,
@@ -132,11 +144,14 @@ final class ConstraintFactAssembler {
 
     private static BuildFactSnapshot.MethodConstraintFacts buildMethodConstraints(
             BuildBytecodeWorkspace.ParsedMethod parsedMethod,
-            BuildFactSnapshot.MethodReflectionHints reflectionHints) {
+            BuildFactSnapshot.MethodReflectionHints reflectionHints,
+            Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey) {
         MethodNode methodNode = parsedMethod == null ? null : parsedMethod.methodNode();
         if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
             return BuildFactSnapshot.MethodConstraintFacts.empty();
         }
+        Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+        Map<String, String> staticStrings = collectStaticStringConstants(parsedMethod.owner().classNode());
         ArrayList<BuildFactSnapshot.AllocEdge> allocEdges = new ArrayList<>();
         LinkedHashMap<Integer, List<BuildFactSnapshot.AssignEdge>> objectAssignEdgesByVar = new LinkedHashMap<>();
         LinkedHashMap<Integer, List<BuildFactSnapshot.AssignEdge>> numericAssignEdgesByVar = new LinkedHashMap<>();
@@ -144,6 +159,8 @@ final class ConstraintFactAssembler {
         LinkedHashMap<String, List<BuildFactSnapshot.FieldEdge>> fieldStoreEdgesByFieldKey = new LinkedHashMap<>();
         ArrayList<BuildFactSnapshot.ArrayAccessEdge> arrayLoadEdges = new ArrayList<>();
         ArrayList<BuildFactSnapshot.ArrayAccessEdge> arrayStoreEdges = new ArrayList<>();
+        LinkedHashMap<Integer, Map<Integer, BuildFactSnapshot.AliasValueFact>> arrayElementFactsByVar =
+                new LinkedHashMap<>();
         ArrayList<BuildFactSnapshot.ArrayCopyEdge> arrayCopyEdges = new ArrayList<>();
         ArrayList<BuildFactSnapshot.ReturnEdge> returnEdges = new ArrayList<>();
         ArrayList<BuildFactSnapshot.NativeModelHint> nativeModelHints = new ArrayList<>();
@@ -203,6 +220,14 @@ final class ConstraintFactAssembler {
                     arrayLoadEdges.add(new BuildFactSnapshot.ArrayAccessEdge(i));
                 } else if (rawInsn.getOpcode() == Opcodes.AASTORE) {
                     arrayStoreEdges.add(new BuildFactSnapshot.ArrayAccessEdge(i));
+                    collectArrayStoreFacts(
+                            rawInsn,
+                            methodNode,
+                            frames,
+                            staticStrings,
+                            instanceFieldFactsByKey,
+                            arrayElementFactsByVar
+                    );
                 } else if (rawInsn.getOpcode() == Opcodes.ARETURN) {
                     returnEdges.add(new BuildFactSnapshot.ReturnEdge(i));
                 }
@@ -218,6 +243,7 @@ final class ConstraintFactAssembler {
                         methodInsn.name,
                         methodInsn.desc
                 ));
+                collectArrayCopyFacts(methodInsn, methodNode, frames, arrayElementFactsByVar);
             }
         }
         sortAssignMapDescending(objectAssignEdgesByVar);
@@ -238,6 +264,7 @@ final class ConstraintFactAssembler {
                 fieldStoreEdgesByFieldKey,
                 arrayLoadEdges,
                 arrayStoreEdges,
+                arrayElementFactsByVar,
                 arrayCopyEdges,
                 returnEdges,
                 nativeModelHints,
@@ -299,6 +326,347 @@ final class ConstraintFactAssembler {
             }
         }
         return best == null ? null : best.name();
+    }
+
+    private static void collectArrayStoreFacts(AbstractInsnNode insn,
+                                               MethodNode methodNode,
+                                               Frame<SourceValue>[] frames,
+                                               Map<String, String> staticStrings,
+                                               Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey,
+                                               Map<Integer, Map<Integer, BuildFactSnapshot.AliasValueFact>> arrayElementFactsByVar) {
+        if (insn == null || methodNode == null || frames == null || arrayElementFactsByVar == null) {
+            return;
+        }
+        int insnIndex = methodNode.instructions.indexOf(insn);
+        if (insnIndex < 0 || insnIndex >= frames.length) {
+            return;
+        }
+        Frame<SourceValue> frame = frames[insnIndex];
+        if (frame == null || frame.getStackSize() < 3) {
+            return;
+        }
+        int stackSize = frame.getStackSize();
+        Integer elementIndex = resolveStableInt(frame.getStack(stackSize - 2), methodNode, frames, 0);
+        if (elementIndex == null || elementIndex < 0) {
+            return;
+        }
+        BuildFactSnapshot.AliasValueFact valueFact = resolveAliasValueFact(
+                frame.getStack(stackSize - 1),
+                methodNode,
+                frames,
+                staticStrings,
+                instanceFieldFactsByKey,
+                0
+        );
+        if (valueFact == null || valueFact.isEmpty()) {
+            return;
+        }
+        for (Integer arrayVar : resolveArrayVars(frame.getStack(stackSize - 3), methodNode, frames, 0)) {
+            mergeArrayElementFact(arrayElementFactsByVar, arrayVar, elementIndex, valueFact);
+        }
+    }
+
+    private static void collectArrayCopyFacts(MethodInsnNode methodInsn,
+                                              MethodNode methodNode,
+                                              Frame<SourceValue>[] frames,
+                                              Map<Integer, Map<Integer, BuildFactSnapshot.AliasValueFact>> arrayElementFactsByVar) {
+        if (methodInsn == null || methodNode == null || frames == null || arrayElementFactsByVar == null) {
+            return;
+        }
+        int insnIndex = methodNode.instructions.indexOf(methodInsn);
+        if (insnIndex < 0 || insnIndex >= frames.length) {
+            return;
+        }
+        Frame<SourceValue> frame = frames[insnIndex];
+        if (frame == null || frame.getStackSize() < 5) {
+            return;
+        }
+        int base = frame.getStackSize() - 5;
+        if (base < 0) {
+            return;
+        }
+        Integer srcIndex = resolveStableInt(frame.getStack(base + 1), methodNode, frames, 0);
+        Integer dstIndex = resolveStableInt(frame.getStack(base + 3), methodNode, frames, 0);
+        Integer length = resolveStableInt(frame.getStack(base + 4), methodNode, frames, 0);
+        if (srcIndex == null || dstIndex == null || length == null || srcIndex < 0 || dstIndex < 0 || length <= 0) {
+            return;
+        }
+        Set<Integer> srcVars = resolveArrayVars(frame.getStack(base), methodNode, frames, 0);
+        Set<Integer> dstVars = resolveArrayVars(frame.getStack(base + 2), methodNode, frames, 0);
+        if (srcVars.isEmpty() || dstVars.isEmpty()) {
+            return;
+        }
+        for (Integer srcVar : srcVars) {
+            for (Integer dstVar : dstVars) {
+                for (int offset = 0; offset < length; offset++) {
+                    BuildFactSnapshot.AliasValueFact sourceFact =
+                            lookupArrayElementFact(arrayElementFactsByVar, srcVar, srcIndex + offset);
+                    if (sourceFact == null || sourceFact.isEmpty()) {
+                        continue;
+                    }
+                    mergeArrayElementFact(arrayElementFactsByVar, dstVar, dstIndex + offset, sourceFact);
+                }
+            }
+        }
+    }
+
+    private static void mergeArrayElementFact(Map<Integer, Map<Integer, BuildFactSnapshot.AliasValueFact>> arrayElementFactsByVar,
+                                              Integer arrayVar,
+                                              Integer elementIndex,
+                                              BuildFactSnapshot.AliasValueFact valueFact) {
+        if (arrayVar == null || arrayVar < 0 || elementIndex == null || elementIndex < 0 || valueFact == null || valueFact.isEmpty()) {
+            return;
+        }
+        Map<Integer, BuildFactSnapshot.AliasValueFact> elements =
+                arrayElementFactsByVar.computeIfAbsent(arrayVar, ignore -> new LinkedHashMap<>());
+        BuildFactSnapshot.AliasValueFact existing = elements.get(elementIndex);
+        elements.put(elementIndex, mergeAliasFacts(existing, valueFact));
+    }
+
+    private static BuildFactSnapshot.AliasValueFact lookupArrayElementFact(
+            Map<Integer, Map<Integer, BuildFactSnapshot.AliasValueFact>> arrayElementFactsByVar,
+            Integer arrayVar,
+            Integer elementIndex) {
+        if (arrayVar == null || elementIndex == null || arrayElementFactsByVar == null || arrayElementFactsByVar.isEmpty()) {
+            return null;
+        }
+        Map<Integer, BuildFactSnapshot.AliasValueFact> elements = arrayElementFactsByVar.get(arrayVar);
+        if (elements == null || elements.isEmpty()) {
+            return null;
+        }
+        return elements.get(elementIndex);
+    }
+
+    private static BuildFactSnapshot.AliasValueFact resolveAliasValueFact(SourceValue value,
+                                                                          MethodNode methodNode,
+                                                                          Frame<SourceValue>[] frames,
+                                                                          Map<String, String> staticStrings,
+                                                                          Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey,
+                                                                          int depth) {
+        if (value == null || value.insns == null || value.insns.isEmpty() || depth > 8) {
+            return BuildFactSnapshot.AliasValueFact.empty();
+        }
+        BuildFactSnapshot.AliasValueFact found = BuildFactSnapshot.AliasValueFact.empty();
+        for (AbstractInsnNode src : value.insns) {
+            BuildFactSnapshot.AliasValueFact candidate = resolveAliasValueFactFromInsn(
+                    src,
+                    methodNode,
+                    frames,
+                    staticStrings,
+                    instanceFieldFactsByKey,
+                    depth + 1
+            );
+            found = mergeAliasFacts(found, candidate);
+        }
+        return found;
+    }
+
+    private static BuildFactSnapshot.AliasValueFact resolveAliasValueFactFromInsn(
+            AbstractInsnNode src,
+            MethodNode methodNode,
+            Frame<SourceValue>[] frames,
+            Map<String, String> staticStrings,
+            Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey,
+            int depth) {
+        if (src == null || methodNode == null || depth > 8) {
+            return BuildFactSnapshot.AliasValueFact.empty();
+        }
+        if (src instanceof LdcInsnNode ldc && ldc.cst instanceof String stringValue) {
+            return new BuildFactSnapshot.AliasValueFact(Set.of(stringValue), Set.of());
+        }
+        if (src instanceof TypeInsnNode typeInsn) {
+            if (typeInsn.getOpcode() == Opcodes.NEW || typeInsn.getOpcode() == Opcodes.CHECKCAST) {
+                return new BuildFactSnapshot.AliasValueFact(Set.of(), Set.of(safe(typeInsn.desc)));
+            }
+            return BuildFactSnapshot.AliasValueFact.empty();
+        }
+        if (src instanceof FieldInsnNode fieldInsn && fieldInsn.getOpcode() == Opcodes.GETSTATIC) {
+            String value = staticStrings == null ? null : staticStrings.get(fieldInsn.owner + "#" + fieldInsn.name);
+            return value == null || value.isBlank()
+                    ? BuildFactSnapshot.AliasValueFact.empty()
+                    : new BuildFactSnapshot.AliasValueFact(Set.of(value), Set.of());
+        }
+        if (src instanceof FieldInsnNode fieldInsn && fieldInsn.getOpcode() == Opcodes.GETFIELD) {
+            BuildFactSnapshot.AliasValueFact facts = instanceFieldFactsByKey == null
+                    ? null
+                    : instanceFieldFactsByKey.get(fieldKey(fieldInsn.owner, fieldInsn.name));
+            return facts == null ? BuildFactSnapshot.AliasValueFact.empty() : facts;
+        }
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
+            AbstractInsnNode stored = getStoredSourceInsn(methodNode, frames, varInsn.var, methodNode.instructions.indexOf(varInsn));
+            if (stored == null) {
+                return BuildFactSnapshot.AliasValueFact.empty();
+            }
+            return resolveAliasValueFactFromInsn(stored, methodNode, frames, staticStrings, instanceFieldFactsByKey, depth + 1);
+        }
+        return BuildFactSnapshot.AliasValueFact.empty();
+    }
+
+    private static Set<Integer> resolveArrayVars(SourceValue value,
+                                                 MethodNode methodNode,
+                                                 Frame<SourceValue>[] frames,
+                                                 int depth) {
+        if (value == null || value.insns == null || value.insns.isEmpty() || depth > 8) {
+            return Set.of();
+        }
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
+        for (AbstractInsnNode src : value.insns) {
+            collectArrayVar(src, methodNode, frames, depth + 1, out);
+        }
+        return out.isEmpty() ? Set.of() : Set.copyOf(out);
+    }
+
+    private static void collectArrayVar(AbstractInsnNode src,
+                                        MethodNode methodNode,
+                                        Frame<SourceValue>[] frames,
+                                        int depth,
+                                        Set<Integer> out) {
+        if (src == null || methodNode == null || out == null || depth > 8) {
+            return;
+        }
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
+            out.add(varInsn.var);
+            return;
+        }
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ASTORE) {
+            out.add(varInsn.var);
+            return;
+        }
+        if (src instanceof TypeInsnNode || src instanceof MultiANewArrayInsnNode) {
+            return;
+        }
+        if (src instanceof InsnNode insn && insn.getOpcode() == Opcodes.DUP) {
+            AbstractInsnNode previous = previousValueInsn(methodNode.instructions, methodNode.instructions.indexOf(insn));
+            collectArrayVar(previous, methodNode, frames, depth + 1, out);
+            return;
+        }
+        if (src instanceof VarInsnNode varInsn) {
+            AbstractInsnNode stored = getStoredSourceInsn(methodNode, frames, varInsn.var, methodNode.instructions.indexOf(varInsn));
+            collectArrayVar(stored, methodNode, frames, depth + 1, out);
+        }
+    }
+
+    private static AbstractInsnNode getStoredSourceInsn(MethodNode methodNode,
+                                                        Frame<SourceValue>[] frames,
+                                                        int slot,
+                                                        int loadIndex) {
+        int storeIndex = findPreviousAstore(methodNode, loadIndex, slot);
+        if (storeIndex < 0 || frames == null || storeIndex >= frames.length || frames[storeIndex] == null) {
+            return null;
+        }
+        Frame<SourceValue> storeFrame = frames[storeIndex];
+        if (storeFrame.getStackSize() <= 0) {
+            return null;
+        }
+        SourceValue value = storeFrame.getStack(storeFrame.getStackSize() - 1);
+        return getSingleInsn(value);
+    }
+
+    private static int findPreviousAstore(MethodNode methodNode,
+                                          int limitIndex,
+                                          int slot) {
+        if (methodNode == null || methodNode.instructions == null || limitIndex <= 0 || slot < 0) {
+            return -1;
+        }
+        for (int i = limitIndex - 1; i >= 0; i--) {
+            AbstractInsnNode candidate = methodNode.instructions.get(i);
+            if (candidate instanceof VarInsnNode varInsn
+                    && varInsn.getOpcode() == Opcodes.ASTORE
+                    && varInsn.var == slot) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static Integer resolveStableInt(SourceValue value,
+                                            MethodNode methodNode,
+                                            Frame<SourceValue>[] frames,
+                                            int depth) {
+        if (value == null || value.insns == null || value.insns.isEmpty() || depth > 8) {
+            return null;
+        }
+        Integer found = null;
+        for (AbstractInsnNode src : value.insns) {
+            Integer candidate = resolveStableIntFromInsn(src, methodNode, frames, depth + 1);
+            if (candidate == null) {
+                continue;
+            }
+            if (found != null && !found.equals(candidate)) {
+                return null;
+            }
+            found = candidate;
+        }
+        return found;
+    }
+
+    private static Integer resolveStableIntFromInsn(AbstractInsnNode src,
+                                                    MethodNode methodNode,
+                                                    Frame<SourceValue>[] frames,
+                                                    int depth) {
+        if (src == null || methodNode == null || depth > 8) {
+            return null;
+        }
+        if (src instanceof InsnNode insn) {
+            return switch (insn.getOpcode()) {
+                case Opcodes.ICONST_M1 -> -1;
+                case Opcodes.ICONST_0 -> 0;
+                case Opcodes.ICONST_1 -> 1;
+                case Opcodes.ICONST_2 -> 2;
+                case Opcodes.ICONST_3 -> 3;
+                case Opcodes.ICONST_4 -> 4;
+                case Opcodes.ICONST_5 -> 5;
+                default -> null;
+            };
+        }
+        if (src instanceof org.objectweb.asm.tree.IntInsnNode intInsn) {
+            return intInsn.operand;
+        }
+        if (src instanceof org.objectweb.asm.tree.LdcInsnNode ldc && ldc.cst instanceof Integer value) {
+            return value;
+        }
+        if (src instanceof VarInsnNode varInsn) {
+            AbstractInsnNode stored = getStoredSourceInsn(methodNode, frames, varInsn.var, methodNode.instructions.indexOf(varInsn));
+            return resolveStableIntFromInsn(stored, methodNode, frames, depth + 1);
+        }
+        return null;
+    }
+
+    private static AbstractInsnNode getSingleInsn(SourceValue value) {
+        if (value == null || value.insns == null || value.insns.size() != 1) {
+            return null;
+        }
+        return value.insns.iterator().next();
+    }
+
+    private static AbstractInsnNode previousValueInsn(org.objectweb.asm.tree.InsnList instructions,
+                                                      int index) {
+        if (instructions == null || index <= 0) {
+            return null;
+        }
+        for (int i = index - 1; i >= 0; i--) {
+            AbstractInsnNode candidate = instructions.get(i);
+            if (candidate == null || candidate.getOpcode() < 0) {
+                continue;
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    private static BuildFactSnapshot.AliasValueFact mergeAliasFacts(BuildFactSnapshot.AliasValueFact left,
+                                                                    BuildFactSnapshot.AliasValueFact right) {
+        if (left == null || left.isEmpty()) {
+            return right == null ? BuildFactSnapshot.AliasValueFact.empty() : right;
+        }
+        if (right == null || right.isEmpty()) {
+            return left;
+        }
+        LinkedHashSet<String> strings = new LinkedHashSet<>(left.stringValues());
+        strings.addAll(right.stringValues());
+        LinkedHashSet<String> objectTypes = new LinkedHashSet<>(left.objectTypes());
+        objectTypes.addAll(right.objectTypes());
+        return new BuildFactSnapshot.AliasValueFact(strings, objectTypes);
     }
 
     private static ReceiverVarCandidate resolveReceiverCandidate(ClassNode classNode,
@@ -404,6 +772,31 @@ final class ConstraintFactAssembler {
         return "java/lang/System".equals(methodInsn.owner)
                 && "arraycopy".equals(methodInsn.name)
                 && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(methodInsn.desc);
+    }
+
+    private static Map<String, String> collectStaticStringConstants(ClassNode classNode) {
+        if (classNode == null || classNode.fields == null || classNode.fields.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        classNode.fields.forEach(field -> {
+            if (field == null || field.value == null || !(field.value instanceof String stringValue)) {
+                return;
+            }
+            if ((field.access & (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)) == (Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)) {
+                out.put(classNode.name + "#" + field.name, stringValue.trim());
+            }
+        });
+        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+    }
+
+    private static String fieldKey(String owner, String name) {
+        String normalizedOwner = safe(owner);
+        String normalizedName = safe(name);
+        if (normalizedOwner.isBlank() || normalizedName.isBlank()) {
+            return "";
+        }
+        return normalizedOwner + "#" + normalizedName;
     }
 
     private static String methodKey(String owner, String name, String desc, Integer jarId) {

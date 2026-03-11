@@ -23,6 +23,18 @@ public final class ReflectionConstraintAnalyzer {
     public static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collect(
             BuildBytecodeWorkspace workspace,
             Map<MethodReference.Handle, MethodReference> methodMap) {
-        return BytecodeMainlineReflectionResolver.collectReflectionHints(workspace, methodMap);
+        return collect(workspace, methodMap, collectInstanceFieldFacts(workspace));
+    }
+
+    public static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collect(
+            BuildBytecodeWorkspace workspace,
+            Map<MethodReference.Handle, MethodReference> methodMap,
+            Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey) {
+        return BytecodeMainlineReflectionResolver.collectReflectionHints(workspace, methodMap, instanceFieldFactsByKey);
+    }
+
+    public static Map<String, BuildFactSnapshot.AliasValueFact> collectInstanceFieldFacts(
+            BuildBytecodeWorkspace workspace) {
+        return BytecodeMainlineReflectionResolver.collectInstanceFieldFacts(workspace);
     }
 }
