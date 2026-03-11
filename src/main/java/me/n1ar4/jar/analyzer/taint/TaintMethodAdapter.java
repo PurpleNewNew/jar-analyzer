@@ -1007,70 +1007,156 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                                              Set<String> markers,
                                              boolean enableContainer,
                                              boolean enableArray) {
-        if (enableArray) {
-            if ("java/lang/System".equals(owner) && "arraycopy".equals(name)
-                    && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(desc)) {
-                Set<String> src = resolveParamSet(stack, argumentTypes, true, 0);
-                Set<String> dest = resolveParamSet(stack, argumentTypes, true, 2);
-                if (dest != null && src != null && hasAnyTaintMarker(src)) {
-                    markContainerValue(dest, CONTAINER_ELEMENT, "arraycopy");
-                }
-                return;
-            }
-            if ("java/util/Arrays".equals(owner)) {
-                if ("asList".equals(name)) {
-                    Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
-                    if (arg != null && hasAnyTaintMarker(arg)) {
-                        markers.add(CONTAINER_ELEMENT);
-                        addContainerDerivedTaint(markers);
-                        applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
-                    }
-                    return;
-                }
-                if ("copyOf".equals(name) || "copyOfRange".equals(name)) {
-                    Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
-                    if (arg != null && hasAnyTaintMarker(arg)) {
-                        markers.add(CONTAINER_ELEMENT);
-                        addContainerDerivedTaint(markers);
-                        applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
-                    }
-                    return;
-                }
-            }
+        StaticTransferRuleRegistry.apply(this, new StaticTransferInvocation(
+                owner,
+                name,
+                desc,
+                stack,
+                argumentTypes,
+                markers,
+                enableContainer,
+                enableArray
+        ));
+    }
+
+    private void applySystemArrayCopyTransfer(StaticTransferInvocation invocation) {
+        Set<String> src = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 0);
+        Set<String> dest = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 2);
+        if (dest != null && src != null && hasAnyTaintMarker(src)) {
+            markContainerValue(dest, CONTAINER_ELEMENT, "arraycopy");
         }
-        if (!enableContainer) {
+    }
+
+    private void applyArraysElementTransfer(StaticTransferInvocation invocation) {
+        Set<String> arg = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 0);
+        markContainerElementReturn(arg, invocation.markers());
+    }
+
+    private void applyCollectionsDecoratorTransfer(StaticTransferInvocation invocation) {
+        Set<String> arg = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 0);
+        if (arg != null) {
+            copyContainerMarkers(arg, invocation.markers());
+        }
+    }
+
+    private void applyCollectionsSingletonTransfer(StaticTransferInvocation invocation) {
+        Set<String> arg = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 0);
+        markContainerElementReturn(arg, invocation.markers());
+    }
+
+    private void applyCollectionsSingletonMapTransfer(StaticTransferInvocation invocation) {
+        Set<String> key = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 0);
+        Set<String> value = resolveParamSet(invocation.stack(), invocation.argumentTypes(), true, 1);
+        if (key != null && hasAnyTaintMarker(key)) {
+            invocation.markers().add(CONTAINER_KEY);
+            applyContainerTypeHint(invocation.markers(), KEY_TYPE_PREFIX, resolveValueTypeHint(key));
+        }
+        if (value != null && hasAnyTaintMarker(value)) {
+            invocation.markers().add(CONTAINER_VALUE);
+            addContainerDerivedTaint(invocation.markers());
+            applyContainerTypeHint(invocation.markers(), VALUE_TYPE_PREFIX, resolveValueTypeHint(value));
+        }
+    }
+
+    private void markContainerElementReturn(Set<String> sourceMarkers, Set<String> targetMarkers) {
+        if (sourceMarkers == null || targetMarkers == null || !hasAnyTaintMarker(sourceMarkers)) {
             return;
         }
-        if ("java/util/Collections".equals(owner)) {
-            if (name.startsWith("unmodifiable") || name.startsWith("synchronized") || name.startsWith("checked")) {
-                Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
-                if (arg != null) {
-                    copyContainerMarkers(arg, markers);
-                }
+        targetMarkers.add(CONTAINER_ELEMENT);
+        addContainerDerivedTaint(targetMarkers);
+        applyContainerTypeHint(targetMarkers, ELEM_TYPE_PREFIX, resolveValueTypeHint(sourceMarkers));
+    }
+
+    private record StaticTransferInvocation(String owner,
+                                            String name,
+                                            String desc,
+                                            List<Set<String>> stack,
+                                            Type[] argumentTypes,
+                                            Set<String> markers,
+                                            boolean enableContainer,
+                                            boolean enableArray) {
+    }
+
+    @FunctionalInterface
+    private interface StaticTransferMatcher {
+        boolean matches(StaticTransferInvocation invocation);
+    }
+
+    @FunctionalInterface
+    private interface StaticTransferApplier {
+        void apply(TaintMethodAdapter adapter, StaticTransferInvocation invocation);
+    }
+
+    private record StaticTransferRule(StaticTransferMatcher matcher, StaticTransferApplier applier) {
+    }
+
+    private static final class StaticTransferRuleRegistry {
+        private static final Map<String, List<StaticTransferRule>> RULES = Map.of(
+                "java/lang/System", List.of(
+                        rule(
+                                invocation -> invocation.enableArray()
+                                        && "arraycopy".equals(invocation.name())
+                                        && "(Ljava/lang/Object;ILjava/lang/Object;II)V".equals(invocation.desc()),
+                                TaintMethodAdapter::applySystemArrayCopyTransfer
+                        )
+                ),
+                "java/util/Arrays", List.of(
+                        rule(
+                                invocation -> invocation.enableArray() && "asList".equals(invocation.name()),
+                                TaintMethodAdapter::applyArraysElementTransfer
+                        ),
+                        rule(
+                                invocation -> invocation.enableArray()
+                                        && ("copyOf".equals(invocation.name())
+                                        || "copyOfRange".equals(invocation.name())),
+                                TaintMethodAdapter::applyArraysElementTransfer
+                        )
+                ),
+                "java/util/Collections", List.of(
+                        rule(
+                                invocation -> {
+                                    if (!invocation.enableContainer()) {
+                                        return false;
+                                    }
+                                    String methodName = invocation.name();
+                                    return methodName != null && (methodName.startsWith("unmodifiable")
+                                            || methodName.startsWith("synchronized")
+                                            || methodName.startsWith("checked"));
+                                },
+                                TaintMethodAdapter::applyCollectionsDecoratorTransfer
+                        ),
+                        rule(
+                                invocation -> invocation.enableContainer()
+                                        && ("singletonList".equals(invocation.name())
+                                        || "singleton".equals(invocation.name())),
+                                TaintMethodAdapter::applyCollectionsSingletonTransfer
+                        ),
+                        rule(
+                                invocation -> invocation.enableContainer() && "singletonMap".equals(invocation.name()),
+                                TaintMethodAdapter::applyCollectionsSingletonMapTransfer
+                        )
+                )
+        );
+
+        private static void apply(TaintMethodAdapter adapter, StaticTransferInvocation invocation) {
+            if (adapter == null || invocation == null) {
                 return;
             }
-            if ("singletonList".equals(name) || "singleton".equals(name)) {
-                Set<String> arg = resolveParamSet(stack, argumentTypes, true, 0);
-                if (arg != null && hasAnyTaintMarker(arg)) {
-                    markers.add(CONTAINER_ELEMENT);
-                    addContainerDerivedTaint(markers);
-                    applyContainerTypeHint(markers, ELEM_TYPE_PREFIX, resolveValueTypeHint(arg));
-                }
+            List<StaticTransferRule> rules = RULES.get(invocation.owner());
+            if (rules == null || rules.isEmpty()) {
                 return;
             }
-            if ("singletonMap".equals(name)) {
-                Set<String> key = resolveParamSet(stack, argumentTypes, true, 0);
-                Set<String> val = resolveParamSet(stack, argumentTypes, true, 1);
-                if (key != null && hasAnyTaintMarker(key)) {
-                    markers.add(CONTAINER_KEY);
-                    applyContainerTypeHint(markers, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
+            for (StaticTransferRule rule : rules) {
+                if (rule == null || !rule.matcher().matches(invocation)) {
+                    continue;
                 }
-                if (val != null && hasAnyTaintMarker(val)) {
-                    markers.add(CONTAINER_VALUE);
-                    addContainerDerivedTaint(markers);
-                    applyContainerTypeHint(markers, VALUE_TYPE_PREFIX, resolveValueTypeHint(val));
-                }
+                rule.applier().apply(adapter, invocation);
+                return;
             }
+        }
+
+        private static StaticTransferRule rule(StaticTransferMatcher matcher, StaticTransferApplier applier) {
+            return new StaticTransferRule(matcher, applier);
         }
     }
 

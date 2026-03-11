@@ -20,9 +20,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +55,10 @@ final class BytecodeMainlineSemanticEdgeRunner {
     private static final ClassReference.Handle CONSUMER = new ClassReference.Handle("java/util/function/Consumer");
     private static final ClassReference.Handle FUNCTION = new ClassReference.Handle("java/util/function/Function");
     private static final ClassReference.Handle ACTION = new ClassReference.Handle("java/security/PrivilegedAction");
-    private static final ClassReference.Handle ACTION_EX = new ClassReference.Handle("java/security/PrivilegedExceptionAction");
-    private static final ClassReference.Handle INVOCATION_HANDLER = new ClassReference.Handle("java/lang/reflect/InvocationHandler");
+    private static final ClassReference.Handle ACTION_EX =
+            new ClassReference.Handle("java/security/PrivilegedExceptionAction");
+    private static final ClassReference.Handle INVOCATION_HANDLER =
+            new ClassReference.Handle("java/lang/reflect/InvocationHandler");
     private static final ClassReference.Handle SPRING_CGLIB_INTERCEPTOR =
             new ClassReference.Handle("org/springframework/cglib/proxy/MethodInterceptor");
     private static final ClassReference.Handle NETSF_CGLIB_INTERCEPTOR =
@@ -94,436 +95,100 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 || lookup == null || context.callSites == null || context.callSites.isEmpty()) {
             return Result.empty();
         }
-        Set<ClassReference.Handle> instantiated = instantiatedClasses == null
-                ? Set.of()
-                : instantiatedClasses;
-        int threadEdges = appendThreadStartEdges(context, inheritanceMap, instantiated, lookup);
-        int executorEdges = appendExecutorEdges(context, inheritanceMap, instantiated, lookup);
-        int completableFutureEdges = appendCompletableFutureEdges(context, inheritanceMap, instantiated, lookup);
-        int doPrivilegedEdges = appendDoPrivilegedEdges(context, inheritanceMap, instantiated, lookup);
-        int proxyEdges = appendDynamicProxyEdges(context, inheritanceMap, instantiated, lookup);
-        int gadgetCallbackEdges = appendGadgetCallbackEdges(context, lookup);
-        int gadgetTriggerBridgeEdges = appendGadgetTriggerBridgeEdges(context, instantiated, lookup);
-        int frameworkEdges = appendFrameworkEdges(context);
+        SemanticRuleContext ruleContext = new SemanticRuleContext(
+                context,
+                inheritanceMap,
+                instantiatedClasses == null ? Set.of() : instantiatedClasses,
+                lookup
+        );
+        EnumMap<EdgeBucket, Integer> edgeCounts = new EnumMap<>(EdgeBucket.class);
+        for (CallSiteRuleGroup group : SemanticInvokeRuleRegistry.CALLSITE_RULE_GROUPS) {
+            edgeCounts.put(group.bucket(), applyCallSiteRuleGroup(ruleContext, group));
+        }
+        for (FrameworkRule rule : SemanticInvokeRuleRegistry.FRAMEWORK_RULES) {
+            edgeCounts.merge(EdgeBucket.FRAMEWORK, applyFrameworkRule(ruleContext, rule), Integer::sum);
+        }
+        int callbackEdges = count(edgeCounts, EdgeBucket.THREAD)
+                + count(edgeCounts, EdgeBucket.EXECUTOR)
+                + count(edgeCounts, EdgeBucket.COMPLETABLE_FUTURE)
+                + count(edgeCounts, EdgeBucket.DO_PRIVILEGED)
+                + count(edgeCounts, EdgeBucket.DYNAMIC_PROXY)
+                + count(edgeCounts, EdgeBucket.GADGET_CALLBACK);
         return new Result(
-                threadEdges + executorEdges + completableFutureEdges + doPrivilegedEdges + proxyEdges + gadgetCallbackEdges,
-                frameworkEdges,
-                threadEdges,
-                executorEdges,
-                completableFutureEdges,
-                doPrivilegedEdges,
-                proxyEdges,
-                gadgetTriggerBridgeEdges
+                callbackEdges,
+                count(edgeCounts, EdgeBucket.FRAMEWORK),
+                count(edgeCounts, EdgeBucket.THREAD),
+                count(edgeCounts, EdgeBucket.EXECUTOR),
+                count(edgeCounts, EdgeBucket.COMPLETABLE_FUTURE),
+                count(edgeCounts, EdgeBucket.DO_PRIVILEGED),
+                count(edgeCounts, EdgeBucket.DYNAMIC_PROXY),
+                count(edgeCounts, EdgeBucket.TRIGGER_BRIDGE)
         );
     }
 
-    private static int appendThreadStartEdges(BuildContext context,
-                                              InheritanceMap inheritanceMap,
-                                              Set<ClassReference.Handle> instantiatedClasses,
-                                              BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        List<MethodReference.Handle> threadTargets = collectInterfaceTargets(
-                context,
-                inheritanceMap,
-                instantiatedClasses,
-                THREAD,
-                "run",
-                "()V",
-                true
-        );
-        if (threadTargets.isEmpty()) {
+    private static int count(EnumMap<EdgeBucket, Integer> counts, EdgeBucket bucket) {
+        return counts.getOrDefault(bucket, 0);
+    }
+
+    private static int applyCallSiteRuleGroup(SemanticRuleContext context, CallSiteRuleGroup group) {
+        if (group == null || group.bindings().isEmpty()) {
             return 0;
         }
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (!isThreadStartSite(site, context.classMap, inheritanceMap)) {
-                continue;
+        ArrayList<ResolvedBinding> activeBindings = new ArrayList<>();
+        for (CallSiteRuleBinding binding : group.bindings()) {
+            List<MethodReference.Handle> targets = context.targets(binding.targetKey());
+            if (!targets.isEmpty()) {
+                activeBindings.add(new ResolvedBinding(binding, targets));
             }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            added += addTargets(context, caller, threadTargets,
-                    MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW, "thread_start", Opcodes.INVOKEVIRTUAL);
         }
-        return added;
-    }
-
-    private static int appendExecutorEdges(BuildContext context,
-                                           InheritanceMap inheritanceMap,
-                                           Set<ClassReference.Handle> instantiatedClasses,
-                                           BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        List<MethodReference.Handle> runnableTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, RUNNABLE, "run", "()V", false
-        );
-        List<MethodReference.Handle> callableTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, CALLABLE, "call", "()Ljava/lang/Object;", false
-        );
-        if (runnableTargets.isEmpty() && callableTargets.isEmpty()) {
+        if (activeBindings.isEmpty()) {
             return 0;
         }
         int added = 0;
-        for (CallSiteEntity site : context.callSites) {
+        for (CallSiteEntity site : context.buildContext().callSites) {
             if (site == null) {
                 continue;
             }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            if (caller == null) {
-                continue;
-            }
-            if (isExecutorRunnableSite(site)) {
-                added += addTargets(context, caller, runnableTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "executor_runnable", Opcodes.INVOKEINTERFACE);
-            } else if (isExecutorCallableSite(site)) {
-                added += addTargets(context, caller, callableTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "executor_callable", Opcodes.INVOKEINTERFACE);
-            }
-        }
-        return added;
-    }
-
-    private static int appendCompletableFutureEdges(BuildContext context,
-                                                    InheritanceMap inheritanceMap,
-                                                    Set<ClassReference.Handle> instantiatedClasses,
-                                                    BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        List<MethodReference.Handle> runnableTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, RUNNABLE, "run", "()V", false
-        );
-        List<MethodReference.Handle> supplierTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, SUPPLIER, "get", "()Ljava/lang/Object;", false
-        );
-        List<MethodReference.Handle> consumerTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, CONSUMER, "accept", "(Ljava/lang/Object;)V", false
-        );
-        List<MethodReference.Handle> functionTargets = collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, FUNCTION, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", false
-        );
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (site == null || !isCompletableFutureSite(site)) {
-                continue;
-            }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            if (caller == null) {
-                continue;
-            }
-            String name = safe(site.getCalleeMethodName());
-            String desc = safe(site.getCalleeMethodDesc());
-            if (("runAsync".equals(name) && (desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletableFuture;")
-                    || desc.equals("(Ljava/lang/Runnable;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;")))
-                    || (("thenRun".equals(name) || "thenRunAsync".equals(name))
-                    && (desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletionStage;")
-                    || desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletableFuture;")))) {
-                added += addTargets(context, caller, runnableTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "completable_future_runnable", Opcodes.INVOKEINTERFACE);
-                continue;
-            }
-            if ("supplyAsync".equals(name)
-                    && (desc.equals("(Ljava/util/function/Supplier;)Ljava/util/concurrent/CompletableFuture;")
-                    || desc.equals("(Ljava/util/function/Supplier;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;"))) {
-                added += addTargets(context, caller, supplierTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "completable_future_supplier", Opcodes.INVOKEINTERFACE);
-                continue;
-            }
-            if (("thenAccept".equals(name) || "thenAcceptAsync".equals(name))
-                    && (desc.equals("(Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletionStage;")
-                    || desc.equals("(Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;"))) {
-                added += addTargets(context, caller, consumerTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "completable_future_consumer", Opcodes.INVOKEINTERFACE);
-                continue;
-            }
-            if (("thenApply".equals(name) || "thenApplyAsync".equals(name))
-                    && (desc.equals("(Ljava/util/function/Function;)Ljava/util/concurrent/CompletionStage;")
-                    || desc.equals("(Ljava/util/function/Function;)Ljava/util/concurrent/CompletableFuture;"))) {
-                added += addTargets(context, caller, functionTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                        "completable_future_function", Opcodes.INVOKEINTERFACE);
-            }
-        }
-        return added;
-    }
-
-    private static int appendDoPrivilegedEdges(BuildContext context,
-                                               InheritanceMap inheritanceMap,
-                                               Set<ClassReference.Handle> instantiatedClasses,
-                                               BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        List<MethodReference.Handle> actionTargets = new ArrayList<>();
-        actionTargets.addAll(collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, ACTION, "run", "()Ljava/lang/Object;", false
-        ));
-        actionTargets.addAll(collectInterfaceTargets(
-                context, inheritanceMap, instantiatedClasses, ACTION_EX, "run", "()Ljava/lang/Object;", false
-        ));
-        sortHandles(actionTargets);
-        if (actionTargets.isEmpty()) {
-            return 0;
-        }
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (site == null || !ACCESS_CONTROLLER_OWNER.equals(safe(site.getCalleeOwner()))
-                    || !"doPrivileged".equals(safe(site.getCalleeMethodName()))) {
-                continue;
-            }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            added += addTargets(context, caller, actionTargets,
-                    MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
-                    "do_privileged", Opcodes.INVOKEINTERFACE);
-        }
-        return added;
-    }
-
-    private static int appendDynamicProxyEdges(BuildContext context,
-                                               InheritanceMap inheritanceMap,
-                                               Set<ClassReference.Handle> instantiatedClasses,
-                                               BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        List<MethodReference.Handle> jdkTargets = collectInterfaceTargets(
-                context,
-                inheritanceMap,
-                instantiatedClasses,
-                INVOCATION_HANDLER,
-                "invoke",
-                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
-                false
-        );
-        List<MethodReference.Handle> cglibTargets = new ArrayList<>();
-        cglibTargets.addAll(collectInterfaceTargets(
-                context,
-                inheritanceMap,
-                instantiatedClasses,
-                SPRING_CGLIB_INTERCEPTOR,
-                "intercept",
-                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;Lorg/springframework/cglib/proxy/MethodProxy;)Ljava/lang/Object;",
-                false
-        ));
-        cglibTargets.addAll(collectInterfaceTargets(
-                context,
-                inheritanceMap,
-                instantiatedClasses,
-                NETSF_CGLIB_INTERCEPTOR,
-                "intercept",
-                "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;Lnet/sf/cglib/proxy/MethodProxy;)Ljava/lang/Object;",
-                false
-        ));
-        List<MethodReference.Handle> springAopTargets = collectInterfaceTargets(
-                context,
-                inheritanceMap,
-                instantiatedClasses,
-                AOP_METHOD_INTERCEPTOR,
-                "invoke",
-                "(Lorg/aopalliance/intercept/MethodInvocation;)Ljava/lang/Object;",
-                false
-        );
-        List<MethodReference.Handle> byteBuddyTargets = collectByteBuddyTargets(context);
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (site == null) {
-                continue;
-            }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            if (caller == null) {
-                continue;
-            }
-            if (isJdkProxyFactorySite(site)) {
-                added += addTargets(context, caller, jdkTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
-                        "dynamic_proxy_jdk", Opcodes.INVOKEINTERFACE);
-            } else if (isCglibFactorySite(site)) {
-                added += addTargets(context, caller, cglibTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
-                        "dynamic_proxy_cglib", Opcodes.INVOKEVIRTUAL);
-            } else if (isSpringAopFactorySite(site)) {
-                added += addTargets(context, caller, springAopTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
-                        "dynamic_proxy_spring_aop", Opcodes.INVOKEINTERFACE);
-            } else if (isByteBuddyFactorySite(site)) {
-                added += addTargets(context, caller, byteBuddyTargets,
-                        MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
-                        "dynamic_proxy_bytebuddy", Opcodes.INVOKEVIRTUAL);
-            }
-        }
-        return added;
-    }
-
-    private static int appendGadgetCallbackEdges(BuildContext context,
-                                                 BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        if (context == null || lookup == null || context.callSites == null || context.callSites.isEmpty()) {
-            return 0;
-        }
-        List<MethodReference.Handle> comparatorTargets = collectSemanticTargets(
-                context, MethodSemanticFlags.COMPARATOR_CALLBACK
-        );
-        List<MethodReference.Handle> comparableTargets = collectSemanticTargets(
-                context, MethodSemanticFlags.COMPARABLE_CALLBACK
-        );
-        List<MethodReference.Handle> transformerTargets = collectSemanticTargets(
-                context, MethodSemanticFlags.TRANSFORMER_CALLBACK
-        );
-        if (comparatorTargets.isEmpty() && comparableTargets.isEmpty() && transformerTargets.isEmpty()) {
-            return 0;
-        }
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (site == null) {
-                continue;
-            }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            if (caller == null) {
-                continue;
-            }
-            String owner = safe(site.getCalleeOwner());
-            String methodName = safe(site.getCalleeMethodName());
-            String methodDesc = safe(site.getCalleeMethodDesc());
-            if (COMPARATOR_OWNER.equals(owner)
-                    && "compare".equals(methodName)
-                    && "(Ljava/lang/Object;Ljava/lang/Object;)I".equals(methodDesc)) {
+            MethodReference.Handle caller = null;
+            for (ResolvedBinding resolved : activeBindings) {
+                CallSiteRuleBinding binding = resolved.binding();
+                if (!binding.siteMatcher().matches(context, site)) {
+                    continue;
+                }
+                if (caller == null) {
+                    caller = resolveCaller(site, context.lookup());
+                }
+                if (caller == null || !binding.callerMatcher().matches(context, caller, site)) {
+                    continue;
+                }
                 added += addTargets(
-                        context,
+                        context.buildContext(),
                         caller,
-                        comparatorTargets,
-                        MethodCallMeta.TYPE_CALLBACK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_comparator_callback",
-                        Opcodes.INVOKEINTERFACE
-                );
-                continue;
-            }
-            if (COMPARABLE_OWNER.equals(owner)
-                    && "compareTo".equals(methodName)
-                    && "(Ljava/lang/Object;)I".equals(methodDesc)) {
-                added += addTargets(
-                        context,
-                        caller,
-                        comparableTargets,
-                        MethodCallMeta.TYPE_CALLBACK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_comparable_callback",
-                        Opcodes.INVOKEINTERFACE
-                );
-                continue;
-            }
-            if ((COLLECTIONS_TRANSFORMER_OWNER.equals(owner) || COLLECTIONS4_TRANSFORMER_OWNER.equals(owner))
-                    && "transform".equals(methodName)
-                    && "(Ljava/lang/Object;)Ljava/lang/Object;".equals(methodDesc)) {
-                added += addTargets(
-                        context,
-                        caller,
-                        transformerTargets,
-                        MethodCallMeta.TYPE_CALLBACK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_transformer_callback",
-                        Opcodes.INVOKEINTERFACE
+                        resolved.targets(),
+                        binding.type(),
+                        binding.confidence(),
+                        binding.reason(),
+                        binding.opcode()
                 );
             }
         }
         return added;
     }
 
-    private static int appendGadgetTriggerBridgeEdges(BuildContext context,
-                                                      Set<ClassReference.Handle> instantiatedClasses,
-                                                      BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        if (context == null || lookup == null || context.callSites == null || context.callSites.isEmpty()) {
+    private static int applyFrameworkRule(SemanticRuleContext context, FrameworkRule rule) {
+        if (rule == null) {
             return 0;
         }
-        List<MethodReference.Handle> toStringTargets = collectSemanticTargets(
-                context,
-                MethodSemanticFlags.TOSTRING_TRIGGER,
-                instantiatedClasses
+        List<MethodReference.Handle> callers = collectFrameworkCallers(
+                context.buildContext(),
+                rule.owners(),
+                rule.methodNames()
         );
-        List<MethodReference.Handle> hashCodeTargets = collectSemanticTargets(
-                context,
-                MethodSemanticFlags.HASHCODE_TRIGGER,
-                instantiatedClasses
+        List<MethodReference.Handle> targets = collectSemanticTargets(
+                context.buildContext(),
+                rule.semanticFlag()
         );
-        List<MethodReference.Handle> equalsTargets = collectSemanticTargets(
-                context,
-                MethodSemanticFlags.EQUALS_TRIGGER,
-                instantiatedClasses
-        );
-        if (toStringTargets.isEmpty() && hashCodeTargets.isEmpty() && equalsTargets.isEmpty()) {
-            return 0;
-        }
-        int added = 0;
-        for (CallSiteEntity site : context.callSites) {
-            if (site == null) {
-                continue;
-            }
-            if (!OBJECT_OWNER.equals(safe(site.getCalleeOwner()))) {
-                continue;
-            }
-            MethodReference.Handle caller = resolveCaller(site, lookup);
-            if (!callerHasSemanticFlag(context, caller, MethodSemanticFlags.COLLECTION_CONTAINER)) {
-                continue;
-            }
-            String methodName = safe(site.getCalleeMethodName());
-            String methodDesc = safe(site.getCalleeMethodDesc());
-            if ("toString".equals(methodName) && "()Ljava/lang/String;".equals(methodDesc)) {
-                added += addTargets(
-                        context,
-                        caller,
-                        toStringTargets,
-                        MethodCallMeta.TYPE_FRAMEWORK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_tostring_trigger_bridge",
-                        Opcodes.INVOKEVIRTUAL
-                );
-                continue;
-            }
-            if ("hashCode".equals(methodName) && "()I".equals(methodDesc)) {
-                added += addTargets(
-                        context,
-                        caller,
-                        hashCodeTargets,
-                        MethodCallMeta.TYPE_FRAMEWORK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_hashcode_trigger_bridge",
-                        Opcodes.INVOKEVIRTUAL
-                );
-                continue;
-            }
-            if ("equals".equals(methodName) && "(Ljava/lang/Object;)Z".equals(methodDesc)) {
-                added += addTargets(
-                        context,
-                        caller,
-                        equalsTargets,
-                        MethodCallMeta.TYPE_FRAMEWORK,
-                        MethodCallMeta.CONF_HIGH,
-                        "semantic_equals_trigger_bridge",
-                        Opcodes.INVOKEVIRTUAL
-                );
-            }
-        }
-        return added;
-    }
-
-    private static int appendFrameworkEdges(BuildContext context) {
-        if (context == null || context.methodMap == null || context.methodMap.isEmpty()) {
-            return 0;
-        }
-        List<MethodReference.Handle> springCallers = collectFrameworkCallers(
-                context,
-                SPRING_DISPATCHER_OWNERS,
-                Set.of("doDispatch", "doService", "service", "invokeHandlerMethod", "invokeForRequest", "doInvoke")
-        );
-        List<MethodReference.Handle> springTargets = collectSemanticTargets(context, MethodSemanticFlags.SPRING_ENDPOINT);
-        List<MethodReference.Handle> strutsCallers = collectFrameworkCallers(
-                context,
-                STRUTS_DISPATCHER_OWNERS,
-                Set.of("process", "processActionPerform", "execute")
-        );
-        List<MethodReference.Handle> strutsTargets = collectSemanticTargets(context, MethodSemanticFlags.STRUTS_ACTION);
-        List<MethodReference.Handle> nettyCallers = collectFrameworkCallers(
-                context,
-                NETTY_DISPATCHER_OWNERS,
-                Set.of("channelRead", "invokeChannelRead")
-        );
-        List<MethodReference.Handle> nettyTargets = collectSemanticTargets(context, MethodSemanticFlags.NETTY_HANDLER);
-
-        int added = 0;
-        added += addFrameworkEdges(context, springCallers, springTargets, "spring_dispatch");
-        added += addFrameworkEdges(context, strutsCallers, strutsTargets, "struts_dispatch");
-        added += addFrameworkEdges(context, nettyCallers, nettyTargets, "netty_dispatch");
-        return added;
+        return addFrameworkEdges(context.buildContext(), callers, targets, rule.reason());
     }
 
     private static int addFrameworkEdges(BuildContext context,
@@ -560,6 +225,19 @@ final class BytecodeMainlineSemanticEdgeRunner {
             }
         }
         return added;
+    }
+
+    private static MethodReference.Handle resolveCaller(CallSiteEntity site,
+                                                        BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
+        if (site == null || lookup == null) {
+            return null;
+        }
+        return lookup.resolve(
+                site.getCallerClassName(),
+                site.getCallerMethodName(),
+                site.getCallerMethodDesc(),
+                site.getJarId()
+        );
     }
 
     private static List<MethodReference.Handle> collectSemanticTargets(BuildContext context, int semanticFlag) {
@@ -627,6 +305,10 @@ final class BytecodeMainlineSemanticEdgeRunner {
         return sortHandles(out);
     }
 
+    private static boolean matchesThreadStartSite(SemanticRuleContext context, CallSiteEntity site) {
+        return isThreadStartSite(site, context.buildContext().classMap, context.inheritanceMap());
+    }
+
     private static boolean isThreadStartSite(CallSiteEntity site,
                                              Map<ClassReference.Handle, ClassReference> classMap,
                                              InheritanceMap inheritanceMap) {
@@ -661,7 +343,8 @@ final class BytecodeMainlineSemanticEdgeRunner {
         }
         return ("execute".equals(name) && "(Ljava/lang/Runnable;)V".equals(desc))
                 || ("submit".equals(name) && "(Ljava/lang/Runnable;)Ljava/util/concurrent/Future;".equals(desc))
-                || ("submit".equals(name) && "(Ljava/lang/Runnable;Ljava/lang/Object;)Ljava/util/concurrent/Future;".equals(desc));
+                || ("submit".equals(name) && "(Ljava/lang/Runnable;Ljava/lang/Object;)Ljava/util/concurrent/Future;"
+                .equals(desc));
     }
 
     private static boolean isExecutorCallableSite(CallSiteEntity site) {
@@ -671,12 +354,64 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 && "(Ljava/util/concurrent/Callable;)Ljava/util/concurrent/Future;".equals(safe(site.getCalleeMethodDesc()));
     }
 
+    private static boolean matchesCompletableFutureRunnableSite(SemanticRuleContext context, CallSiteEntity site) {
+        if (!isCompletableFutureSite(site)) {
+            return false;
+        }
+        String name = safe(site.getCalleeMethodName());
+        String desc = safe(site.getCalleeMethodDesc());
+        return ("runAsync".equals(name) && (desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletableFuture;")
+                || desc.equals("(Ljava/lang/Runnable;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;")))
+                || (("thenRun".equals(name) || "thenRunAsync".equals(name))
+                && (desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletionStage;")
+                || desc.equals("(Ljava/lang/Runnable;)Ljava/util/concurrent/CompletableFuture;")));
+    }
+
+    private static boolean matchesCompletableFutureSupplierSite(SemanticRuleContext context, CallSiteEntity site) {
+        if (!isCompletableFutureSite(site)) {
+            return false;
+        }
+        return "supplyAsync".equals(safe(site.getCalleeMethodName()))
+                && ("(Ljava/util/function/Supplier;)Ljava/util/concurrent/CompletableFuture;"
+                .equals(safe(site.getCalleeMethodDesc()))
+                || "(Ljava/util/function/Supplier;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;"
+                .equals(safe(site.getCalleeMethodDesc())));
+    }
+
+    private static boolean matchesCompletableFutureConsumerSite(SemanticRuleContext context, CallSiteEntity site) {
+        if (!isCompletableFutureSite(site)) {
+            return false;
+        }
+        String name = safe(site.getCalleeMethodName());
+        String desc = safe(site.getCalleeMethodDesc());
+        return ("thenAccept".equals(name) || "thenAcceptAsync".equals(name))
+                && ("(Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletionStage;".equals(desc)
+                || "(Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;".equals(desc));
+    }
+
+    private static boolean matchesCompletableFutureFunctionSite(SemanticRuleContext context, CallSiteEntity site) {
+        if (!isCompletableFutureSite(site)) {
+            return false;
+        }
+        String name = safe(site.getCalleeMethodName());
+        String desc = safe(site.getCalleeMethodDesc());
+        return ("thenApply".equals(name) || "thenApplyAsync".equals(name))
+                && ("(Ljava/util/function/Function;)Ljava/util/concurrent/CompletionStage;".equals(desc)
+                || "(Ljava/util/function/Function;)Ljava/util/concurrent/CompletableFuture;".equals(desc));
+    }
+
     private static boolean isCompletableFutureSite(CallSiteEntity site) {
         if (site == null) {
             return false;
         }
         String owner = safe(site.getCalleeOwner());
         return COMPLETABLE_FUTURE_OWNER.equals(owner) || COMPLETION_STAGE_OWNER.equals(owner);
+    }
+
+    private static boolean matchesDoPrivilegedSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && ACCESS_CONTROLLER_OWNER.equals(safe(site.getCalleeOwner()))
+                && "doPrivileged".equals(safe(site.getCalleeMethodName()));
     }
 
     private static boolean isJdkProxyFactorySite(CallSiteEntity site) {
@@ -724,17 +459,55 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 || "load".equals(name) || "build".equals(name);
     }
 
-    private static MethodReference.Handle resolveCaller(CallSiteEntity site,
-                                                        BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        if (site == null || lookup == null) {
-            return null;
+    private static boolean matchesComparatorCallbackSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && COMPARATOR_OWNER.equals(safe(site.getCalleeOwner()))
+                && "compare".equals(safe(site.getCalleeMethodName()))
+                && "(Ljava/lang/Object;Ljava/lang/Object;)I".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean matchesComparableCallbackSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && COMPARABLE_OWNER.equals(safe(site.getCalleeOwner()))
+                && "compareTo".equals(safe(site.getCalleeMethodName()))
+                && "(Ljava/lang/Object;)I".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean matchesTransformerCallbackSite(SemanticRuleContext context, CallSiteEntity site) {
+        if (site == null) {
+            return false;
         }
-        return lookup.resolve(
-                site.getCallerClassName(),
-                site.getCallerMethodName(),
-                site.getCallerMethodDesc(),
-                site.getJarId()
-        );
+        String owner = safe(site.getCalleeOwner());
+        return (COLLECTIONS_TRANSFORMER_OWNER.equals(owner) || COLLECTIONS4_TRANSFORMER_OWNER.equals(owner))
+                && "transform".equals(safe(site.getCalleeMethodName()))
+                && "(Ljava/lang/Object;)Ljava/lang/Object;".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean matchesToStringTriggerSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && OBJECT_OWNER.equals(safe(site.getCalleeOwner()))
+                && "toString".equals(safe(site.getCalleeMethodName()))
+                && "()Ljava/lang/String;".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean matchesHashCodeTriggerSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && OBJECT_OWNER.equals(safe(site.getCalleeOwner()))
+                && "hashCode".equals(safe(site.getCalleeMethodName()))
+                && "()I".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean matchesEqualsTriggerSite(SemanticRuleContext context, CallSiteEntity site) {
+        return site != null
+                && OBJECT_OWNER.equals(safe(site.getCalleeOwner()))
+                && "equals".equals(safe(site.getCalleeMethodName()))
+                && "(Ljava/lang/Object;)Z".equals(safe(site.getCalleeMethodDesc()));
+    }
+
+    private static boolean callerIsCollectionContainer(SemanticRuleContext context,
+                                                       MethodReference.Handle caller,
+                                                       CallSiteEntity site) {
+        return callerHasSemanticFlag(context.buildContext(), caller, MethodSemanticFlags.COLLECTION_CONTAINER);
     }
 
     private static List<MethodReference.Handle> collectInterfaceTargets(BuildContext context,
@@ -993,6 +766,304 @@ final class BytecodeMainlineSemanticEdgeRunner {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private enum EdgeBucket {
+        THREAD,
+        EXECUTOR,
+        COMPLETABLE_FUTURE,
+        DO_PRIVILEGED,
+        DYNAMIC_PROXY,
+        GADGET_CALLBACK,
+        TRIGGER_BRIDGE,
+        FRAMEWORK
+    }
+
+    private enum TargetKey {
+        THREAD_RUN,
+        RUNNABLE_RUN,
+        CALLABLE_CALL,
+        SUPPLIER_GET,
+        CONSUMER_ACCEPT,
+        FUNCTION_APPLY,
+        ACTION_RUN,
+        JDK_PROXY_INVOKE,
+        CGLIB_INTERCEPT,
+        SPRING_AOP_INVOKE,
+        BYTE_BUDDY_INTERCEPT,
+        COMPARATOR_CALLBACK,
+        COMPARABLE_CALLBACK,
+        TRANSFORMER_CALLBACK,
+        TOSTRING_TRIGGER,
+        HASHCODE_TRIGGER,
+        EQUALS_TRIGGER
+    }
+
+    @FunctionalInterface
+    private interface SiteMatcher {
+        boolean matches(SemanticRuleContext context, CallSiteEntity site);
+    }
+
+    @FunctionalInterface
+    private interface CallerMatcher {
+        CallerMatcher ALWAYS = (context, caller, site) -> true;
+
+        boolean matches(SemanticRuleContext context, MethodReference.Handle caller, CallSiteEntity site);
+    }
+
+    private record CallSiteRuleBinding(TargetKey targetKey,
+                                       String type,
+                                       String confidence,
+                                       String reason,
+                                       int opcode,
+                                       SiteMatcher siteMatcher,
+                                       CallerMatcher callerMatcher) {
+    }
+
+    private record CallSiteRuleGroup(EdgeBucket bucket, List<CallSiteRuleBinding> bindings) {
+    }
+
+    private record FrameworkRule(Set<String> owners,
+                                 Set<String> methodNames,
+                                 int semanticFlag,
+                                 String reason) {
+    }
+
+    private record ResolvedBinding(CallSiteRuleBinding binding, List<MethodReference.Handle> targets) {
+    }
+
+    private static final class SemanticRuleContext {
+        private final BuildContext buildContext;
+        private final InheritanceMap inheritanceMap;
+        private final Set<ClassReference.Handle> instantiatedClasses;
+        private final BytecodeMainlineCallGraphRunner.MethodLookup lookup;
+        private final EnumMap<TargetKey, List<MethodReference.Handle>> targetCache =
+                new EnumMap<>(TargetKey.class);
+
+        private SemanticRuleContext(BuildContext buildContext,
+                                    InheritanceMap inheritanceMap,
+                                    Set<ClassReference.Handle> instantiatedClasses,
+                                    BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
+            this.buildContext = buildContext;
+            this.inheritanceMap = inheritanceMap;
+            this.instantiatedClasses = instantiatedClasses == null ? Set.of() : instantiatedClasses;
+            this.lookup = lookup;
+        }
+
+        private BuildContext buildContext() {
+            return buildContext;
+        }
+
+        private InheritanceMap inheritanceMap() {
+            return inheritanceMap;
+        }
+
+        private BytecodeMainlineCallGraphRunner.MethodLookup lookup() {
+            return lookup;
+        }
+
+        private List<MethodReference.Handle> targets(TargetKey key) {
+            return targetCache.computeIfAbsent(key, this::computeTargets);
+        }
+
+        private List<MethodReference.Handle> computeTargets(TargetKey key) {
+            if (key == null) {
+                return List.of();
+            }
+            return switch (key) {
+                case THREAD_RUN -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, THREAD, "run", "()V", true
+                );
+                case RUNNABLE_RUN -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, RUNNABLE, "run", "()V", false
+                );
+                case CALLABLE_CALL -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, CALLABLE, "call",
+                        "()Ljava/lang/Object;", false
+                );
+                case SUPPLIER_GET -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, SUPPLIER, "get",
+                        "()Ljava/lang/Object;", false
+                );
+                case CONSUMER_ACCEPT -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, CONSUMER, "accept",
+                        "(Ljava/lang/Object;)V", false
+                );
+                case FUNCTION_APPLY -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, FUNCTION, "apply",
+                        "(Ljava/lang/Object;)Ljava/lang/Object;", false
+                );
+                case ACTION_RUN -> {
+                    ArrayList<MethodReference.Handle> targets = new ArrayList<>();
+                    targets.addAll(collectInterfaceTargets(
+                            buildContext, inheritanceMap, instantiatedClasses, ACTION, "run",
+                            "()Ljava/lang/Object;", false
+                    ));
+                    targets.addAll(collectInterfaceTargets(
+                            buildContext, inheritanceMap, instantiatedClasses, ACTION_EX, "run",
+                            "()Ljava/lang/Object;", false
+                    ));
+                    yield sortHandles(targets);
+                }
+                case JDK_PROXY_INVOKE -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, INVOCATION_HANDLER, "invoke",
+                        "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;", false
+                );
+                case CGLIB_INTERCEPT -> {
+                    ArrayList<MethodReference.Handle> targets = new ArrayList<>();
+                    targets.addAll(collectInterfaceTargets(
+                            buildContext, inheritanceMap, instantiatedClasses, SPRING_CGLIB_INTERCEPTOR, "intercept",
+                            "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;Lorg/springframework/cglib/proxy/MethodProxy;)Ljava/lang/Object;",
+                            false
+                    ));
+                    targets.addAll(collectInterfaceTargets(
+                            buildContext, inheritanceMap, instantiatedClasses, NETSF_CGLIB_INTERCEPTOR, "intercept",
+                            "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;Lnet/sf/cglib/proxy/MethodProxy;)Ljava/lang/Object;",
+                            false
+                    ));
+                    yield sortHandles(targets);
+                }
+                case SPRING_AOP_INVOKE -> collectInterfaceTargets(
+                        buildContext, inheritanceMap, instantiatedClasses, AOP_METHOD_INTERCEPTOR, "invoke",
+                        "(Lorg/aopalliance/intercept/MethodInvocation;)Ljava/lang/Object;", false
+                );
+                case BYTE_BUDDY_INTERCEPT -> collectByteBuddyTargets(buildContext);
+                case COMPARATOR_CALLBACK -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.COMPARATOR_CALLBACK
+                );
+                case COMPARABLE_CALLBACK -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.COMPARABLE_CALLBACK
+                );
+                case TRANSFORMER_CALLBACK -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.TRANSFORMER_CALLBACK
+                );
+                case TOSTRING_TRIGGER -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.TOSTRING_TRIGGER, instantiatedClasses
+                );
+                case HASHCODE_TRIGGER -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.HASHCODE_TRIGGER, instantiatedClasses
+                );
+                case EQUALS_TRIGGER -> collectSemanticTargets(
+                        buildContext, MethodSemanticFlags.EQUALS_TRIGGER, instantiatedClasses
+                );
+            };
+        }
+    }
+
+    private static final class SemanticInvokeRuleRegistry {
+        private static final List<CallSiteRuleGroup> CALLSITE_RULE_GROUPS = List.of(
+                new CallSiteRuleGroup(EdgeBucket.THREAD, List.of(
+                        binding(TargetKey.THREAD_RUN, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "thread_start", Opcodes.INVOKEVIRTUAL,
+                                BytecodeMainlineSemanticEdgeRunner::matchesThreadStartSite)
+                )),
+                new CallSiteRuleGroup(EdgeBucket.EXECUTOR, List.of(
+                        binding(TargetKey.RUNNABLE_RUN, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "executor_runnable", Opcodes.INVOKEINTERFACE,
+                                (context, site) -> isExecutorRunnableSite(site)),
+                        binding(TargetKey.CALLABLE_CALL, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "executor_callable", Opcodes.INVOKEINTERFACE,
+                                (context, site) -> isExecutorCallableSite(site))
+                )),
+                new CallSiteRuleGroup(EdgeBucket.COMPLETABLE_FUTURE, List.of(
+                        binding(TargetKey.RUNNABLE_RUN, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "completable_future_runnable", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesCompletableFutureRunnableSite),
+                        binding(TargetKey.SUPPLIER_GET, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "completable_future_supplier", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesCompletableFutureSupplierSite),
+                        binding(TargetKey.CONSUMER_ACCEPT, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "completable_future_consumer", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesCompletableFutureConsumerSite),
+                        binding(TargetKey.FUNCTION_APPLY, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "completable_future_function", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesCompletableFutureFunctionSite)
+                )),
+                new CallSiteRuleGroup(EdgeBucket.DO_PRIVILEGED, List.of(
+                        binding(TargetKey.ACTION_RUN, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_LOW,
+                                "do_privileged", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesDoPrivilegedSite)
+                )),
+                new CallSiteRuleGroup(EdgeBucket.DYNAMIC_PROXY, List.of(
+                        binding(TargetKey.JDK_PROXY_INVOKE, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
+                                "dynamic_proxy_jdk", Opcodes.INVOKEINTERFACE,
+                                (context, site) -> isJdkProxyFactorySite(site)),
+                        binding(TargetKey.CGLIB_INTERCEPT, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
+                                "dynamic_proxy_cglib", Opcodes.INVOKEVIRTUAL,
+                                (context, site) -> isCglibFactorySite(site)),
+                        binding(TargetKey.SPRING_AOP_INVOKE, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
+                                "dynamic_proxy_spring_aop", Opcodes.INVOKEINTERFACE,
+                                (context, site) -> isSpringAopFactorySite(site)),
+                        binding(TargetKey.BYTE_BUDDY_INTERCEPT, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_MEDIUM,
+                                "dynamic_proxy_bytebuddy", Opcodes.INVOKEVIRTUAL,
+                                (context, site) -> isByteBuddyFactorySite(site))
+                )),
+                new CallSiteRuleGroup(EdgeBucket.GADGET_CALLBACK, List.of(
+                        binding(TargetKey.COMPARATOR_CALLBACK, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_HIGH,
+                                "semantic_comparator_callback", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesComparatorCallbackSite),
+                        binding(TargetKey.COMPARABLE_CALLBACK, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_HIGH,
+                                "semantic_comparable_callback", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesComparableCallbackSite),
+                        binding(TargetKey.TRANSFORMER_CALLBACK, MethodCallMeta.TYPE_CALLBACK, MethodCallMeta.CONF_HIGH,
+                                "semantic_transformer_callback", Opcodes.INVOKEINTERFACE,
+                                BytecodeMainlineSemanticEdgeRunner::matchesTransformerCallbackSite)
+                )),
+                new CallSiteRuleGroup(EdgeBucket.TRIGGER_BRIDGE, List.of(
+                        binding(TargetKey.TOSTRING_TRIGGER, MethodCallMeta.TYPE_FRAMEWORK, MethodCallMeta.CONF_HIGH,
+                                "semantic_tostring_trigger_bridge", Opcodes.INVOKEVIRTUAL,
+                                BytecodeMainlineSemanticEdgeRunner::matchesToStringTriggerSite,
+                                BytecodeMainlineSemanticEdgeRunner::callerIsCollectionContainer),
+                        binding(TargetKey.HASHCODE_TRIGGER, MethodCallMeta.TYPE_FRAMEWORK, MethodCallMeta.CONF_HIGH,
+                                "semantic_hashcode_trigger_bridge", Opcodes.INVOKEVIRTUAL,
+                                BytecodeMainlineSemanticEdgeRunner::matchesHashCodeTriggerSite,
+                                BytecodeMainlineSemanticEdgeRunner::callerIsCollectionContainer),
+                        binding(TargetKey.EQUALS_TRIGGER, MethodCallMeta.TYPE_FRAMEWORK, MethodCallMeta.CONF_HIGH,
+                                "semantic_equals_trigger_bridge", Opcodes.INVOKEVIRTUAL,
+                                BytecodeMainlineSemanticEdgeRunner::matchesEqualsTriggerSite,
+                                BytecodeMainlineSemanticEdgeRunner::callerIsCollectionContainer)
+                ))
+        );
+
+        private static final List<FrameworkRule> FRAMEWORK_RULES = List.of(
+                new FrameworkRule(
+                        SPRING_DISPATCHER_OWNERS,
+                        Set.of("doDispatch", "doService", "service", "invokeHandlerMethod", "invokeForRequest", "doInvoke"),
+                        MethodSemanticFlags.SPRING_ENDPOINT,
+                        "spring_dispatch"
+                ),
+                new FrameworkRule(
+                        STRUTS_DISPATCHER_OWNERS,
+                        Set.of("process", "processActionPerform", "execute"),
+                        MethodSemanticFlags.STRUTS_ACTION,
+                        "struts_dispatch"
+                ),
+                new FrameworkRule(
+                        NETTY_DISPATCHER_OWNERS,
+                        Set.of("channelRead", "invokeChannelRead"),
+                        MethodSemanticFlags.NETTY_HANDLER,
+                        "netty_dispatch"
+                )
+        );
+
+        private static CallSiteRuleBinding binding(TargetKey targetKey,
+                                                   String type,
+                                                   String confidence,
+                                                   String reason,
+                                                   int opcode,
+                                                   SiteMatcher siteMatcher) {
+            return binding(targetKey, type, confidence, reason, opcode, siteMatcher, CallerMatcher.ALWAYS);
+        }
+
+        private static CallSiteRuleBinding binding(TargetKey targetKey,
+                                                   String type,
+                                                   String confidence,
+                                                   String reason,
+                                                   int opcode,
+                                                   SiteMatcher siteMatcher,
+                                                   CallerMatcher callerMatcher) {
+            return new CallSiteRuleBinding(targetKey, type, confidence, reason, opcode, siteMatcher, callerMatcher);
+        }
     }
 
     record Result(int callbackEdges,

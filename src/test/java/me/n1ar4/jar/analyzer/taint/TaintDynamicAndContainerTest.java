@@ -162,6 +162,45 @@ class TaintDynamicAndContainerTest {
         return cw.toByteArray();
     }
 
+    private static byte[] genSingletonListBridgeClass(String internalName) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, internalName, null, "java/lang/Object", null);
+
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "next", "(Ljava/lang/Object;)V", null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "cur", "(Ljava/lang/String;)V", null, null);
+        mv.visitCode();
+        mv.visitVarInsn(Opcodes.ALOAD, 1);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/util/Collections", "singletonList",
+                "(Ljava/lang/Object;)Ljava/util/List;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 2);
+
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ALOAD, 2);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/List", "get",
+                "(I)Ljava/lang/Object;", true);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, internalName, "next", "(Ljava/lang/Object;)V", false);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
     private static byte[] genInterfaceSetterClass(String internalName, String ifaceInternalName) {
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         cw.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, internalName, null, "java/lang/Object", null);
@@ -220,6 +259,19 @@ class TaintDynamicAndContainerTest {
         MethodReference.Handle next = new MethodReference.Handle(
                 new ClassReference.Handle(owner), "next", "(Ljava/lang/Object;)V");
         TaintPass pass = runTaintPass(bytes, 2, cur, next);
+        assertNotNull(pass);
+        assertTrue(pass.getParamIndices().contains(0));
+    }
+
+    @Test
+    void collectionsSingletonListShouldPropagateElementTaint() {
+        String owner = "test/GenSingletonList";
+        byte[] bytes = genSingletonListBridgeClass(owner);
+        MethodReference.Handle cur = new MethodReference.Handle(
+                new ClassReference.Handle(owner), "cur", "(Ljava/lang/String;)V");
+        MethodReference.Handle next = new MethodReference.Handle(
+                new ClassReference.Handle(owner), "next", "(Ljava/lang/Object;)V");
+        TaintPass pass = runTaintPass(bytes, 0, cur, next);
         assertNotNull(pass);
         assertTrue(pass.getParamIndices().contains(0));
     }
