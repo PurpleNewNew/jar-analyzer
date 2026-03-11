@@ -91,7 +91,7 @@ class Neo4jBulkImportServiceSemanticMetadataTest {
                 projectKey,
                 1L,
                 false,
-                "taie:balanced",
+                "oracle-taie:balanced",
                 methods,
                 Map.of(entry.getHandle(), Set.of(mapper.getHandle())),
                 Map.of(edgeKey, edgeMeta),

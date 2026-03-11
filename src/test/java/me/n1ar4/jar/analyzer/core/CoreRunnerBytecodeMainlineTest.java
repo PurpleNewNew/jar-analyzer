@@ -45,7 +45,7 @@ class CoreRunnerBytecodeMainlineTest {
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());
         assertTrue(result.getEdgeCount() > 0L);
 
-        CoreRunner.BuildStageMetric metric = result.getStageMetric("taie_callgraph");
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         Map<String, Object> details = metric.getDetails();
         assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, details.get("engine"));
@@ -253,7 +253,7 @@ class CoreRunnerBytecodeMainlineTest {
         assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, result.getCallGraphEngine());
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());
 
-        CoreRunner.BuildStageMetric metric = result.getStageMetric("taie_callgraph");
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         assertTrue(metric.getDetails().containsKey("framework_edges"));
 

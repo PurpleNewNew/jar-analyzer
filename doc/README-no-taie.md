@@ -23,11 +23,11 @@
 
 截至 2026 年 3 月 11 日，Phase 0 已完成，当前主干状态如下：
 
-- 默认 build 仍然是 Tai-e；如果未设置 `jar.analyzer.callgraph.profile` / `jar.analyzer.callgraph.engine`，调用图仍回到 Tai-e
+- 默认 build 已切到 `balanced` 字节码主链；显式 `oracle-taie` 入口仍保留，旧的 `taie` engine 入口已移除
 - `fast / balanced / precision / oracle-taie` 的 profile 契约已经落地，见 `doc/README-no-taie-profile-switch.md`
 - 单次解析前端收口已经进入主建库链：`BuildBytecodeWorkspace + BuildFactSnapshot + BuildEdgeAccumulator + BytecodeFactRunner`
 - bytecode-mainline 已经能在 callback、framework-stack 等真实样本上跑通主链并进入回归包
-- 下一阶段不再是“补 Phase 0 文档”，而是“默认 profile 切换 + Tai-e 退场”
+- 默认主链切换与 `oracle-taie` 收口已经完成；下一步进入 `ConstraintFacts / selective PTA / precision` 深化
 
 ## 1. 背景与问题定义
 
@@ -46,7 +46,7 @@
 
 ### 1.1 当前主链的结构性问题
 
-如果不显式切到 bytecode profile，当前默认 `CoreRunner` 仍会先完成 discovery/class-analysis/framework-entry/method-semantic/bytecode-symbol，再进入默认的 Tai-e 调用图阶段。进入调用图阶段前会直接清空 `context.methodCalls` 和 `context.methodCallMeta`，然后由选中的调用图引擎回填。
+当前 `CoreRunner` 会先完成 discovery/class-analysis/framework-entry/method-semantic/bytecode-symbol，再进入统一的调用图阶段。进入调用图阶段前会直接清空 `context.methodCalls` 和 `context.methodCallMeta`，然后由选中的调用图引擎回填；截至 2026 年 3 月 11 日，未显式配置时默认引擎已切到 `balanced` 字节码主链。
 
 这意味着：
 
@@ -520,17 +520,17 @@ Tai-e 迁移后只保留以下用途：
 - `TaieEdgeMapper`
 - `TaieExtraEntryPointPlugin`
 
-### 8.4 最终希望删除的默认路径
+### 8.4 已收口的默认路径与剩余兼容面
 
-- `CoreRunner` 中默认 `taie-callgraph` 主阶段
-- “前面事实扫描一遍，后面 Tai-e 再整包分析一遍”的双重主链
-- Tai-e 专属输入规范化逻辑
+- `CoreRunner` 默认主阶段已收敛为 `callgraph`
+- 默认 build 已不再依赖“前面事实扫描一遍，后面 Tai-e 再整包分析一遍”的双重主链；Tai-e 仅在显式 `oracle-taie` 时运行
+- Tai-e 专属输入规范化逻辑仍残留在 `oracle-taie` 路径，后续只按对照链需要继续压缩
 
 ## 9. 迁移计划
 
 迁移必须有阶段边界，避免长期双轨。
 
-### Phase 0: 基线测量
+### Phase 0: 基线测量（已完成）
 
 目标：
 
@@ -548,20 +548,20 @@ Tai-e 迁移后只保留以下用途：
 - 每阶段 build timing 明细
 - 当前误报/漏报已知清单
 
-### Phase 1: 自研边构建内核并入当前分支
+### Phase 1: 自研边构建内核并入当前分支（已完成）
 
 目标：
 
 - 把 `dev` 的 dispatch/reflection/semantic/PTA 代码迁入当前分支
 - 先让它能消费当前 `BuildContext` 和 Neo4j 提交链
-- 此阶段允许通过实验 profile 并行验证，但默认仍是现有路径
+- 此阶段允许通过实验 profile 并行验证，核心目标是把 bytecode 主链能力迁进主干
 
 验收：
 
 - 不改外部 API
 - 关键 regression 全过
 
-### Phase 2: 单次事实提取收敛
+### Phase 2: 单次事实提取收敛（已完成）
 
 目标：
 
@@ -573,35 +573,39 @@ Tai-e 迁移后只保留以下用途：
 - 单次 build 的类解析次数显著下降
 - 事实输出与当前快照契约一致
 
-### Phase 3: 默认调用图切换为自研主链
+### Phase 3: 默认主链切换与 `oracle-taie` 收敛（已完成）
 
 目标：
 
-- 默认 profile 改为 `bytecode-balanced`
-- Tai-e 仅在显式 `precision/oracle` 模式启用
+- 默认 profile 已切到 `balanced` 字节码主链
+- Tai-e 仅在显式 `oracle-taie` 模式启用
+- 清理默认主链上的 Tai-e 阶段名、报表字段和文档口径
+- 删除 `engine=taie` 兼容别名与 `taie_*` 公开指标
 
 验收：
 
-- 真实 Web / gadget 回归全部通过
-- build 时间和内存显著优于 Tai-e 主链
+- 默认 build 不再依赖 Tai-e 生命周期
+- 对外 README / Phase 文档 / bench 报表统一以 `callgraph` 与 `oracle-taie` 为 canonical 口径
+- 真实 Web / gadget 回归继续通过
 
 ### Phase 4: 选择性 PTA 收敛
 
 目标：
 
 - 让 PTA 只对热点调用点运行
+- 把 `ConstraintFacts` 收成 PTA/反射的唯一 owner
 - 收敛 profile：
   - `fast`
   - `balanced`
   - `precision`
   - `oracle-taie`（仅对照）
 
-### Phase 5: 删除默认 Tai-e 主链
+### Phase 5: 压缩 `oracle-taie` 适配层
 
 目标：
 
-- `CoreRunner` 删除默认 `taie-callgraph`
-- Tai-e 只保留适配器入口
+- 删除仅服务历史对照链的冗余桥接
+- 继续缩小 `core/taie/*` 的外围依赖面
 
 ### Phase 6: 评估是否彻底移除 Tai-e 依赖
 

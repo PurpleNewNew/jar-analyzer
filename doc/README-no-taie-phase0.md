@@ -9,7 +9,7 @@
 
 本文档默认约束：
 
-- 当前默认主链仍然是 `ASM + Tai-e`
+- 当前默认主链已经切到 `ASM + bytecode-mainline`
 - 不直接改对外 API/GUI/MCP 契约
 - 不长期保留双主链
 - 优先复用现有 regression/bench/fixture，不重复造样本
@@ -40,9 +40,9 @@ Phase 0 不做“去 Tai-e 切换”，只做两件事：
 
 Phase 0 之后的工作边界也已经明确：
 
-- 默认主链仍未切到 bytecode profile
-- Tai-e 仍是默认 build 的调用图引擎
-- 下一阶段应该直接进入“默认 profile 切换 + Tai-e 退场”，而不是继续扩写 Phase 0
+- 默认主链已切到 `balanced` bytecode profile
+- Tai-e 已退化为显式 `oracle-taie` 对照路径，旧的 `taie` engine 入口已移除
+- 下一阶段应该直接进入“oracle-taie 收敛 + Tai-e 退场”，而不是继续扩写 Phase 0
 
 ## 2. 当前可复用资产
 
@@ -75,7 +75,7 @@ Phase 0 之后的工作边界也已经明确：
 
 - `CoreRunner` 已输出逐阶段耗时和 `heapUsage`
 - `Neo4jBulkImportService` 已输出导入耗时、节点数、边数
-- `BuildResult` / build meta 已记录 `call_graph_engine`、`call_graph_mode`、`taie_edge_count`
+- `BuildResult` / build meta 已记录 `call_graph_engine`、`call_graph_mode`，并对 oracle 路径同时输出 `oracle_*` / 兼容 `taie_*` 计数
 - `BenchReportWriter` 已约定 bench 输出目录为 `target/bench`
 
 这意味着 Phase 0 不需要从零开始造 metrics 体系，应该先把现有日志与 QA harness 收敛成结构化报告。
@@ -131,17 +131,19 @@ Phase 0 的基线样本统一固定为以下七组：
 - `build_stage_framework_entry_ms`
 - `build_stage_method_semantic_ms`
 - `build_stage_bytecode_symbol_ms`
-- `build_stage_taie_ms`
+- `build_stage_callgraph_ms`
 - `build_stage_neo4j_commit_ms`
-- `peak_heap_hint`
+- `peak_heap_used_bytes`
+- `peak_heap_committed_bytes`
+- `heap_max_bytes`
 - `jar_count`
 - `class_file_count`
 - `class_count`
 - `method_count`
 - `call_site_count`
 - `edge_count`
-- `taie_edge_count`
-- `project_store_size_bytes`
+- `oracle_edge_count`
+- `db_size_bytes`
 - `call_graph_engine`
 - `call_graph_mode`
 

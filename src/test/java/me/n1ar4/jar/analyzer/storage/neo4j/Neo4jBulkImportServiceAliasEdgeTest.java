@@ -132,7 +132,7 @@ class Neo4jBulkImportServiceAliasEdgeTest {
                     projectKey,
                     1L,
                     false,
-                    "taie:balanced",
+                    "oracle-taie:balanced",
                     methods,
                     Map.of(caller.getHandle(), Set.of(wrapper.getHandle())),
                     Map.of(),

@@ -46,6 +46,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -102,6 +103,7 @@ final class BytecodeMainlineReflectionResolver {
                 || context.methodMap.isEmpty()) {
             return Result.empty();
         }
+        Map<String, InstanceFieldFacts> instanceFieldFacts = collectInstanceFieldFacts(workspace);
         int reflectionEdges = 0;
         int methodHandleEdges = 0;
         int invokeDynamicEdges = 0;
@@ -139,6 +141,7 @@ final class BytecodeMainlineReflectionResolver {
                             cn,
                             parsedMethod.sourceFrames(),
                             staticStrings,
+                            instanceFieldFacts,
                             context.methodCalls,
                             context.methodMap,
                             context.methodCallMeta
@@ -247,6 +250,7 @@ final class BytecodeMainlineReflectionResolver {
                                                        ClassNode classNode,
                                                        Frame<SourceValue>[] precomputedFrames,
                                                        Map<String, String> staticStrings,
+                                                       Map<String, InstanceFieldFacts> instanceFieldFacts,
                                                        Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                                                        Map<MethodReference.Handle, MethodReference> methodMap,
                                                        Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
@@ -256,7 +260,7 @@ final class BytecodeMainlineReflectionResolver {
                 Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
                 frames = analyzer.analyze(owner, mn);
             }
-            ResolveContext ctx = new ResolveContext(frames, mn.instructions, classNode, staticStrings);
+            ResolveContext ctx = new ResolveContext(frames, mn.instructions, classNode, staticStrings, instanceFieldFacts);
             int reflectionEdges = 0;
             int methodHandleEdges = 0;
             for (int i = 0, n = mn.instructions.size(); i < n; i++) {
@@ -799,6 +803,9 @@ final class BytecodeMainlineReflectionResolver {
             return normalized == null ? null : new ResolvedString(normalized, combineReasons(REASON_LOCAL, local.reason));
         }
         if (src instanceof MethodInsnNode mi) {
+            if (isObjectGetClass(mi)) {
+                return resolveObjectGetClassName(mi, ctx, 0);
+            }
             if (!isForName(mi) && !isLoadClass(mi)) {
                 return null;
             }
@@ -808,6 +815,14 @@ final class BytecodeMainlineReflectionResolver {
             }
             String normalized = normalizeClassName(name.value);
             return normalized == null ? null : new ResolvedString(normalized, REASON_FOR_NAME + "_" + name.reason);
+        }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            ResolvedString type = resolveInstanceFieldObjectType(fin, ctx);
+            if (type == null || type.value == null) {
+                return null;
+            }
+            String normalized = normalizeClassName(type.value);
+            return normalized == null ? null : new ResolvedString(normalized, type.reason);
         }
         if (src instanceof InvokeDynamicInsnNode || src instanceof FieldInsnNode) {
             ResolvedString name = resolveStringConstantWithReason(value, ctx, 0);
@@ -909,6 +924,171 @@ final class BytecodeMainlineReflectionResolver {
         return new ResolvedString(resolved.value, combineReasons(REASON_LOCAL, resolved.reason));
     }
 
+    private static boolean isObjectGetClass(MethodInsnNode mi) {
+        return mi != null
+                && "getClass".equals(mi.name)
+                && "()Ljava/lang/Class;".equals(mi.desc);
+    }
+
+    private static ResolvedString resolveObjectGetClassName(MethodInsnNode mi,
+                                                            ResolveContext ctx,
+                                                            int depth) {
+        if (mi == null || ctx == null || depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        int idx = ctx.instructions.indexOf(mi);
+        if (idx < 0 || ctx.frames[idx] == null) {
+            return null;
+        }
+        Frame<SourceValue> frame = ctx.frames[idx];
+        int recvIndex = frame.getStackSize() - 1;
+        if (recvIndex < 0) {
+            return null;
+        }
+        ResolvedString objectType = resolveRuntimeObjectType(frame.getStack(recvIndex), ctx, depth + 1);
+        if (objectType == null || objectType.value == null) {
+            return null;
+        }
+        String normalized = normalizeClassName(objectType.value);
+        return normalized == null ? null : new ResolvedString(normalized, combineReasons("object_get_class", objectType.reason));
+    }
+
+    private static ResolvedString resolveRuntimeObjectType(SourceValue value,
+                                                           ResolveContext ctx,
+                                                           int depth) {
+        if (value == null || value.insns == null || value.insns.isEmpty() || depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        ResolvedString found = null;
+        for (AbstractInsnNode src : value.insns) {
+            ResolvedString candidate = resolveRuntimeObjectTypeFromInsn(canonicalInsn(src, ctx), ctx, depth + 1);
+            if (candidate == null || candidate.value == null) {
+                continue;
+            }
+            if (found == null) {
+                found = candidate;
+                continue;
+            }
+            if (!safe(found.value).equals(safe(candidate.value))) {
+                return null;
+            }
+        }
+        return found;
+    }
+
+    private static ResolvedString resolveRuntimeObjectTypeFromInsn(AbstractInsnNode src,
+                                                                   ResolveContext ctx,
+                                                                   int depth) {
+        if (src == null || ctx == null || depth > MAX_CONST_DEPTH) {
+            return null;
+        }
+        if (src instanceof InsnNode insn && isDupInsn(insn.getOpcode())) {
+            AbstractInsnNode previous = previousValueProducer(ctx.instructions, ctx.instructions.indexOf(src));
+            if (previous != null) {
+                return resolveRuntimeObjectTypeFromInsn(previous, ctx, depth + 1);
+            }
+        }
+        if (src instanceof TypeInsnNode typeInsn) {
+            if (typeInsn.desc != null && !typeInsn.desc.isBlank()) {
+                return new ResolvedString(typeInsn.desc, REASON_CONST);
+            }
+            return null;
+        }
+        if (src instanceof FieldInsnNode fieldInsn) {
+            if (fieldInsn.getOpcode() == Opcodes.GETFIELD) {
+                ResolvedString fieldType = resolveInstanceFieldObjectType(fieldInsn, ctx);
+                if (fieldType != null && fieldType.value != null) {
+                    return fieldType;
+                }
+            }
+            Type fieldType = Type.getType(fieldInsn.desc);
+            if (fieldType.getSort() == Type.OBJECT) {
+                return new ResolvedString(fieldType.getInternalName(), REASON_STATIC);
+            }
+            return null;
+        }
+        if (src instanceof MethodInsnNode mi) {
+            if (isObjectGetClass(mi)) {
+                return null;
+            }
+            Type returnType = Type.getReturnType(mi.desc);
+            if (returnType.getSort() == Type.OBJECT) {
+                return new ResolvedString(returnType.getInternalName(), REASON_USER_METHOD);
+            }
+            return null;
+        }
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
+            AbstractInsnNode stored = getStoredSourceInsn(varInsn, ctx);
+            if (stored != null) {
+                ResolvedString local = resolveRuntimeObjectTypeFromInsn(stored, ctx, depth + 1);
+                if (local != null && local.value != null) {
+                    return new ResolvedString(local.value, combineReasons(REASON_LOCAL, local.reason));
+                }
+            }
+            if (ctx.classNode != null && varInsn.var == 0) {
+                return new ResolvedString(ctx.classNode.name, REASON_LOCAL);
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDupInsn(int opcode) {
+        return opcode == Opcodes.DUP
+                || opcode == Opcodes.DUP_X1
+                || opcode == Opcodes.DUP_X2
+                || opcode == Opcodes.DUP2
+                || opcode == Opcodes.DUP2_X1
+                || opcode == Opcodes.DUP2_X2;
+    }
+
+    private static AbstractInsnNode previousValueProducer(InsnList instructions,
+                                                          int index) {
+        if (instructions == null || index <= 0) {
+            return null;
+        }
+        for (int i = index - 1; i >= 0; i--) {
+            AbstractInsnNode candidate = instructions.get(i);
+            if (candidate == null || candidate.getOpcode() < 0) {
+                continue;
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    private static String directObjectType(AbstractInsnNode src,
+                                           ResolveContext ctx,
+                                           int depth) {
+        ResolvedString resolved = resolveRuntimeObjectTypeFromInsn(src, ctx, depth);
+        return resolved == null ? null : resolved.value;
+    }
+
+    private static ResolvedString resolveInstanceFieldString(FieldInsnNode fin,
+                                                             ResolveContext ctx) {
+        if (fin == null || ctx == null || fin.getOpcode() != Opcodes.GETFIELD) {
+            return null;
+        }
+        InstanceFieldFacts facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
+        if (facts == null) {
+            return null;
+        }
+        String value = facts.uniqueStringValue();
+        return value == null ? null : new ResolvedString(value, "field_fact");
+    }
+
+    private static ResolvedString resolveInstanceFieldObjectType(FieldInsnNode fin,
+                                                                 ResolveContext ctx) {
+        if (fin == null || ctx == null || fin.getOpcode() != Opcodes.GETFIELD) {
+            return null;
+        }
+        InstanceFieldFacts facts = ctx.instanceFieldFacts.get(fieldKey(fin.owner, fin.name));
+        if (facts == null) {
+            return null;
+        }
+        String value = facts.uniqueObjectType();
+        return value == null ? null : new ResolvedString(value, "field_fact");
+    }
+
     private static ResolvedString resolveStringConstantWithReason(SourceValue value,
                                                                   ResolveContext ctx,
                                                                   int depth) {
@@ -987,6 +1167,9 @@ final class BytecodeMainlineReflectionResolver {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
         }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
+        }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
         }
@@ -1050,6 +1233,9 @@ final class BytecodeMainlineReflectionResolver {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
         }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
+        }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
         }
@@ -1071,6 +1257,9 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
+        }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
         }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
@@ -1155,6 +1344,9 @@ final class BytecodeMainlineReflectionResolver {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
         }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
+        }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
         }
@@ -1196,6 +1388,9 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
+        }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
         }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
@@ -1296,6 +1491,7 @@ final class BytecodeMainlineReflectionResolver {
                         target.instructions,
                         ctx.classNode,
                         ctx.staticStrings,
+                        ctx.instanceFieldFacts,
                         ctx.methodReturnCache,
                         ctx.methodReturnInProgress
                 );
@@ -1398,6 +1594,12 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof LdcInsnNode ldc && ldc.cst instanceof Type type) {
             return new ResolvedString(type.getInternalName(), REASON_CLASS_CONST);
         }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldObjectType(fin, ctx);
+        }
+        if (src instanceof MethodInsnNode mi && isObjectGetClass(mi)) {
+            return resolveObjectGetClassName(mi, ctx, 0);
+        }
         if (src instanceof MethodInsnNode mi && (isForName(mi) || isLoadClass(mi))) {
             ResolvedString className = resolveClassNameFromCallWithReason(mi, ctx, 0);
             if (className == null || className.value == null) {
@@ -1447,6 +1649,9 @@ final class BytecodeMainlineReflectionResolver {
         if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETSTATIC) {
             String key = fin.owner + "#" + fin.name;
             return normalizeResolvedString(ctx.staticStrings.get(key), REASON_STATIC);
+        }
+        if (src instanceof FieldInsnNode fin && fin.getOpcode() == Opcodes.GETFIELD) {
+            return resolveInstanceFieldString(fin, ctx);
         }
         if (src instanceof InvokeDynamicInsnNode indy) {
             return normalizeResolvedString(resolveInvokeDynamicString(indy, ctx, depth + 1), REASON_CONCAT);
@@ -1854,6 +2059,224 @@ final class BytecodeMainlineReflectionResolver {
             }
         });
         return out;
+    }
+
+    private static Map<String, InstanceFieldFacts> collectInstanceFieldFacts(BuildBytecodeWorkspace workspace) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<FieldBinding>> bindingsByCtor = collectConstructorFieldBindings(workspace);
+        if (bindingsByCtor.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, InstanceFieldFactsBuilder> builders = new LinkedHashMap<>();
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
+            if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
+                continue;
+            }
+            Map<String, String> staticStrings = collectStaticStringConstants(parsedClass.classNode());
+            for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                MethodNode methodNode = parsedMethod.methodNode();
+                if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
+                    continue;
+                }
+                Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+                if (frames == null) {
+                    continue;
+                }
+                ResolveContext ctx = new ResolveContext(
+                        frames,
+                        methodNode.instructions,
+                        parsedClass.classNode(),
+                        staticStrings,
+                        Map.of()
+                );
+                for (int i = 0, n = methodNode.instructions.size(); i < n; i++) {
+                    AbstractInsnNode insn = methodNode.instructions.get(i);
+                    if (!(insn instanceof MethodInsnNode mi)
+                            || mi.getOpcode() != Opcodes.INVOKESPECIAL
+                            || !"<init>".equals(mi.name)) {
+                        continue;
+                    }
+                    List<FieldBinding> bindings = bindingsByCtor.get(constructorKey(mi.owner, mi.desc));
+                    if (bindings == null || bindings.isEmpty()) {
+                        continue;
+                    }
+                    Frame<SourceValue> frame = frames[i];
+                    if (frame == null) {
+                        continue;
+                    }
+                    Type[] argTypes = Type.getArgumentTypes(mi.desc);
+                    for (FieldBinding binding : bindings) {
+                        if (binding == null) {
+                            continue;
+                        }
+                        InstanceFieldFactsBuilder builder = builders.computeIfAbsent(
+                                fieldKey(binding.owner(), binding.fieldName()),
+                                ignore -> new InstanceFieldFactsBuilder()
+                        );
+                        switch (binding.kind()) {
+                            case STRING_CONST -> builder.addString(binding.literal());
+                            case OBJECT_CONST -> builder.addObjectType(binding.literal());
+                            case STRING_ARG, OBJECT_ARG -> {
+                                int stackIndex = resolveArgumentStackIndex(frame.getStackSize(), argTypes, binding.argIndex());
+                                if (stackIndex < 0 || stackIndex >= frame.getStackSize()) {
+                                    continue;
+                                }
+                                SourceValue argValue = frame.getStack(stackIndex);
+                                if (binding.kind() == FieldBindingKind.STRING_ARG) {
+                                    ResolvedString resolved = resolveStringOperandForReflection(argValue, ctx, 0);
+                                    if (resolved != null) {
+                                        builder.addString(resolved.value);
+                                    }
+                                } else {
+                                    ResolvedString resolved = resolveRuntimeObjectType(argValue, ctx, 0);
+                                    if (resolved != null) {
+                                        builder.addObjectType(resolved.value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (builders.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, InstanceFieldFacts> out = new LinkedHashMap<>();
+        for (Map.Entry<String, InstanceFieldFactsBuilder> entry : builders.entrySet()) {
+            InstanceFieldFacts facts = entry.getValue() == null ? InstanceFieldFacts.empty() : entry.getValue().build();
+            if (!facts.isEmpty()) {
+                out.put(entry.getKey(), facts);
+            }
+        }
+        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+    }
+
+    private static Map<String, List<FieldBinding>> collectConstructorFieldBindings(BuildBytecodeWorkspace workspace) {
+        Map<String, List<FieldBinding>> out = new LinkedHashMap<>();
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return out;
+        }
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
+            if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
+                continue;
+            }
+            Map<String, String> staticStrings = collectStaticStringConstants(parsedClass.classNode());
+            for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                MethodNode methodNode = parsedMethod.methodNode();
+                if (methodNode == null
+                        || !"<init>".equals(methodNode.name)
+                        || methodNode.instructions == null
+                        || methodNode.instructions.size() == 0) {
+                    continue;
+                }
+                Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+                if (frames == null) {
+                    continue;
+                }
+                ResolveContext ctx = new ResolveContext(
+                        frames,
+                        methodNode.instructions,
+                        parsedClass.classNode(),
+                        staticStrings,
+                        Map.of()
+                );
+                Map<Integer, Integer> argIndexBySlot = constructorArgIndexBySlot(methodNode.desc, methodNode.access);
+                List<FieldBinding> bindings = new ArrayList<>();
+                for (int i = 0, n = methodNode.instructions.size(); i < n; i++) {
+                    AbstractInsnNode insn = methodNode.instructions.get(i);
+                    if (!(insn instanceof FieldInsnNode fin)
+                            || fin.getOpcode() != Opcodes.PUTFIELD
+                            || !safe(parsedClass.className()).equals(safe(fin.owner))) {
+                        continue;
+                    }
+                    Frame<SourceValue> frame = frames[i];
+                    if (frame == null || frame.getStackSize() <= 0) {
+                        continue;
+                    }
+                    FieldBinding binding = resolveFieldBinding(
+                            fin,
+                            frame.getStack(frame.getStackSize() - 1),
+                            ctx,
+                            argIndexBySlot
+                    );
+                    if (binding != null) {
+                        bindings.add(binding);
+                    }
+                }
+                if (!bindings.isEmpty()) {
+                    out.put(constructorKey(parsedClass.className(), methodNode.desc), List.copyOf(bindings));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static FieldBinding resolveFieldBinding(FieldInsnNode fieldInsn,
+                                                    SourceValue value,
+                                                    ResolveContext ctx,
+                                                    Map<Integer, Integer> argIndexBySlot) {
+        if (fieldInsn == null || value == null) {
+            return null;
+        }
+        AbstractInsnNode src = getSingleInsn(value, ctx);
+        if (src == null) {
+            return null;
+        }
+        Type fieldType = Type.getType(fieldInsn.desc);
+        if (src instanceof VarInsnNode varInsn && varInsn.getOpcode() == Opcodes.ALOAD) {
+            Integer argIndex = argIndexBySlot.get(varInsn.var);
+            if (argIndex == null || argIndex < 0) {
+                return null;
+            }
+            if (fieldType.getSort() == Type.OBJECT && "java/lang/String".equals(fieldType.getInternalName())) {
+                return new FieldBinding(fieldInsn.owner, fieldInsn.name, FieldBindingKind.STRING_ARG, argIndex, null);
+            }
+            if (fieldType.getSort() == Type.OBJECT || fieldType.getSort() == Type.ARRAY) {
+                return new FieldBinding(fieldInsn.owner, fieldInsn.name, FieldBindingKind.OBJECT_ARG, argIndex, null);
+            }
+            return null;
+        }
+        if (src instanceof LdcInsnNode ldc
+                && ldc.cst instanceof String stringValue
+                && fieldType.getSort() == Type.OBJECT
+                && "java/lang/String".equals(fieldType.getInternalName())) {
+            return new FieldBinding(fieldInsn.owner, fieldInsn.name, FieldBindingKind.STRING_CONST, null, stringValue.trim());
+        }
+        String directType = directObjectType(src, ctx, 0);
+        if (directType != null && (fieldType.getSort() == Type.OBJECT || fieldType.getSort() == Type.ARRAY)) {
+            return new FieldBinding(fieldInsn.owner, fieldInsn.name, FieldBindingKind.OBJECT_CONST, null, directType);
+        }
+        return null;
+    }
+
+    private static Map<Integer, Integer> constructorArgIndexBySlot(String desc, int access) {
+        Map<Integer, Integer> out = new HashMap<>();
+        Type[] args = Type.getArgumentTypes(desc);
+        int slot = (access & Opcodes.ACC_STATIC) != 0 ? 0 : 1;
+        for (int i = 0; i < args.length; i++) {
+            out.put(slot, i);
+            slot += args[i].getSize();
+        }
+        return out;
+    }
+
+    private static int resolveArgumentStackIndex(int stackSize, Type[] argTypes, Integer argIndex) {
+        if (argTypes == null || argIndex == null || argIndex < 0 || argIndex >= argTypes.length) {
+            return -1;
+        }
+        int totalArgSlots = 0;
+        for (Type argType : argTypes) {
+            totalArgSlots += argType == null ? 1 : argType.getSize();
+        }
+        int index = stackSize - totalArgSlots;
+        for (int i = 0; i < argIndex; i++) {
+            Type argType = argTypes[i];
+            index += argType == null ? 1 : argType.getSize();
+        }
+        return index;
     }
 
     private static ResolvedConst resolveConstValueWithReason(SourceValue value,
@@ -2661,6 +3084,7 @@ final class BytecodeMainlineReflectionResolver {
                     target.instructions,
                     ctx.classNode,
                     ctx.staticStrings,
+                    ctx.instanceFieldFacts,
                     ctx.methodReturnCache,
                     ctx.methodReturnInProgress
             );
@@ -2822,6 +3246,24 @@ final class BytecodeMainlineReflectionResolver {
                                 String implDesc) {
     }
 
+    private static String constructorKey(String owner, String desc) {
+        String normalizedOwner = safe(owner);
+        String normalizedDesc = safe(desc);
+        if (normalizedOwner.isBlank() || normalizedDesc.isBlank()) {
+            return "";
+        }
+        return normalizedOwner + "#" + normalizedDesc;
+    }
+
+    private static String fieldKey(String owner, String fieldName) {
+        String normalizedOwner = safe(owner);
+        String normalizedField = safe(fieldName);
+        if (normalizedOwner.isBlank() || normalizedField.isBlank()) {
+            return "";
+        }
+        return normalizedOwner + "#" + normalizedField;
+    }
+
     private record ResolvedConst(Object value, String reason) {
     }
 
@@ -2843,11 +3285,79 @@ final class BytecodeMainlineReflectionResolver {
 
     private static final ResolvedConst UNRESOLVED_CONST = new ResolvedConst(null, REASON_UNKNOWN);
 
+    private enum FieldBindingKind {
+        STRING_ARG,
+        OBJECT_ARG,
+        STRING_CONST,
+        OBJECT_CONST
+    }
+
+    private record FieldBinding(String owner,
+                                String fieldName,
+                                FieldBindingKind kind,
+                                Integer argIndex,
+                                String literal) {
+    }
+
+    private record InstanceFieldFacts(Set<String> stringValues,
+                                      Set<String> objectTypes) {
+        private static InstanceFieldFacts empty() {
+            return new InstanceFieldFacts(Set.of(), Set.of());
+        }
+
+        private boolean isEmpty() {
+            return stringValues.isEmpty() && objectTypes.isEmpty();
+        }
+
+        private String uniqueStringValue() {
+            return uniqueValue(stringValues);
+        }
+
+        private String uniqueObjectType() {
+            return uniqueValue(objectTypes);
+        }
+
+        private static String uniqueValue(Set<String> values) {
+            if (values == null || values.size() != 1) {
+                return null;
+            }
+            String value = values.iterator().next();
+            return value == null || value.isBlank() ? null : value;
+        }
+    }
+
+    private static final class InstanceFieldFactsBuilder {
+        private final LinkedHashSet<String> stringValues = new LinkedHashSet<>();
+        private final LinkedHashSet<String> objectTypes = new LinkedHashSet<>();
+
+        private void addString(String value) {
+            String normalized = safe(value);
+            if (!normalized.isBlank()) {
+                stringValues.add(normalized);
+            }
+        }
+
+        private void addObjectType(String value) {
+            String normalized = safe(value);
+            if (!normalized.isBlank()) {
+                objectTypes.add(normalized);
+            }
+        }
+
+        private InstanceFieldFacts build() {
+            return new InstanceFieldFacts(
+                    stringValues.isEmpty() ? Set.of() : Set.copyOf(stringValues),
+                    objectTypes.isEmpty() ? Set.of() : Set.copyOf(objectTypes)
+            );
+        }
+    }
+
     private static final class ResolveContext {
         private final Frame<SourceValue>[] frames;
         private final InsnList instructions;
         private final ClassNode classNode;
         private final Map<String, String> staticStrings;
+        private final Map<String, InstanceFieldFacts> instanceFieldFacts;
         private final Map<AbstractInsnNode, ResolvedConst> constCache = new IdentityHashMap<>();
         private final Map<AbstractInsnNode, List<Type>> classArrayCache = new IdentityHashMap<>();
         private final Set<AbstractInsnNode> classArrayMiss =
@@ -2859,19 +3369,29 @@ final class BytecodeMainlineReflectionResolver {
                                InsnList instructions,
                                ClassNode classNode,
                                Map<String, String> staticStrings) {
-            this(frames, instructions, classNode, staticStrings, new HashMap<>(), new HashSet<>());
+            this(frames, instructions, classNode, staticStrings, Map.of(), new HashMap<>(), new HashSet<>());
         }
 
         private ResolveContext(Frame<SourceValue>[] frames,
                                InsnList instructions,
                                ClassNode classNode,
                                Map<String, String> staticStrings,
+                               Map<String, InstanceFieldFacts> instanceFieldFacts) {
+            this(frames, instructions, classNode, staticStrings, instanceFieldFacts, new HashMap<>(), new HashSet<>());
+        }
+
+        private ResolveContext(Frame<SourceValue>[] frames,
+                               InsnList instructions,
+                               ClassNode classNode,
+                               Map<String, String> staticStrings,
+                               Map<String, InstanceFieldFacts> instanceFieldFacts,
                                Map<String, ResolvedConst> methodReturnCache,
                                Set<String> methodReturnInProgress) {
             this.frames = frames;
             this.instructions = instructions;
             this.classNode = classNode;
             this.staticStrings = staticStrings == null ? Map.of() : staticStrings;
+            this.instanceFieldFacts = instanceFieldFacts == null ? Map.of() : instanceFieldFacts;
             this.methodReturnCache = methodReturnCache == null ? new HashMap<>() : methodReturnCache;
             this.methodReturnInProgress = methodReturnInProgress == null ? new HashSet<>() : methodReturnInProgress;
         }

@@ -295,7 +295,7 @@ record BuildFactSnapshot(
 - `nativeModelHints`
 
 这层仍然是下一阶段必须补齐的唯一 owner。
-截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 还是空骨架，这不再阻塞 Phase 0 关闭，但它仍然是 Phase 1 的直接收口目标。
+截至 2026 年 3 月 11 日，当前代码里 `ConstraintFacts` 还是空骨架；默认主链切换与 `oracle-taie` 收口已经完成，后续应把它作为 selective PTA / precision 阶段的直接收口目标。
 
 ## 5. `BuildEdgeAccumulator` 的目标结构
 

@@ -17,14 +17,14 @@
 
 1. 如果显式设置了 `jar.analyzer.callgraph.engine`，优先按 engine 走。
 2. 否则读取 `jar.analyzer.callgraph.profile`。
-3. 如果两者都没设置，当前默认仍回到 `taie`。
+3. 如果两者都没设置，当前默认走 `balanced` 字节码主链。
 
 ## 2. Profile 到 pipeline 的映射
 
 | profile | call_graph_engine | call_graph_mode | selective PTA | 用途 |
 | --- | --- | --- | --- | --- |
 | `fast` | `bytecode-mainline` | `bytecode:fast-v1` | 否 | 快速建库、先看主调用链 |
-| `balanced` | `bytecode-mainline+pta-refine` | `bytecode:balanced-v1` | 是 | 未来默认 no-taie 主链候选 |
+| `balanced` | `bytecode-mainline+pta-refine` | `bytecode:balanced-v1` | 是 | 当前默认主链，兼顾速度与热点 PTA 精化 |
 | `precision` | `bytecode-mainline+pta-refine` | `bytecode:precision-v1` | 是 | 在同一 bytecode 主链下追求更高精度 |
 | `oracle-taie` | `oracle-taie` | `oracle-taie:<taie-profile>` | 否 | 把 Tai-e 限定为 oracle/对照模式 |
 
@@ -35,11 +35,10 @@
 
 ## 3. Engine 兼容映射
 
-为了兼容现有调用方式，当前仍保留以下 engine：
+当前仍保留以下 engine 入口：
 
 | engine | 行为 |
 | --- | --- |
-| `taie` | 旧默认主链，`call_graph_mode=taie:<profile>` |
 | `bytecode-mainline` | 兼容旧实验入口，走 `bytecode:semantic-v1` |
 | `bytecode-mainline+pta-refine` | 走 `bytecode:balanced-v1` |
 | `oracle-taie` | 走 `oracle-taie:<taie-profile>` |
@@ -47,6 +46,7 @@
 兼容口径：
 
 - engine 只作为迁移期 escape hatch。
+- `jar.analyzer.callgraph.engine=taie` 已移除，当前会直接报错并提示改成 `oracle-taie`。
 - profile 才是后续 GUI/API 真正应该暴露的切换面。
 
 ## 4. 当前代码落点
@@ -67,6 +67,8 @@ mvn -q -Dskip.npm=true -Dskip.installnodenpm=true \
 
 当前验证点：
 
+- 默认无配置时会落到 `bytecode-mainline+pta-refine / bytecode:balanced-v1`
 - `fast` 会落到 `bytecode-mainline / bytecode:fast-v1`
 - `oracle-taie` 会落到 `oracle-taie / oracle-taie:<taie-profile>`
+- `jar.analyzer.callgraph.engine=taie` 会直接失败并提示使用 `oracle-taie`
 - `jar.analyzer.callgraph.engine` 显式设置时会覆盖 profile

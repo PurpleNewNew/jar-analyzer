@@ -1,6 +1,7 @@
 # No-Tai-e Baseline 2026-03-11
 
-本报告冻结 `ASM + Tai-e` 当前主线在 Phase 0 样本集上的一次完整基线，用于后续对比“更快了/更准了”的说法。
+本报告冻结 `2026-03-11` 当天 `ASM + Tai-e` 主线在 Phase 0 样本集上的一次完整基线，用于后续对比“更快了/更准了”的说法。
+这是一份默认主链切换前的历史快照，因此其中出现的 `engine=taie`、`mode=taie:balanced`、`taie_callgraph` 都是当时的原始产物，不代表当前默认口径。
 
 ## 环境
 
@@ -40,7 +41,7 @@ mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=NoTaieBaselineBenchTest
 
 ## 关键观察
 
-- `springboot-fatjar` 仍然是最重样本，`taie_callgraph` 是主要耗时段。
+- `springboot-fatjar` 仍然是最重样本，历史快照里的 `taie_callgraph`（当前 canonical 阶段名为 `callgraph`）是主要耗时段。
 - `gadget-family` 的峰值内存最高，说明“小样本不一定轻”，图规模和分析形态比归档体积更关键。
 - `ssm-war` 在 `all-common` 分类下关闭调用图，功能可过，但这条路径不适合作为默认性能结论样本。
 - `callback` 和 `springboot-fatjar` 现在都已经进入统一 baseline matrix，并且带出了 `call_site_count/local_var_count/peak_heap_*`。

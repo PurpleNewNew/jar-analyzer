@@ -5,9 +5,21 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CallGraphPlanTest {
+    @Test
+    void defaultPlanShouldUseBalancedBytecodePipeline() {
+        CallGraphPlan plan = CallGraphPlan.resolve("", "", AnalysisProfile.BALANCED);
+
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
+        assertTrue(plan.bytecodeMainline());
+        assertTrue(plan.selectivePta());
+    }
+
     @Test
     void fastProfileShouldUseBytecodeMainlineWithoutPta() {
         CallGraphPlan plan = CallGraphPlan.resolve("", CallGraphPlan.PROFILE_FAST, AnalysisProfile.BALANCED);
@@ -54,5 +66,14 @@ class CallGraphPlanTest {
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, plan.callGraphModeMeta());
         assertTrue(plan.bytecodeMainline());
         assertTrue(plan.selectivePta());
+    }
+
+    @Test
+    void removedTaieEngineShouldFailFast() {
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CallGraphPlan.resolve("taie", "", AnalysisProfile.HIGH)
+        );
+        assertTrue(ex.getMessage().contains("oracle-taie"));
     }
 }

@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CoreRunnerCallGraphProfileTest {
@@ -28,6 +29,26 @@ class CoreRunnerCallGraphProfileTest {
     }
 
     @Test
+    void defaultBuildShouldUseBalancedBytecodeProfile() {
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+
+        assertNotNull(result);
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
+
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
+        assertNotNull(metric);
+        Map<String, Object> details = metric.getDetails();
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, details.get("engine"));
+        assertEquals(CallGraphPlan.PROFILE_BALANCED, details.get("analysis_profile"));
+        assertTrue(((Number) details.get("pta_edges")).intValue() >= 0);
+    }
+
+    @Test
     void fastProfileShouldRouteToBytecodeMainline() {
         System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_FAST);
         Path jar = FixtureJars.callbackTestJar();
@@ -40,7 +61,7 @@ class CoreRunnerCallGraphProfileTest {
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_FAST_V1, result.getCallGraphMode());
         assertEquals(CallGraphPlan.PROFILE_FAST, result.getAnalysisProfile());
 
-        CoreRunner.BuildStageMetric metric = result.getStageMetric("taie_callgraph");
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         Map<String, Object> details = metric.getDetails();
         assertEquals(CallGraphPlan.ENGINE_BYTECODE, details.get("engine"));
@@ -61,11 +82,25 @@ class CoreRunnerCallGraphProfileTest {
         assertEquals(CallGraphPlan.ENGINE_ORACLE_TAIE, result.getCallGraphEngine());
         assertEquals("oracle-taie:fast", result.getCallGraphMode());
         assertEquals(CallGraphPlan.PROFILE_ORACLE_TAIE, result.getAnalysisProfile());
-        assertTrue(result.getTaieReachableMethodCount() > 0);
+        assertTrue(result.getOracleReachableMethodCount() > 0);
 
-        CoreRunner.BuildStageMetric metric = result.getStageMetric("taie_callgraph");
+        CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         assertEquals(CallGraphPlan.ENGINE_ORACLE_TAIE, metric.getDetails().get("engine"));
         assertEquals(CallGraphPlan.PROFILE_ORACLE_TAIE, metric.getDetails().get("analysis_profile"));
+    }
+
+    @Test
+    void removedTaieEngineShouldFailFast() {
+        System.setProperty("jar.analyzer.callgraph.engine", "taie");
+        System.setProperty("jar.analyzer.analysis.profile", "fast");
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CoreRunner.run(jar, null, false, false, null)
+        );
+        assertTrue(ex.getMessage().contains("oracle-taie"));
     }
 }

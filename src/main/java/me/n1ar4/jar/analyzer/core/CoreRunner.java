@@ -80,6 +80,7 @@ public class CoreRunner {
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
     private static final String CALL_GRAPH_ENGINE_PROP = "jar.analyzer.callgraph.engine";
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
+    private static final String CALLGRAPH_STAGE_KEY = "callgraph";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
     private static final boolean DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS = false;
@@ -598,7 +599,7 @@ public class CoreRunner {
                                                           List<LocalVarEntity> localVars,
                                                           IntConsumer progress,
                                                           BuildMetricsCollector metrics) {
-        markBuildStage("taie-callgraph");
+        markBuildStage("callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
         JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
@@ -620,15 +621,15 @@ public class CoreRunner {
         String callGraphEngine = callGraphPlan.callGraphEngine();
         String callGraphModeMeta = callGraphPlan.callGraphModeMeta();
         String analysisProfile = callGraphPlan.analysisProfile();
-        int taieEdgeCount = 0;
-        int taieEntryMethodCount = 0;
-        int taieReachableMethodCount = 0;
-        int taiePointsToVarCount = 0;
-        int taiePointsToObjectCount = 0;
-        int taieEndpointThisVarCount = 0;
-        long taieEndpointAliasPairs = 0L;
-        String taieReflectionInference = "";
-        String taieReflectionLog = "";
+        int oracleEdgeCount = 0;
+        int oracleEntryMethodCount = 0;
+        int oracleReachableMethodCount = 0;
+        int oraclePointsToVarCount = 0;
+        int oraclePointsToObjectCount = 0;
+        int oracleEndpointThisVarCount = 0;
+        long oracleEndpointAliasPairs = 0L;
+        String oracleReflectionInference = "";
+        String oracleReflectionLog = "";
         BytecodeMainlineCallGraphRunner.Result bytecodeResult = BytecodeMainlineCallGraphRunner.Result.empty();
         List<String> explicitEntryMethods = collectExplicitEntryMethods(context, jarOriginsById);
         context.methodCalls.clear();
@@ -659,7 +660,7 @@ public class CoreRunner {
                         callGraphPlan.bytecodeSettings()
                 );
                 facts.edges().copyInto(context);
-                logger.info("build stage bytecode-mainline: {} ms (mode={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
+                logger.info("build stage bytecode-mainline: {} ms (mode={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                         msSince(stageStartNs),
                         callGraphModeMeta,
                         bytecodeResult.directEdges(),
@@ -671,6 +672,7 @@ public class CoreRunner {
                         bytecodeResult.methodHandleEdges(),
                         bytecodeResult.callbackEdges(),
                         bytecodeResult.frameworkEdges(),
+                        bytecodeResult.triggerBridgeEdges(),
                         bytecodeResult.ptaEdges(),
                         bytecodeResult.refinedPtaCallSites(),
                         bytecodeResult.ptaHotspotCallSites(),
@@ -714,16 +716,16 @@ public class CoreRunner {
                 if (mapped.methodCallMeta() != null && !mapped.methodCallMeta().isEmpty()) {
                     context.methodCallMeta.putAll(mapped.methodCallMeta());
                 }
-                taieEdgeCount = mapped.keptEdges();
-                taieEntryMethodCount = taieResult.entryMethodCount();
-                taieReachableMethodCount = taieResult.reachableMethodCount();
-                taiePointsToVarCount = taieResult.pointsToVarCount();
-                taiePointsToObjectCount = taieResult.pointsToObjectCount();
-                taieEndpointThisVarCount = taieResult.endpointThisVarCount();
-                taieEndpointAliasPairs = taieResult.endpointMayAliasPairs();
-                taieReflectionInference = safe(taieResult.reflectionInference());
-                taieReflectionLog = safe(taieResult.reflectionLog());
-                logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
+                oracleEdgeCount = mapped.keptEdges();
+                oracleEntryMethodCount = taieResult.entryMethodCount();
+                oracleReachableMethodCount = taieResult.reachableMethodCount();
+                oraclePointsToVarCount = taieResult.pointsToVarCount();
+                oraclePointsToObjectCount = taieResult.pointsToObjectCount();
+                oracleEndpointThisVarCount = taieResult.endpointThisVarCount();
+                oracleEndpointAliasPairs = taieResult.endpointMayAliasPairs();
+                oracleReflectionInference = safe(taieResult.reflectionInference());
+                oracleReflectionLog = safe(taieResult.reflectionLog());
+                logger.info("build stage oracle-taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
                         taieResult.elapsedMs(),
                         resolvedTaieProfile.value(),
                         mapped.edgePolicy(),
@@ -733,14 +735,14 @@ public class CoreRunner {
                         mapped.unresolvedCaller(),
                         mapped.unresolvedCallee(),
                         taieResult.explicitEntryCount(),
-                        taieEntryMethodCount,
-                        taieReachableMethodCount,
-                        taiePointsToVarCount,
-                        taiePointsToObjectCount,
-                        taieEndpointThisVarCount,
-                        taieEndpointAliasPairs,
-                        taieReflectionInference.isBlank() ? "<default>" : taieReflectionInference,
-                        taieReflectionLog.isBlank() ? "<none>" : taieReflectionLog,
+                        oracleEntryMethodCount,
+                        oracleReachableMethodCount,
+                        oraclePointsToVarCount,
+                        oraclePointsToObjectCount,
+                        oracleEndpointThisVarCount,
+                        oracleEndpointAliasPairs,
+                        oracleReflectionInference.isBlank() ? "<default>" : oracleReflectionInference,
+                        oracleReflectionLog.isBlank() ? "<none>" : oracleReflectionLog,
                         heapUsage());
             }
         }
@@ -756,13 +758,19 @@ public class CoreRunner {
                     "explicit_entries", explicitEntryMethods.size(),
                     "target_archives", scopeSummary == null ? 0 : scopeSummary.targetArchiveCount(),
                     "library_archives", scopeSummary == null ? 0 : scopeSummary.libraryArchiveCount(),
-                    "taie_edges", taieEdgeCount,
-                    "entry_methods", taieEntryMethodCount,
-                    "reachable_methods", taieReachableMethodCount,
-                    "points_to_vars", taiePointsToVarCount,
-                    "points_to_objects", taiePointsToObjectCount,
-                    "endpoint_this_vars", taieEndpointThisVarCount,
-                    "endpoint_alias_pairs", taieEndpointAliasPairs
+                    "oracle_edges", oracleEdgeCount,
+                    "oracle_entry_methods", oracleEntryMethodCount,
+                    "entry_methods", oracleEntryMethodCount,
+                    "oracle_reachable_methods", oracleReachableMethodCount,
+                    "reachable_methods", oracleReachableMethodCount,
+                    "oracle_points_to_vars", oraclePointsToVarCount,
+                    "points_to_vars", oraclePointsToVarCount,
+                    "oracle_points_to_objects", oraclePointsToObjectCount,
+                    "points_to_objects", oraclePointsToObjectCount,
+                    "oracle_endpoint_this_vars", oracleEndpointThisVarCount,
+                    "endpoint_this_vars", oracleEndpointThisVarCount,
+                    "oracle_endpoint_alias_pairs", oracleEndpointAliasPairs,
+                    "endpoint_alias_pairs", oracleEndpointAliasPairs
             ));
             if (callGraphPlan.bytecodeMainline()) {
                 callGraphMetrics.put("direct_edges", bytecodeResult.directEdges());
@@ -774,6 +782,7 @@ public class CoreRunner {
                 callGraphMetrics.put("method_handle_edges", bytecodeResult.methodHandleEdges());
                 callGraphMetrics.put("callback_edges", bytecodeResult.callbackEdges());
                 callGraphMetrics.put("framework_edges", bytecodeResult.frameworkEdges());
+                callGraphMetrics.put("trigger_bridge_edges", bytecodeResult.triggerBridgeEdges());
                 callGraphMetrics.put("thread_start_edges", bytecodeResult.threadStartEdges());
                 callGraphMetrics.put("executor_edges", bytecodeResult.executorEdges());
                 callGraphMetrics.put("completable_future_edges", bytecodeResult.completableFutureEdges());
@@ -790,7 +799,7 @@ public class CoreRunner {
                 callGraphMetrics.put("unresolved_declared_targets", bytecodeResult.unresolvedDeclaredTargetCount());
                 callGraphMetrics.put("total_edges", bytecodeResult.totalEdges());
             }
-            metrics.record("taie_callgraph", msSince(stageStartNs), callGraphMetrics);
+            metrics.record(CALLGRAPH_STAGE_KEY, msSince(stageStartNs), callGraphMetrics);
         }
         return new CallGraphStageResult(
                 scopeSummary,
@@ -798,15 +807,15 @@ public class CoreRunner {
                 analysisProfile,
                 callGraphEngine,
                 callGraphModeMeta,
-                taieEdgeCount,
-                taieEntryMethodCount,
-                taieReachableMethodCount,
-                taiePointsToVarCount,
-                taiePointsToObjectCount,
-                taieEndpointThisVarCount,
-                taieEndpointAliasPairs,
-                taieReflectionInference,
-                taieReflectionLog,
+                oracleEdgeCount,
+                oracleEntryMethodCount,
+                oracleReachableMethodCount,
+                oraclePointsToVarCount,
+                oraclePointsToObjectCount,
+                oracleEndpointThisVarCount,
+                oracleEndpointAliasPairs,
+                oracleReflectionInference,
+                oracleReflectionLog,
                 explicitEntryMethods.size()
         );
     }
@@ -902,15 +911,15 @@ public class CoreRunner {
                         callGraphStage.analysisProfile(),
                         callGraphStage.scopeSummary(),
                         callGraphStage.jdkResolution(),
-                        callGraphStage.taieEdgeCount(),
-                        callGraphStage.taieEntryMethodCount(),
-                        callGraphStage.taieReachableMethodCount(),
-                        callGraphStage.taiePointsToVarCount(),
-                        callGraphStage.taiePointsToObjectCount(),
-                        callGraphStage.taieEndpointThisVarCount(),
-                        callGraphStage.taieEndpointAliasPairs(),
-                        callGraphStage.taieReflectionInference(),
-                        callGraphStage.taieReflectionLog(),
+                        callGraphStage.oracleEdgeCount(),
+                        callGraphStage.oracleEntryMethodCount(),
+                        callGraphStage.oracleReachableMethodCount(),
+                        callGraphStage.oraclePointsToVarCount(),
+                        callGraphStage.oraclePointsToObjectCount(),
+                        callGraphStage.oracleEndpointThisVarCount(),
+                        callGraphStage.oracleEndpointAliasPairs(),
+                        callGraphStage.oracleReflectionInference(),
+                        callGraphStage.oracleReflectionLog(),
                         callGraphStage.explicitEntryCount()
                 )
         );
@@ -987,13 +996,13 @@ public class CoreRunner {
                 callGraphStage.scopeSummary().targetArchiveCount(),
                 callGraphStage.scopeSummary().libraryArchiveCount(),
                 callGraphStage.jdkResolution().sdkEntryCount(),
-                callGraphStage.taieEdgeCount(),
-                callGraphStage.taieEntryMethodCount(),
-                callGraphStage.taieReachableMethodCount(),
-                callGraphStage.taiePointsToVarCount(),
-                callGraphStage.taiePointsToObjectCount(),
-                callGraphStage.taieEndpointThisVarCount(),
-                callGraphStage.taieEndpointAliasPairs(),
+                callGraphStage.oracleEdgeCount(),
+                callGraphStage.oracleEntryMethodCount(),
+                callGraphStage.oracleReachableMethodCount(),
+                callGraphStage.oraclePointsToVarCount(),
+                callGraphStage.oraclePointsToObjectCount(),
+                callGraphStage.oracleEndpointThisVarCount(),
+                callGraphStage.oracleEndpointAliasPairs(),
                 peakHeapUsedBytes,
                 peakHeapCommittedBytes,
                 heapMaxBytes,
@@ -1024,15 +1033,15 @@ public class CoreRunner {
                                         String analysisProfile,
                                         String callGraphEngine,
                                         String callGraphModeMeta,
-                                        int taieEdgeCount,
-                                        int taieEntryMethodCount,
-                                        int taieReachableMethodCount,
-                                        int taiePointsToVarCount,
-                                        int taiePointsToObjectCount,
-                                        int taieEndpointThisVarCount,
-                                        long taieEndpointAliasPairs,
-                                        String taieReflectionInference,
-                                        String taieReflectionLog,
+                                        int oracleEdgeCount,
+                                        int oracleEntryMethodCount,
+                                        int oracleReachableMethodCount,
+                                        int oraclePointsToVarCount,
+                                        int oraclePointsToObjectCount,
+                                        int oracleEndpointThisVarCount,
+                                        long oracleEndpointAliasPairs,
+                                        String oracleReflectionInference,
+                                        String oracleReflectionLog,
                                         int explicitEntryCount) {
     }
 
@@ -1799,35 +1808,35 @@ public class CoreRunner {
                                                  String analysisProfile,
                                                  ScopeSummary scopeSummary,
                                                  JdkResolution jdkResolution,
-                                                 int taieEdgeCount,
-                                                 int taieEntryMethodCount,
-                                                 int taieReachableMethodCount,
-                                                 int taiePointsToVarCount,
-                                                 int taiePointsToObjectCount,
-                                                 int taieEndpointThisVarCount,
-                                                 long taieEndpointAliasPairs,
-                                                 String taieReflectionInference,
-                                                 String taieReflectionLog,
-        int explicitEntryMethodCount) {
+                                                 int oracleEdgeCount,
+                                                 int oracleEntryMethodCount,
+                                                 int oracleReachableMethodCount,
+                                                 int oraclePointsToVarCount,
+                                                 int oraclePointsToObjectCount,
+                                                 int oracleEndpointThisVarCount,
+                                                 long oracleEndpointAliasPairs,
+                                                 String oracleReflectionInference,
+                                                 String oracleReflectionLog,
+                                                 int explicitEntryMethodCount) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("call_graph_engine", safe(callGraphEngine));
         meta.put("analysis_profile", safe(analysisProfile));
         meta.put("target_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.targetArchiveCount()));
         meta.put("library_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.libraryArchiveCount()));
         meta.put("sdk_entry_count", jdkResolution == null ? 0 : Math.max(0, jdkResolution.sdkEntryCount()));
-        meta.put("taie_edge_count", Math.max(0, taieEdgeCount));
+        meta.put("oracle_edge_count", Math.max(0, oracleEdgeCount));
         meta.put("explicit_entry_method_count", Math.max(0, explicitEntryMethodCount));
-        meta.put("taie_entry_method_count", Math.max(0, taieEntryMethodCount));
-        meta.put("taie_reachable_method_count", Math.max(0, taieReachableMethodCount));
-        meta.put("taie_points_to_var_count", Math.max(0, taiePointsToVarCount));
-        meta.put("taie_points_to_object_count", Math.max(0, taiePointsToObjectCount));
-        meta.put("taie_endpoint_this_var_count", Math.max(0, taieEndpointThisVarCount));
-        meta.put("taie_endpoint_alias_pair_count", Math.max(0L, taieEndpointAliasPairs));
-        if (taieReflectionInference != null && !taieReflectionInference.isBlank()) {
-            meta.put("taie_reflection_inference", taieReflectionInference);
+        meta.put("oracle_entry_method_count", Math.max(0, oracleEntryMethodCount));
+        meta.put("oracle_reachable_method_count", Math.max(0, oracleReachableMethodCount));
+        meta.put("oracle_points_to_var_count", Math.max(0, oraclePointsToVarCount));
+        meta.put("oracle_points_to_object_count", Math.max(0, oraclePointsToObjectCount));
+        meta.put("oracle_endpoint_this_var_count", Math.max(0, oracleEndpointThisVarCount));
+        meta.put("oracle_endpoint_alias_pair_count", Math.max(0L, oracleEndpointAliasPairs));
+        if (oracleReflectionInference != null && !oracleReflectionInference.isBlank()) {
+            meta.put("oracle_reflection_inference", oracleReflectionInference);
         }
-        if (taieReflectionLog != null && !taieReflectionLog.isBlank()) {
-            meta.put("taie_reflection_log", taieReflectionLog);
+        if (oracleReflectionLog != null && !oracleReflectionLog.isBlank()) {
+            meta.put("oracle_reflection_log", oracleReflectionLog);
         }
         return meta;
     }
@@ -1867,13 +1876,13 @@ public class CoreRunner {
         private final int targetJarCount;
         private final int libraryJarCount;
         private final int sdkEntryCount;
-        private final int taieEdgeCount;
-        private final int taieEntryMethodCount;
-        private final int taieReachableMethodCount;
-        private final int taiePointsToVarCount;
-        private final int taiePointsToObjectCount;
-        private final int taieEndpointThisVarCount;
-        private final long taieEndpointAliasPairCount;
+        private final int oracleEdgeCount;
+        private final int oracleEntryMethodCount;
+        private final int oracleReachableMethodCount;
+        private final int oraclePointsToVarCount;
+        private final int oraclePointsToObjectCount;
+        private final int oracleEndpointThisVarCount;
+        private final long oracleEndpointAliasPairCount;
         private final long peakHeapUsedBytes;
         private final long peakHeapCommittedBytes;
         private final long heapMaxBytes;
@@ -1896,13 +1905,13 @@ public class CoreRunner {
                            int targetJarCount,
                            int libraryJarCount,
                            int sdkEntryCount,
-                           int taieEdgeCount,
-                           int taieEntryMethodCount,
-                           int taieReachableMethodCount,
-                           int taiePointsToVarCount,
-                           int taiePointsToObjectCount,
-                           int taieEndpointThisVarCount,
-                           long taieEndpointAliasPairCount,
+                           int oracleEdgeCount,
+                           int oracleEntryMethodCount,
+                           int oracleReachableMethodCount,
+                           int oraclePointsToVarCount,
+                           int oraclePointsToObjectCount,
+                           int oracleEndpointThisVarCount,
+                           long oracleEndpointAliasPairCount,
                            long peakHeapUsedBytes,
                            long peakHeapCommittedBytes,
                            long heapMaxBytes,
@@ -1924,13 +1933,13 @@ public class CoreRunner {
             this.targetJarCount = Math.max(0, targetJarCount);
             this.libraryJarCount = Math.max(0, libraryJarCount);
             this.sdkEntryCount = Math.max(0, sdkEntryCount);
-            this.taieEdgeCount = Math.max(0, taieEdgeCount);
-            this.taieEntryMethodCount = Math.max(0, taieEntryMethodCount);
-            this.taieReachableMethodCount = Math.max(0, taieReachableMethodCount);
-            this.taiePointsToVarCount = Math.max(0, taiePointsToVarCount);
-            this.taiePointsToObjectCount = Math.max(0, taiePointsToObjectCount);
-            this.taieEndpointThisVarCount = Math.max(0, taieEndpointThisVarCount);
-            this.taieEndpointAliasPairCount = Math.max(0L, taieEndpointAliasPairCount);
+            this.oracleEdgeCount = Math.max(0, oracleEdgeCount);
+            this.oracleEntryMethodCount = Math.max(0, oracleEntryMethodCount);
+            this.oracleReachableMethodCount = Math.max(0, oracleReachableMethodCount);
+            this.oraclePointsToVarCount = Math.max(0, oraclePointsToVarCount);
+            this.oraclePointsToObjectCount = Math.max(0, oraclePointsToObjectCount);
+            this.oracleEndpointThisVarCount = Math.max(0, oracleEndpointThisVarCount);
+            this.oracleEndpointAliasPairCount = Math.max(0L, oracleEndpointAliasPairCount);
             this.peakHeapUsedBytes = Math.max(0L, peakHeapUsedBytes);
             this.peakHeapCommittedBytes = Math.max(0L, peakHeapCommittedBytes);
             this.heapMaxBytes = Math.max(0L, heapMaxBytes);
@@ -2004,32 +2013,32 @@ public class CoreRunner {
             return sdkEntryCount;
         }
 
-        public int getTaieEdgeCount() {
-            return taieEdgeCount;
+        public int getOracleEdgeCount() {
+            return oracleEdgeCount;
         }
 
-        public int getTaieEntryMethodCount() {
-            return taieEntryMethodCount;
+        public int getOracleEntryMethodCount() {
+            return oracleEntryMethodCount;
         }
 
-        public int getTaieReachableMethodCount() {
-            return taieReachableMethodCount;
+        public int getOracleReachableMethodCount() {
+            return oracleReachableMethodCount;
         }
 
-        public int getTaiePointsToVarCount() {
-            return taiePointsToVarCount;
+        public int getOraclePointsToVarCount() {
+            return oraclePointsToVarCount;
         }
 
-        public int getTaiePointsToObjectCount() {
-            return taiePointsToObjectCount;
+        public int getOraclePointsToObjectCount() {
+            return oraclePointsToObjectCount;
         }
 
-        public int getTaieEndpointThisVarCount() {
-            return taieEndpointThisVarCount;
+        public int getOracleEndpointThisVarCount() {
+            return oracleEndpointThisVarCount;
         }
 
-        public long getTaieEndpointAliasPairCount() {
-            return taieEndpointAliasPairCount;
+        public long getOracleEndpointAliasPairCount() {
+            return oracleEndpointAliasPairCount;
         }
 
         public long getPeakHeapUsedBytes() {

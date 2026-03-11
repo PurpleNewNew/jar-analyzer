@@ -391,12 +391,12 @@ frame 分析必须有唯一 owner。
 
 - `ConstraintFacts` 还是空骨架
 - `SelectivePtaRefiner` 仍有内部约束提取逻辑，尚未完全变成纯 `ConstraintFacts` 消费者
-- 兼容入口依然存在，但不再是主路径 owner
+- `BuildFactAssembler.legacyView(...)` 仍保留桥接，但已不再承担默认主路径 owner
 
 这意味着：
 
 - `JA-NT-106` 已经完成
-- Phase 1 的首要任务不是再做一轮前端收口，而是把 PTA/反射约束 owner 彻底下沉，并推进默认 profile 切换
+- 下一阶段的首要任务不是再做一轮前端收口，而是把 PTA/反射约束 owner 彻底下沉
 
 ## 10. 下一步边界
 
@@ -404,8 +404,7 @@ frame 分析必须有唯一 owner。
 
 1. `ConstraintFacts` 唯一 owner 收口
 2. `SelectivePtaRefiner` 去前端化
-3. 默认调用图 profile 从 Tai-e 切到 bytecode 主链
-4. Tai-e 退化为 `oracle-taie`
+3. 继续压缩 Tai-e，仅保留 `oracle-taie` 对照用途
 
 一句话收尾：
 

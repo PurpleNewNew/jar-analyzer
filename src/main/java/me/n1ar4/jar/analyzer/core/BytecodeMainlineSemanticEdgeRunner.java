@@ -36,6 +36,11 @@ final class BytecodeMainlineSemanticEdgeRunner {
     private static final String COMPLETION_STAGE_OWNER = "java/util/concurrent/CompletionStage";
     private static final String ACCESS_CONTROLLER_OWNER = "java/security/AccessController";
     private static final String PROXY_OWNER = "java/lang/reflect/Proxy";
+    private static final String OBJECT_OWNER = "java/lang/Object";
+    private static final String COMPARATOR_OWNER = "java/util/Comparator";
+    private static final String COMPARABLE_OWNER = "java/lang/Comparable";
+    private static final String COLLECTIONS_TRANSFORMER_OWNER = "org/apache/commons/collections/Transformer";
+    private static final String COLLECTIONS4_TRANSFORMER_OWNER = "org/apache/commons/collections4/Transformer";
     private static final String SPRING_CGLIB_ENHANCER = "org/springframework/cglib/proxy/Enhancer";
     private static final String NETSF_CGLIB_ENHANCER = "net/sf/cglib/proxy/Enhancer";
     private static final String SPRING_PROXY_FACTORY = "org/springframework/aop/framework/ProxyFactory";
@@ -97,15 +102,18 @@ final class BytecodeMainlineSemanticEdgeRunner {
         int completableFutureEdges = appendCompletableFutureEdges(context, inheritanceMap, instantiated, lookup);
         int doPrivilegedEdges = appendDoPrivilegedEdges(context, inheritanceMap, instantiated, lookup);
         int proxyEdges = appendDynamicProxyEdges(context, inheritanceMap, instantiated, lookup);
+        int gadgetCallbackEdges = appendGadgetCallbackEdges(context, lookup);
+        int gadgetTriggerBridgeEdges = appendGadgetTriggerBridgeEdges(context, instantiated, lookup);
         int frameworkEdges = appendFrameworkEdges(context);
         return new Result(
-                threadEdges + executorEdges + completableFutureEdges + doPrivilegedEdges + proxyEdges,
+                threadEdges + executorEdges + completableFutureEdges + doPrivilegedEdges + proxyEdges + gadgetCallbackEdges,
                 frameworkEdges,
                 threadEdges,
                 executorEdges,
                 completableFutureEdges,
                 doPrivilegedEdges,
-                proxyEdges
+                proxyEdges,
+                gadgetTriggerBridgeEdges
         );
     }
 
@@ -337,6 +345,157 @@ final class BytecodeMainlineSemanticEdgeRunner {
         return added;
     }
 
+    private static int appendGadgetCallbackEdges(BuildContext context,
+                                                 BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
+        if (context == null || lookup == null || context.callSites == null || context.callSites.isEmpty()) {
+            return 0;
+        }
+        List<MethodReference.Handle> comparatorTargets = collectSemanticTargets(
+                context, MethodSemanticFlags.COMPARATOR_CALLBACK
+        );
+        List<MethodReference.Handle> comparableTargets = collectSemanticTargets(
+                context, MethodSemanticFlags.COMPARABLE_CALLBACK
+        );
+        List<MethodReference.Handle> transformerTargets = collectSemanticTargets(
+                context, MethodSemanticFlags.TRANSFORMER_CALLBACK
+        );
+        if (comparatorTargets.isEmpty() && comparableTargets.isEmpty() && transformerTargets.isEmpty()) {
+            return 0;
+        }
+        int added = 0;
+        for (CallSiteEntity site : context.callSites) {
+            if (site == null) {
+                continue;
+            }
+            MethodReference.Handle caller = resolveCaller(site, lookup);
+            if (caller == null) {
+                continue;
+            }
+            String owner = safe(site.getCalleeOwner());
+            String methodName = safe(site.getCalleeMethodName());
+            String methodDesc = safe(site.getCalleeMethodDesc());
+            if (COMPARATOR_OWNER.equals(owner)
+                    && "compare".equals(methodName)
+                    && "(Ljava/lang/Object;Ljava/lang/Object;)I".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        comparatorTargets,
+                        MethodCallMeta.TYPE_CALLBACK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_comparator_callback",
+                        Opcodes.INVOKEINTERFACE
+                );
+                continue;
+            }
+            if (COMPARABLE_OWNER.equals(owner)
+                    && "compareTo".equals(methodName)
+                    && "(Ljava/lang/Object;)I".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        comparableTargets,
+                        MethodCallMeta.TYPE_CALLBACK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_comparable_callback",
+                        Opcodes.INVOKEINTERFACE
+                );
+                continue;
+            }
+            if ((COLLECTIONS_TRANSFORMER_OWNER.equals(owner) || COLLECTIONS4_TRANSFORMER_OWNER.equals(owner))
+                    && "transform".equals(methodName)
+                    && "(Ljava/lang/Object;)Ljava/lang/Object;".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        transformerTargets,
+                        MethodCallMeta.TYPE_CALLBACK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_transformer_callback",
+                        Opcodes.INVOKEINTERFACE
+                );
+            }
+        }
+        return added;
+    }
+
+    private static int appendGadgetTriggerBridgeEdges(BuildContext context,
+                                                      Set<ClassReference.Handle> instantiatedClasses,
+                                                      BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
+        if (context == null || lookup == null || context.callSites == null || context.callSites.isEmpty()) {
+            return 0;
+        }
+        List<MethodReference.Handle> toStringTargets = collectSemanticTargets(
+                context,
+                MethodSemanticFlags.TOSTRING_TRIGGER,
+                instantiatedClasses
+        );
+        List<MethodReference.Handle> hashCodeTargets = collectSemanticTargets(
+                context,
+                MethodSemanticFlags.HASHCODE_TRIGGER,
+                instantiatedClasses
+        );
+        List<MethodReference.Handle> equalsTargets = collectSemanticTargets(
+                context,
+                MethodSemanticFlags.EQUALS_TRIGGER,
+                instantiatedClasses
+        );
+        if (toStringTargets.isEmpty() && hashCodeTargets.isEmpty() && equalsTargets.isEmpty()) {
+            return 0;
+        }
+        int added = 0;
+        for (CallSiteEntity site : context.callSites) {
+            if (site == null) {
+                continue;
+            }
+            if (!OBJECT_OWNER.equals(safe(site.getCalleeOwner()))) {
+                continue;
+            }
+            MethodReference.Handle caller = resolveCaller(site, lookup);
+            if (!callerHasSemanticFlag(context, caller, MethodSemanticFlags.COLLECTION_CONTAINER)) {
+                continue;
+            }
+            String methodName = safe(site.getCalleeMethodName());
+            String methodDesc = safe(site.getCalleeMethodDesc());
+            if ("toString".equals(methodName) && "()Ljava/lang/String;".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        toStringTargets,
+                        MethodCallMeta.TYPE_FRAMEWORK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_tostring_trigger_bridge",
+                        Opcodes.INVOKEVIRTUAL
+                );
+                continue;
+            }
+            if ("hashCode".equals(methodName) && "()I".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        hashCodeTargets,
+                        MethodCallMeta.TYPE_FRAMEWORK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_hashcode_trigger_bridge",
+                        Opcodes.INVOKEVIRTUAL
+                );
+                continue;
+            }
+            if ("equals".equals(methodName) && "(Ljava/lang/Object;)Z".equals(methodDesc)) {
+                added += addTargets(
+                        context,
+                        caller,
+                        equalsTargets,
+                        MethodCallMeta.TYPE_FRAMEWORK,
+                        MethodCallMeta.CONF_HIGH,
+                        "semantic_equals_trigger_bridge",
+                        Opcodes.INVOKEVIRTUAL
+                );
+            }
+        }
+        return added;
+    }
+
     private static int appendFrameworkEdges(BuildContext context) {
         if (context == null || context.methodMap == null || context.methodMap.isEmpty()) {
             return 0;
@@ -404,9 +563,16 @@ final class BytecodeMainlineSemanticEdgeRunner {
     }
 
     private static List<MethodReference.Handle> collectSemanticTargets(BuildContext context, int semanticFlag) {
+        return collectSemanticTargets(context, semanticFlag, null);
+    }
+
+    private static List<MethodReference.Handle> collectSemanticTargets(BuildContext context,
+                                                                       int semanticFlag,
+                                                                       Set<ClassReference.Handle> scope) {
         if (context == null || context.methodMap == null || context.methodMap.isEmpty() || semanticFlag <= 0) {
             return List.of();
         }
+        Set<String> scopedClassNames = scopedClassNames(scope);
         LinkedHashSet<MethodReference.Handle> out = new LinkedHashSet<>();
         for (MethodReference method : context.methodMap.values()) {
             if (method == null || method.getClassReference() == null) {
@@ -415,9 +581,27 @@ final class BytecodeMainlineSemanticEdgeRunner {
             if ((method.getSemanticFlags() & semanticFlag) == 0) {
                 continue;
             }
+            if (!scopedClassNames.isEmpty()
+                    && !scopedClassNames.contains(safe(method.getClassReference().getName()))) {
+                continue;
+            }
             out.add(method.getHandle());
         }
         return sortHandles(out);
+    }
+
+    private static Set<String> scopedClassNames(Set<ClassReference.Handle> scope) {
+        if (scope == null || scope.isEmpty()) {
+            return Set.of();
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (ClassReference.Handle handle : scope) {
+            if (handle == null || handle.getName() == null || handle.getName().isBlank()) {
+                continue;
+            }
+            out.add(handle.getName().trim());
+        }
+        return out.isEmpty() ? Set.of() : Set.copyOf(out);
     }
 
     private static List<MethodReference.Handle> collectFrameworkCallers(BuildContext context,
@@ -784,6 +968,16 @@ final class BytecodeMainlineSemanticEdgeRunner {
         return added;
     }
 
+    private static boolean callerHasSemanticFlag(BuildContext context,
+                                                 MethodReference.Handle caller,
+                                                 int semanticFlag) {
+        if (context == null || context.methodMap == null || caller == null || semanticFlag <= 0) {
+            return false;
+        }
+        MethodReference method = context.methodMap.get(caller);
+        return method != null && (method.getSemanticFlags() & semanticFlag) != 0;
+    }
+
     private static List<MethodReference.Handle> sortHandles(Collection<MethodReference.Handle> handles) {
         if (handles == null || handles.isEmpty()) {
             return List.of();
@@ -807,9 +1001,10 @@ final class BytecodeMainlineSemanticEdgeRunner {
                   int executorEdges,
                   int completableFutureEdges,
                   int doPrivilegedEdges,
-                  int dynamicProxyEdges) {
+                  int dynamicProxyEdges,
+                  int triggerBridgeEdges) {
         static Result empty() {
-            return new Result(0, 0, 0, 0, 0, 0, 0);
+            return new Result(0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
 }

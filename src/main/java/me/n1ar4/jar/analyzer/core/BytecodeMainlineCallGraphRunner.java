@@ -121,6 +121,7 @@ public final class BytecodeMainlineCallGraphRunner {
                 semanticResult.completableFutureEdges(),
                 semanticResult.doPrivilegedEdges(),
                 semanticResult.dynamicProxyEdges(),
+                semanticResult.triggerBridgeEdges(),
                 ptaResult.ptaEdges(),
                 ptaResult.refinedCallSites(),
                 ptaResult.hotspotCallSites(),
@@ -257,6 +258,7 @@ public final class BytecodeMainlineCallGraphRunner {
                          int completableFutureEdges,
                          int doPrivilegedEdges,
                          int dynamicProxyEdges,
+                         int triggerBridgeEdges,
                          int ptaEdges,
                          int refinedPtaCallSites,
                          int ptaHotspotCallSites,
@@ -269,7 +271,7 @@ public final class BytecodeMainlineCallGraphRunner {
                          long totalEdges) {
         static Result empty() {
             return new Result(
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0L
             );

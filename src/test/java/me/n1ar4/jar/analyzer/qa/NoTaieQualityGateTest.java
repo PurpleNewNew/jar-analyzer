@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Optional Phase 0 quality gate that combines accuracy and conservative
- * performance thresholds for the current Tai-e baseline.
+ * performance thresholds for the frozen Phase 0 baseline.
  */
 public class NoTaieQualityGateTest {
     private static final String ENABLE_PROP = "bench.no_taie.gate";

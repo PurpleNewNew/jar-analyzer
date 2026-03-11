@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,7 +44,7 @@ class CoreRunnerBuildMetricsTest {
         assertTrue(metrics.containsKey("framework_entry"));
         assertTrue(metrics.containsKey("method_semantic"));
         assertTrue(metrics.containsKey("bytecode_symbol"));
-        assertTrue(metrics.containsKey("taie_callgraph"));
+        assertTrue(metrics.containsKey("callgraph"));
         assertTrue(metrics.containsKey("build_runtime_snapshot"));
         assertTrue(metrics.containsKey("publish_runtime"));
         assertTrue(metrics.containsKey("refresh_caches"));
@@ -51,7 +52,7 @@ class CoreRunnerBuildMetricsTest {
 
         CoreRunner.BuildStageMetric discovery = result.getStageMetric("discovery");
         CoreRunner.BuildStageMetric symbol = result.getStageMetric("bytecode_symbol");
-        CoreRunner.BuildStageMetric callGraph = result.getStageMetric("taie_callgraph");
+        CoreRunner.BuildStageMetric callGraph = result.getStageMetric("callgraph");
         CoreRunner.BuildStageMetric commit = result.getStageMetric("neo4j_commit");
         assertNotNull(discovery);
         assertNotNull(symbol);
@@ -61,7 +62,7 @@ class CoreRunnerBuildMetricsTest {
         assertEquals(result.getClassCount(), intMetric(discovery, "classes"));
         assertEquals(result.getMethodCount(), intMetric(discovery, "methods"));
         assertEquals(intMetric(symbol, "call_sites"), result.getCallSiteCount());
-        assertEquals(result.getTaieEdgeCount(), intMetric(callGraph, "taie_edges"));
+        assertEquals(result.getOracleEdgeCount(), intMetric(callGraph, "oracle_edges"));
         assertEquals(result.getEdgeCount(), intMetric(commit, "edges"));
         assertTrue(result.getPeakHeapUsedBytes() > 0L);
         assertTrue(result.getPeakHeapCommittedBytes() >= result.getPeakHeapUsedBytes());
@@ -83,7 +84,10 @@ class CoreRunnerBuildMetricsTest {
             assertEquals(result.getPeakHeapCommittedBytes(), ((Number) meta.getProperty("build_peak_heap_committed_bytes")).longValue());
             assertEquals(result.getHeapMaxBytes(), ((Number) meta.getProperty("build_heap_max_bytes")).longValue());
             assertEquals(discovery.getDurationMs(), ((Number) meta.getProperty("build_stage_discovery_ms")).longValue());
-            assertEquals(callGraph.getDurationMs(), ((Number) meta.getProperty("build_stage_taie_callgraph_ms")).longValue());
+            assertEquals(callGraph.getDurationMs(), ((Number) meta.getProperty("build_stage_callgraph_ms")).longValue());
+            assertFalse(meta.hasProperty("build_stage_taie_callgraph_ms"));
+            assertEquals(result.getOracleEdgeCount(), ((Number) meta.getProperty("oracle_edge_count")).intValue());
+            assertFalse(meta.hasProperty("taie_edge_count"));
             assertEquals(commit.getDurationMs(), ((Number) meta.getProperty("build_stage_neo4j_commit_ms")).longValue());
             assertEquals(intMetric(symbol, "call_sites"),
                     ((Number) meta.getProperty("build_stage_bytecode_symbol_call_sites")).intValue());

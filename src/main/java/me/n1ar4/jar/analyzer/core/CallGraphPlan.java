@@ -23,7 +23,6 @@ public record CallGraphPlan(String analysisProfile,
                             boolean selectivePta,
                             AnalysisProfile taieProfile) {
     public static final String CALL_GRAPH_PROFILE_PROP = "jar.analyzer.callgraph.profile";
-    public static final String ENGINE_TAIE = "taie";
     public static final String ENGINE_BYTECODE = BytecodeMainlineCallGraphRunner.ENGINE;
     public static final String ENGINE_ORACLE_TAIE = "oracle-taie";
     public static final String ENGINE_BYTECODE_PTA = "bytecode-mainline+pta-refine";
@@ -47,7 +46,7 @@ public record CallGraphPlan(String analysisProfile,
         if (!profile.isBlank()) {
             return fromProfile(profile, resolvedTaiE);
         }
-        return taie(resolvedTaiE);
+        return balancedBytecode(resolvedTaiE);
     }
 
     public BytecodeMainlineCallGraphRunner.Settings bytecodeSettings() {
@@ -59,7 +58,9 @@ public record CallGraphPlan(String analysisProfile,
 
     private static CallGraphPlan fromEngine(String engine, AnalysisProfile taieProfile) {
         return switch (engine) {
-            case ENGINE_TAIE -> taie(taieProfile);
+            case "taie" -> throw new IllegalArgumentException(
+                    "call graph engine=taie was removed; use oracle-taie as the explicit oracle path"
+            );
             case ENGINE_BYTECODE -> new CallGraphPlan(
                     PROFILE_BALANCED,
                     ENGINE_BYTECODE,
@@ -78,8 +79,8 @@ public record CallGraphPlan(String analysisProfile,
             );
             case ENGINE_ORACLE_TAIE -> oracleTaie(taieProfile);
             default -> {
-                logger.warn("unknown call graph engine setting: {} (fallback to taie)", engine);
-                yield taie(taieProfile);
+                logger.warn("unknown call graph engine setting: {} (fallback to bytecode balanced)", engine);
+                yield balancedBytecode(taieProfile);
             }
         };
     }
@@ -112,15 +113,21 @@ public record CallGraphPlan(String analysisProfile,
             );
             case PROFILE_ORACLE_TAIE -> oracleTaie(taieProfile);
             default -> {
-                logger.warn("unknown call graph profile setting: {} (fallback to taie)", profile);
-                yield taie(taieProfile);
+                logger.warn("unknown call graph profile setting: {} (fallback to bytecode balanced)", profile);
+                yield balancedBytecode(taieProfile);
             }
         };
     }
 
-    private static CallGraphPlan taie(AnalysisProfile taieProfile) {
-        String profile = taieProfile == null ? PROFILE_BALANCED : taieProfile.value();
-        return new CallGraphPlan(profile, ENGINE_TAIE, "taie:" + profile, false, false, taieProfile);
+    private static CallGraphPlan balancedBytecode(AnalysisProfile taieProfile) {
+        return new CallGraphPlan(
+                PROFILE_BALANCED,
+                ENGINE_BYTECODE_PTA,
+                BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1,
+                true,
+                true,
+                taieProfile
+        );
     }
 
     private static CallGraphPlan oracleTaie(AnalysisProfile taieProfile) {

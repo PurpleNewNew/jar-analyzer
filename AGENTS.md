@@ -20,7 +20,7 @@
 
 ### 2.2 核心技术栈
 - 字节码扫描：ASM。
-- 调用图：Tai-e（唯一主引擎）。
+- 调用图：默认 `bytecode-mainline`；Tai-e 仅保留为 `oracle-taie` 对照路径。
 - 图存储：Neo4j Embedded（官方依赖）。
 - 反编译：CFR（单引擎）。
 
@@ -30,8 +30,8 @@
 - 项目上下文由 `ActiveProjectContext + Neo4jProjectStore` 统一管理。
 
 ## 3. 模块边界（目录级）
-- `core/*`：建库主流程、字节码发现、符号提取、作用域分类、Tai-e 接入。
-- `core/taie/*`：Tai-e 运行与边映射（调用图唯一来源）。
+- `core/*`：建库主流程、字节码发现、符号提取、作用域分类、bytecode-mainline 调用图主链。
+- `core/taie/*`：Tai-e 对照运行与 oracle 边映射。
 - `core/scope/*`：APP/LIBRARY/SDK 归属分类与范围规则。
 - `storage/neo4j/*`：项目 store 生命周期、批量导入、图构建元数据。
 - `graph/*`：图查询、DFS、Flow、Procedure、Cypher 执行。
@@ -45,20 +45,20 @@
 边界约束：
 - GUI 层不直接实现分析逻辑，只做编排与展示。
 - 规则解释逻辑只能在 `rules/*` 与 `taint/*`，禁止散落在 handler/UI。
-- 调用图边来源只允许 Tai-e，禁止引入第二条隐藏边生成链。
+- 调用图默认边来源只允许 `bytecode-mainline`；Tai-e 只允许通过显式 `oracle-taie` 对照路径进入，禁止隐式 fallback 或隐藏双写链。
 
 ## 4. 建库主流程（规范主链）
 1. `CoreRunner` 启动构建，准备上下文与项目信息。
 2. 发现阶段：class/resource/method/callsite/localvar 元数据扫描。
 3. 归属阶段：`forceTarget > sdk > commonLibrary > appHeuristic`。
-4. 调用图阶段：Tai-e 运行并映射到 `methodCalls/methodCallMeta`。
+4. 调用图阶段：默认运行 `bytecode-mainline` 并回填 `methodCalls/methodCallMeta`；仅在显式 `oracle-taie` 时运行 Tai-e 对照链。
 5. 入库阶段：
    - 内存元数据通过 `DatabaseManager` 原子更新。
    - 图边通过 `Neo4jGraphBuildService/Neo4jBulkImportService` 写入项目库。
 6. 完成阶段：刷新缓存、更新构建元信息。
 
 强约束：
-- 非 all-common 场景下，Tai-e 失败直接终止建库（不回退旧调用图）。
+- 非 all-common 场景下，选中的调用图引擎失败直接终止建库（不回退旧调用图）；`oracle-taie` 失败同样不允许回退默认主链结果。
 - all-common 默认策略：`continue-no-callgraph`（构建成功但边数可为 0）。
 
 ## 5. 查询与分析流程（规范）
