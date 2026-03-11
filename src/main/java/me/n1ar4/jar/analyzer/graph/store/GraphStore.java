@@ -41,6 +41,27 @@ public final class GraphStore {
         }
     }
 
+    public GraphSnapshot loadFlowSnapshot() {
+        return loadFlowSnapshot(ActiveProjectContext.getActiveProjectKey());
+    }
+
+    public GraphSnapshot loadFlowSnapshot(String projectKey) {
+        String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        DatabaseManager.ensureProjectReadable(resolvedProjectKey);
+        try {
+            GraphSnapshot flowSnapshot = NEO4J_LOADER.loadFlow(resolvedProjectKey);
+            if (flowSnapshot == null || flowSnapshot.getNodeCount() <= 0) {
+                throw new IllegalStateException("graph_flow_snapshot_missing_rebuild");
+            }
+            return flowSnapshot;
+        } catch (Exception ex) {
+            logger.warn("load neo4j flow snapshot fail: key={} err={}", resolvedProjectKey, ex.toString());
+            throw ex instanceof IllegalStateException
+                    ? (IllegalStateException) ex
+                    : new IllegalStateException("graph_flow_snapshot_load_failed", ex);
+        }
+    }
+
     public static void invalidateCache() {
         Neo4jGraphSnapshotLoader.invalidateAll();
     }

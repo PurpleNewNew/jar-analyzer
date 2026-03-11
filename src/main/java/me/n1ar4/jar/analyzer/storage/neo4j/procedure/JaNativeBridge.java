@@ -50,7 +50,7 @@ public final class JaNativeBridge {
         }
         QueryOptions options = NativeJaQueryContext.currentOptions();
         String projectKey = NativeJaQueryContext.currentProjectKey();
-        GraphSnapshot snapshot = GRAPH_STORE.loadSnapshot(projectKey);
+        GraphSnapshot snapshot = GRAPH_STORE.loadFlowSnapshot(projectKey);
         return PROCEDURES.execute(procName, argExprs, params, options, snapshot);
     }
 
@@ -182,7 +182,7 @@ public final class JaNativeBridge {
 
     private static GraphSnapshot loadSnapshotQuietly() {
         try {
-            return GRAPH_STORE.loadSnapshot(NativeJaQueryContext.currentProjectKey());
+            return GRAPH_STORE.loadFlowSnapshot(NativeJaQueryContext.currentProjectKey());
         } catch (Exception ignored) {
             return null;
         }

@@ -197,7 +197,7 @@ class DfsApiUtil {
         String projectKey = req.projectKey;
         try {
             ActiveProjectContext.withProject(projectKey, () -> {
-                new GraphStore().loadSnapshot(projectKey);
+                new GraphStore().loadFlowSnapshot(projectKey);
                 return null;
             });
             return null;

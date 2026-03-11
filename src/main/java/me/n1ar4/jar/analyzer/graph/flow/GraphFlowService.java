@@ -28,7 +28,7 @@ public final class GraphFlowService {
     }
 
     public DfsOutcome runDfs(FlowOptions options, AtomicBoolean cancelFlag) {
-        GraphSnapshot snapshot = store.loadSnapshot();
+        GraphSnapshot snapshot = store.loadFlowSnapshot();
         GraphDfsEngine.DfsRun run = dfsEngine.run(snapshot, options, cancelFlag);
         return new DfsOutcome(run.results(), run.stats());
     }
