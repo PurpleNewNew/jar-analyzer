@@ -94,11 +94,8 @@ class QueryApiHandlersTest {
         assertEquals(true, data.getBoolean("readOnly"));
         assertTrue(data.containsKey("procedures"));
         assertTrue(data.containsKey("functions"));
-        assertTrue(data.getJSONArray("options").contains("expandBudget"));
-        assertTrue(data.getJSONArray("options").contains("pathBudget"));
-        assertTrue(data.getJSONArray("options").contains("timeoutCheckInterval"));
-        assertFalse(data.getJSONArray("options").contains("profile"));
-        assertEquals("derived-from-explicit-limits", data.getString("budgetMode"));
+        assertEquals("[\"maxRows\"]", data.getJSONArray("options").toJSONString());
+        assertEquals("server-managed", data.getString("budgetMode"));
         assertEquals("native-only", data.getString("procedureMode"));
         assertEquals("read-only-whitelist", data.getString("apocMode"));
         assertEquals("default", data.getString("apocWhitelistMode"));
@@ -166,6 +163,23 @@ class QueryApiHandlersTest {
         Exception projectSwitch = assertThrows(Exception.class,
                 () -> api.postJson("/api/projects/switch", "{invalid-json"));
         assertTrue(projectSwitch.getMessage().contains("\"code\":\"invalid_request\""));
+    }
+
+    @Test
+    void cypherShouldRejectRemovedQueryBudgetOptions() {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        String projectKey = prepareReadyProject();
+
+        JSONObject body = new JSONObject();
+        body.put("query", "MATCH (m:Method) RETURN m LIMIT 1");
+        JSONObject options = new JSONObject();
+        options.put("maxMs", 30000);
+        body.put("options", options);
+
+        Exception ex = assertThrows(Exception.class,
+                () -> api.postJson("/api/query/cypher", body.toJSONString()));
+        assertTrue(ex.getMessage().contains("\"code\":\"invalid_request\""));
+        assertTrue(ex.getMessage().contains("unsupported query option"));
     }
 
     @Test

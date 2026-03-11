@@ -52,7 +52,7 @@ declare global {
 
 const MAX_FRAMES = 50
 const TABLE_ROW_HEIGHT = 26
-const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v2'
+const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v3'
 const TRAVERSAL_MODE_STORAGE_KEY = 'ja.workbench.traversal-mode.v1'
 
 type FrameViewMode = 'graph' | 'table' | 'text'
@@ -163,10 +163,6 @@ app.innerHTML = `
           <span id="opt-rows-label">Rows</span>
           <input id="opt-max-rows" type="number" min="1" max="10000" step="1" />
         </label>
-        <label class="opt-item">
-          <span id="opt-timeout-label">Timeout</span>
-          <input id="opt-max-ms" type="number" min="100" max="180000" step="100" />
-        </label>
       </div>
       <button class="wb-btn primary" id="btn-run">Run</button>
     </section>
@@ -199,9 +195,7 @@ const saveButton = getRequired<HTMLButtonElement>('btn-save')
 const fullscreenButton = getRequired<HTMLButtonElement>('btn-fullscreen')
 const editorHost = getRequired<HTMLElement>('editor')
 const rowsLabelEl = getRequired<HTMLElement>('opt-rows-label')
-const timeoutLabelEl = getRequired<HTMLElement>('opt-timeout-label')
 const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
-const maxMsInput = getRequired<HTMLInputElement>('opt-max-ms')
 const modeCallButton = getRequired<HTMLButtonElement>('mode-call')
 const modeStructureButton = getRequired<HTMLButtonElement>('mode-structure')
 const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
@@ -284,12 +278,6 @@ syncQueryOptionControls()
 
 maxRowsInput.addEventListener('change', () => {
   state.queryOptions.maxRows = clampInt(maxRowsInput.value, 1, 10000, state.queryOptions.maxRows)
-  persistQueryOptions()
-  syncQueryOptionControls()
-})
-
-maxMsInput.addEventListener('change', () => {
-  state.queryOptions.maxMs = clampInt(maxMsInput.value, 100, 180000, state.queryOptions.maxMs)
   persistQueryOptions()
   syncQueryOptionControls()
 })
@@ -415,9 +403,7 @@ function refreshHeaderLabels(): void {
     : tr('全屏', 'Fullscreen')
   fullscreenButton.title = state.fullscreen ? tr('退出全屏', 'Exit Fullscreen') : tr('全屏', 'Fullscreen')
   rowsLabelEl.textContent = tr('行数', 'Rows')
-  timeoutLabelEl.textContent = tr('超时(ms)', 'Timeout(ms)')
   maxRowsInput.title = tr('最大返回行数', 'Max result rows')
-  maxMsInput.title = tr('查询超时（毫秒）', 'Query timeout in ms')
   modeCallButton.textContent = tr('调用图', 'Call Graph')
   modeStructureButton.textContent = tr('结构图', 'Structure Graph')
   modeCallButton.classList.toggle('active', state.graphMode === 'call')
@@ -470,7 +456,6 @@ function setTraversalMode(mode: TraversalMode): void {
 
 function syncQueryOptionControls(): void {
   maxRowsInput.value = String(clampInt(state.queryOptions.maxRows, 1, 10000, DEFAULT_QUERY_OPTIONS.maxRows))
-  maxMsInput.value = String(clampInt(state.queryOptions.maxMs, 100, 180000, DEFAULT_QUERY_OPTIONS.maxMs))
 }
 
 function persistQueryOptions(): void {
@@ -492,8 +477,7 @@ function hydrateQueryOptions(): void {
       return
     }
     state.queryOptions = {
-      maxRows: clampInt(parsed.maxRows, 1, 10000, state.queryOptions.maxRows),
-      maxMs: clampInt(parsed.maxMs, 100, 180000, state.queryOptions.maxMs)
+      maxRows: clampInt(parsed.maxRows, 1, 10000, state.queryOptions.maxRows)
     }
   } catch {
     // ignore broken cache

@@ -11,8 +11,11 @@
 package me.n1ar4.jar.analyzer.graph.query;
 
 import java.util.Map;
+import java.util.Set;
 
 public final class QueryOptions {
+    private static final Set<String> PUBLIC_OPTION_KEYS = Set.of("maxRows");
+
     private final int maxRows;
     private final int maxMs;
     private final int maxHops;
@@ -23,10 +26,9 @@ public final class QueryOptions {
     private final boolean maxMsExplicit;
     private final boolean expandBudgetExplicit;
     private final boolean pathBudgetExplicit;
-    private final boolean legacyLongChainDefaults;
 
     public QueryOptions(int maxRows, int maxMs, int maxHops, int maxPaths) {
-        this(maxRows, maxMs, maxHops, maxPaths, 0, 0, 0, false, true, false, false);
+        this(maxRows, maxMs, maxHops, maxPaths, 0, 0, 0, true, false, false);
     }
 
     public QueryOptions(int maxRows,
@@ -43,7 +45,6 @@ public final class QueryOptions {
                 expandBudget,
                 pathBudget,
                 timeoutCheckInterval,
-                false,
                 maxMs > 0,
                 expandBudget > 0,
                 pathBudget > 0);
@@ -56,46 +57,43 @@ public final class QueryOptions {
                          int expandBudget,
                          int pathBudget,
                          int timeoutCheckInterval,
-                         boolean legacyLongChainDefaults,
                          boolean maxMsExplicit,
                          boolean expandBudgetExplicit,
                          boolean pathBudgetExplicit) {
-        int resolvedMaxHops = clamp(maxHops, 1, 256, legacyLongChainDefaults ? 128 : 8);
-        int resolvedMaxPaths = clamp(maxPaths, 1, 5000, legacyLongChainDefaults ? 1000 : 500);
+        int resolvedMaxHops = clamp(maxHops, 1, 256, 8);
+        int resolvedMaxPaths = clamp(maxPaths, 1, 5000, 500);
         this.maxRows = clamp(maxRows, 1, 10000, 500);
-        this.maxMs = clamp(maxMs, 100, 180000, defaultMaxMs(legacyLongChainDefaults, resolvedMaxHops));
+        this.maxMs = clamp(maxMs, 100, 180000, defaultMaxMs(resolvedMaxHops));
         this.maxHops = resolvedMaxHops;
-        this.expandBudget = clamp(expandBudget, 1000, 20_000_000, defaultExpandBudget(legacyLongChainDefaults, resolvedMaxHops));
-        this.pathBudget = clamp(pathBudget, 16, 1_000_000, defaultPathBudget(legacyLongChainDefaults, resolvedMaxHops, resolvedMaxPaths));
+        this.expandBudget = clamp(expandBudget, 1000, 20_000_000, defaultExpandBudget(resolvedMaxHops));
+        this.pathBudget = clamp(pathBudget, 16, 1_000_000, defaultPathBudget(resolvedMaxHops, resolvedMaxPaths));
         this.maxPaths = Math.min(resolvedMaxPaths, this.pathBudget);
         this.timeoutCheckInterval = clamp(timeoutCheckInterval, 8, 4096, 128);
         this.maxMsExplicit = maxMsExplicit;
         this.expandBudgetExplicit = expandBudgetExplicit;
         this.pathBudgetExplicit = pathBudgetExplicit;
-        this.legacyLongChainDefaults = legacyLongChainDefaults;
     }
 
     public static QueryOptions defaults() {
-        return new QueryOptions(500, 15000, 8, 500, 0, 0, 0, false, false, false, false);
+        return new QueryOptions(500, 15000, 8, 500, 0, 0, 0, false, false, false);
     }
 
     public static QueryOptions fromMap(Map<String, Object> raw) {
         if (raw == null || raw.isEmpty()) {
             return defaults();
         }
-        boolean legacyLongChainDefaults = resolveLegacyLongChainDefaults(raw);
+        validatePublicOptions(raw);
         return new QueryOptions(
                 toInt(raw.get("maxRows"), 0),
-                toInt(raw.get("maxMs"), 0),
-                toInt(raw.get("maxHops"), 0),
-                toInt(raw.get("maxPaths"), 0),
-                toInt(raw.get("expandBudget"), 0),
-                toInt(raw.get("pathBudget"), 0),
-                toInt(raw.get("timeoutCheckInterval"), 0),
-                legacyLongChainDefaults,
-                hasPositiveInt(raw, "maxMs"),
-                hasPositiveInt(raw, "expandBudget"),
-                hasPositiveInt(raw, "pathBudget")
+                defaults().getMaxMs(),
+                defaults().getMaxHops(),
+                defaults().getMaxPaths(),
+                0,
+                0,
+                0,
+                false,
+                false,
+                false
         );
     }
 
@@ -130,7 +128,7 @@ public final class QueryOptions {
     public int effectiveBudgetMaxMs(int maxHopsHint, Integer timeoutMsHint) {
         int derived = maxMsExplicit
                 ? maxMs
-                : Math.max(maxMs, defaultMaxMs(legacyLongChainDefaults, resolveBudgetMaxHops(maxHopsHint)));
+                : Math.max(maxMs, defaultMaxMs(resolveBudgetMaxHops(maxHopsHint)));
         if (timeoutMsHint != null && timeoutMsHint > 0) {
             return Math.min(derived, clamp(timeoutMsHint, 100, 180000, derived));
         }
@@ -141,7 +139,7 @@ public final class QueryOptions {
         if (expandBudgetExplicit) {
             return expandBudget;
         }
-        return Math.max(expandBudget, defaultExpandBudget(legacyLongChainDefaults, resolveBudgetMaxHops(maxHopsHint)));
+        return Math.max(expandBudget, defaultExpandBudget(resolveBudgetMaxHops(maxHopsHint)));
     }
 
     public int effectivePathBudget(int maxHopsHint, int maxPathsHint) {
@@ -150,7 +148,7 @@ public final class QueryOptions {
         }
         int resolvedMaxHops = resolveBudgetMaxHops(maxHopsHint);
         int resolvedMaxPaths = resolveBudgetMaxPaths(maxPathsHint);
-        return Math.max(pathBudget, defaultPathBudget(legacyLongChainDefaults, resolvedMaxHops, resolvedMaxPaths));
+        return Math.max(pathBudget, defaultPathBudget(resolvedMaxHops, resolvedMaxPaths));
     }
 
     private int resolveBudgetMaxHops(int maxHopsHint) {
@@ -171,40 +169,22 @@ public final class QueryOptions {
         return Math.min(value, max);
     }
 
-    private static boolean resolveLegacyLongChainDefaults(Map<String, Object> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return false;
-        }
-        Object profile = raw.get("profile");
-        if (profile != null) {
-            String value = String.valueOf(profile).trim().toLowerCase();
-            if ("long".equals(value) || "long_chain".equals(value) || "long-chain".equals(value)) {
-                return true;
-            }
-        }
-        Object longChain = raw.get("longChain");
-        if (longChain instanceof Boolean b) {
-            return b;
-        }
-        return longChain != null && "true".equalsIgnoreCase(String.valueOf(longChain).trim());
-    }
-
-    private static int defaultMaxMs(boolean boostedDefaults, int maxHops) {
-        if (!boostedDefaults && maxHops <= 32) {
+    private static int defaultMaxMs(int maxHops) {
+        if (maxHops <= 32) {
             return 15000;
         }
         return Math.max(20000, Math.min(60000, maxHops * 250));
     }
 
-    private static int defaultExpandBudget(boolean boostedDefaults, int maxHops) {
-        if (!boostedDefaults && maxHops <= 32) {
+    private static int defaultExpandBudget(int maxHops) {
+        if (maxHops <= 32) {
             return 300_000;
         }
         return Math.max(600_000, Math.min(4_000_000, maxHops * 12_000));
     }
 
-    private static int defaultPathBudget(boolean boostedDefaults, int maxHops, int maxPaths) {
-        int byHops = (!boostedDefaults && maxHops <= 32)
+    private static int defaultPathBudget(int maxHops, int maxPaths) {
+        int byHops = (maxHops <= 32)
                 ? 5000
                 : Math.max(8000, Math.min(100_000, maxHops * 96));
         int byPaths = Math.max(5000, Math.min(100_000, maxPaths * 8));
@@ -225,10 +205,17 @@ public final class QueryOptions {
         }
     }
 
-    private static boolean hasPositiveInt(Map<String, Object> raw, String key) {
-        if (raw == null || key == null || key.isBlank() || !raw.containsKey(key)) {
-            return false;
+    private static void validatePublicOptions(Map<String, Object> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return;
         }
-        return toInt(raw.get(key), 0) > 0;
+        for (String key : raw.keySet()) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if (!PUBLIC_OPTION_KEYS.contains(key)) {
+                throw new IllegalArgumentException("invalid_request: unsupported query option: " + key);
+            }
+        }
     }
 }

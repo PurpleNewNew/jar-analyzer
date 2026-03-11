@@ -76,12 +76,10 @@ export interface ScriptItem {
 
 export interface QueryUiOptions {
   maxRows: number
-  maxMs: number
 }
 
 export const DEFAULT_QUERY_OPTIONS: QueryUiOptions = {
-  maxRows: 500,
-  maxMs: 15000
+  maxRows: 500
 }
 
 export function normalizeCapabilities(raw: unknown): Record<string, unknown> | null {

@@ -197,13 +197,7 @@
     "query": "MATCH (n:Method) RETURN n LIMIT 10",
     "params": {},
     "options": {
-      "maxRows": 500,
-      "maxMs": 15000,
-      "maxHops": 0,
-      "maxPaths": 0,
-      "expandBudget": 0,
-      "pathBudget": 0,
-      "timeoutCheckInterval": 0
+      "maxRows": 500
     }
   }
   ```
@@ -213,9 +207,9 @@
   - 返回的 `Node/Relationship/Path` 值会统一按公开模型投影：节点 `labels` 只默认暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`，同时保留建库期稳定事实 `method_semantic_flags/method_semantic_badges`；调用边会额外返回 `edge_semantic_flags/edge_semantic_badges`
   - 提供一组本地只读 `apoc.*` 兼容函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
   - `jar.analyzer.cypher.apoc.whitelist` 默认为 `default`；可设为 `none|off|disabled` 彻底关闭，或用 `coll,text,map,apoc.text.join` 这类逗号列表精确控制
-  - `maxMs/maxRows` 对原生查询生效
-  - `maxHops/maxPaths/expandBudget/pathBudget` 仅对 `ja.*` 过程生效
-  - Workbench 不再暴露 `default/long-chain` profile；`ja.*` 过程的隐藏预算会按显式 `maxHops/maxPaths` 自动推导。旧 `profile=long-chain` / `longChain=true` 仍兼容，但已不再作为主入口
+  - 对外 `options` 只保留 `maxRows`
+  - `ja.*` 过程的深度、路径数等语义参数只通过 `CALL ja.*(...)` 的显式参数指定，不再接受外层 `options.maxHops/maxPaths`
+  - 查询超时、扩展预算、路径预算与 timeout checkpoint 都由服务端硬熔断管理，不再对外暴露；旧 `profile/longChain/maxMs/maxHops/maxPaths/expandBudget/pathBudget/timeoutCheckInterval` 选项会直接返回 `invalid_request`
   - `ja.path.shortest_pruned` / `ja.path.from_to_pruned` 现在走基于 `SummaryEngine + GraphSnapshot` 的 stateful pruning；响应 `warnings` 会附带 `pruned_state_cuts` / `pruned_expanded_edges` 等统计
   - `rules/model.json.pruningPolicy` 可热刷新控制 pruned 语义：
     `sourceSelection=merged|graph|rules`
@@ -260,7 +254,7 @@
   - active project 构建中会返回 `project_build_in_progress`
 
 - `GET /api/query/cypher/capabilities`
-  返回当前 Cypher 能力、过程列表、函数列表、支持的 options，以及当前 `budgetMode/procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；过程列表现包含 `ja.path.gadget` / `ja.gadget.track`。`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。`graphModel` 会额外给出物理标签/物理边类型、公开标签/公开关系类别、默认遍历模式、逻辑关系类型重写能力、`type(r)` 逻辑筛选重写能力、参数化 `type(r)` 逻辑筛选重写能力与动态语义边界，方便 Workbench/MCP 统一心智。
+  返回当前 Cypher 能力、过程列表、函数列表、支持的 options，以及当前 `budgetMode/procedureMode/apocMode/apocWhitelistMode/apocWhitelist` 策略信息；当前公开 `options` 只有 `maxRows`，`budgetMode=server-managed` 表示执行超时与路径预算由服务端内部管理。过程列表现包含 `ja.path.gadget` / `ja.gadget.track`。`ruleValidation` 会显式返回 `model/source/modelSource/sink` 四块规则校验结果（compiled/rejected/errors/warnings），不再只依赖日志观察 DSL 跳过情况。`graphModel` 会额外给出物理标签/物理边类型、公开标签/公开关系类别、默认遍历模式、逻辑关系类型重写能力、`type(r)` 逻辑筛选重写能力、参数化 `type(r)` 逻辑筛选重写能力与动态语义边界，方便 Workbench/MCP 统一心智。
 
 - Cypher Workbench 图视图补充
   - 结果图投影不再只识别 `src_id/dst_id`、`node_ids/edge_ids`；普通 Cypher 返回的 `Node/Relationship/Path` 及其嵌套 map/list 结果都会自动投影到 `Graph` 视图
