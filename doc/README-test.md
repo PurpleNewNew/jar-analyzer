@@ -26,10 +26,10 @@ java -jar target/jar-analyzer-*-jar-with-dependencies.jar build \
 
 ```bash
 # G1（默认）
-java -Xms4g -Xmx8g -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-cache
+java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar --del-cache
 
 # ZGC（可选对比）
-java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*.jar build --jar /path/to/app.jar --del-cache
+java -Xms4g -Xmx8g -XX:+UseZGC -jar target/jar-analyzer-*-jar-with-dependencies.jar build --jar /path/to/app.jar --del-cache
 ```
 
 经验上：

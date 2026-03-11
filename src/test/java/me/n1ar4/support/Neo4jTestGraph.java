@@ -71,6 +71,14 @@ public final class Neo4jTestGraph {
         return count;
     }
 
+    public static int countDistinctCallPairs() {
+        Set<String> pairs = new HashSet<>();
+        for (CallEdge edge : callEdges()) {
+            pairs.add(methodKey(edge.caller()) + "->" + methodKey(edge.callee()));
+        }
+        return pairs.size();
+    }
+
     public static MethodRef pickFirstMethod() {
         List<GraphNode> methods = new ArrayList<>(snapshot().getNodesByKindView("method"));
         methods.sort(Comparator

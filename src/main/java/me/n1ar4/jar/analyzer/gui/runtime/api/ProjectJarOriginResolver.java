@@ -51,8 +51,8 @@ final class ProjectJarOriginResolver {
         return out.isEmpty() ? empty() : new ProjectJarOriginResolver(out);
     }
 
-    ProjectOrigin resolve(int jarId) {
-        if (jarId <= 0) {
+    ProjectOrigin resolve(Integer jarId) {
+        if (jarId == null || jarId <= 0) {
             return ProjectOrigin.APP;
         }
         ProjectOrigin origin = jarOrigins.get(jarId);

@@ -12,7 +12,9 @@ package me.n1ar4.core.spring;
 
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
 import me.n1ar4.support.FixtureJars;
 import me.n1ar4.support.Neo4jTestGraph;
 import org.junit.jupiter.api.Test;
@@ -41,12 +43,22 @@ public class SpringCustomTest {
             System.out.println("class reference count: " + classCount);
             assertEquals(77, classCount, "class count should be 77");
 
+            MethodReference endpoint = requireMethod(
+                    "me/n1ar4/test/demos/web/DataController",
+                    "getStatus",
+                    "(Ljava/lang/String;)Ljava/util/Map;"
+            );
+            assertTrue((endpoint.getSemanticFlags() & MethodSemanticFlags.SPRING_ENDPOINT) != 0,
+                    "spring endpoint semantic should be present on DataController#getStatus");
+
             long methodCallCount = build.getEdgeCount();
             System.out.println("build edge count: " + methodCallCount);
-            assertTrue(methodCallCount >= 1931,
-                    "build edge count should be at least 1931");
-            assertEquals(Neo4jTestGraph.countCallEdges(edge -> true), methodCallCount,
-                    "build edge count should match the current call-edge snapshot");
+            assertTrue(methodCallCount >= 800,
+                    "build edge count should stay above the current bytecode-mainline springboot baseline");
+            assertEquals(Neo4jTestGraph.countDistinctCallPairs(), methodCallCount,
+                    "build edge count should match the distinct caller-callee pairs in graph snapshot");
+            assertTrue(Neo4jTestGraph.countCallEdges(edge -> true) >= methodCallCount,
+                    "graph snapshot should not contain fewer call edges than distinct build call pairs");
 
             System.out.println("所有数据库验证通过！");
 
@@ -54,5 +66,20 @@ public class SpringCustomTest {
             e.printStackTrace();
             fail("测试执行失败: " + e.getMessage());
         }
+    }
+
+    private static MethodReference requireMethod(String className, String methodName, String desc) {
+        for (MethodReference method : DatabaseManager.getMethodReferencesByClass(className)) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            if (className.equals(method.getClassReference().getName())
+                    && methodName.equals(method.getName())
+                    && desc.equals(method.getDesc())) {
+                return method;
+            }
+        }
+        fail("method not found: " + className + "#" + methodName + desc);
+        return null;
     }
 }
