@@ -114,8 +114,8 @@ public final class SelectivePtaRefiner {
             return Result.empty();
         }
         MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
-        Map<MethodReference.Handle, MethodUnit> methodUnits = loadMethodUnits(snapshot, workspace, lookup);
-        if (methodUnits.isEmpty()) {
+        MethodUnitRepository methodUnits = new MethodUnitRepository(snapshot, workspace);
+        if (!methodUnits.hasBytecode()) {
             return Result.empty();
         }
         int hotspotSites = 0;
@@ -136,8 +136,7 @@ public final class SelectivePtaRefiner {
                     edges,
                     inheritanceMap,
                     precisionMode,
-                    lookup,
-                    methodUnits
+                    lookup
             );
             if (!selection.enabled()) {
                 continue;
@@ -258,7 +257,7 @@ public final class SelectivePtaRefiner {
                 fieldSites,
                 arraySites,
                 arrayCopySites,
-                methodUnits.size(),
+                methodUnits.loadedCount(),
                 precisionSelectedSites,
                 precisionSemanticSites,
                 precisionReflectionSites,
@@ -272,8 +271,7 @@ public final class SelectivePtaRefiner {
                                                     BuildEdgeAccumulator edges,
                                                     InheritanceMap inheritanceMap,
                                                     boolean precisionMode,
-                                                    MethodLookup lookup,
-                                                    Map<MethodReference.Handle, MethodUnit> methodUnits) {
+                                                    MethodLookup lookup) {
         if (!isEligibleInvokeSite(site)) {
             return PrecisionSelection.disabled();
         }
@@ -287,9 +285,9 @@ public final class SelectivePtaRefiner {
                 site.getCallerMethodDesc(),
                 site.getJarId()
         );
-        MethodUnit unit = caller == null ? null : methodUnits.get(caller);
         boolean semantic = caller != null && hasPrecisionSemanticSignal(snapshot, caller);
-        boolean reflection = unit != null && hasReflectionPrecisionSignal(unit.constraints());
+        boolean reflection = caller != null
+                && hasReflectionPrecisionSignal(snapshot.constraints().methodConstraints(caller));
         boolean trigger = isTriggerBridgeSite(site);
         boolean highFanout = caller != null && isHighFanoutSite(edges, caller, site);
         boolean enabled = dispatchHotspot || semantic || reflection || trigger || highFanout;
@@ -522,78 +520,6 @@ public final class SelectivePtaRefiner {
             }
         }
         return null;
-    }
-
-    private static Map<MethodReference.Handle, MethodUnit> loadMethodUnits(BuildFactSnapshot snapshot,
-                                                                           BuildBytecodeWorkspace workspace,
-                                                                           MethodLookup lookup) {
-        if (snapshot == null || workspace == null || workspace.parsedClasses().isEmpty()) {
-            return Map.of();
-        }
-        Map<MethodReference.Handle, List<CallSiteEntity>> callSitesByCaller = snapshot.symbols().callSitesByCaller();
-        LinkedHashMap<MethodReference.Handle, MethodUnit> out = new LinkedHashMap<>();
-        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
-            if (parsedClass == null || parsedClass.classNode() == null) {
-                continue;
-            }
-            try {
-                ClassNode cn = parsedClass.classNode();
-                if (cn.methods == null || cn.methods.isEmpty()) {
-                    continue;
-                }
-                for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
-                    MethodNode mn = parsedMethod.methodNode();
-                    if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
-                        continue;
-                    }
-                    MethodReference.Handle handle = lookup.resolve(cn.name, mn.name, mn.desc, parsedClass.jarId());
-                    if (handle == null) {
-                        continue;
-                    }
-                    Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
-                    if (frames == null) {
-                        continue;
-                    }
-                    BuildFactSnapshot.MethodConstraintFacts constraints = snapshot.constraints().methodConstraints(handle);
-                    MethodUnit unit = new MethodUnit(handle,
-                            mn,
-                            frames,
-                            constraints,
-                            buildInvokeSites(handle, mn.instructions, callSitesByCaller.get(handle)));
-                    out.put(handle, unit);
-                }
-            } catch (Exception ex) {
-                logger.debug("pta unit load failed: {}", ex.toString());
-            }
-        }
-        if (!out.isEmpty()) {
-            Map<String, List<MethodUnit>> byClass = new HashMap<>();
-            for (MethodUnit unit : out.values()) {
-                if (unit == null || unit.handle() == null || unit.handle().getClassReference() == null) {
-                    continue;
-                }
-                byClass.computeIfAbsent(
-                        safe(unit.handle().getClassReference().getName()),
-                        ignore -> new ArrayList<>()
-                ).add(unit);
-            }
-            for (List<MethodUnit> group : byClass.values()) {
-                if (group == null || group.isEmpty()) {
-                    continue;
-                }
-                for (MethodUnit unit : group) {
-                    if (unit == null) {
-                        continue;
-                    }
-                    for (MethodUnit sibling : group) {
-                        if (sibling != null && sibling.handle() != null) {
-                            unit.siblings().put(sibling.handle(), sibling);
-                        }
-                    }
-                }
-            }
-        }
-        return out.isEmpty() ? Map.of() : Map.copyOf(out);
     }
 
     private static List<PtaInvokeSite> buildInvokeSites(MethodReference.Handle caller,
@@ -1019,7 +945,7 @@ public final class SelectivePtaRefiner {
         if (callee == null || !callerUnit.isSameClass(callee)) {
             return ResolvedValue.empty();
         }
-        MethodUnit calleeUnit = callerUnit.siblings().get(callee);
+        MethodUnit calleeUnit = callerUnit.sibling(callee);
         if (calleeUnit == null) {
             return ResolvedValue.empty();
         }
@@ -1348,18 +1274,20 @@ public final class SelectivePtaRefiner {
     }
 
     private static final class MethodUnit {
+        private final MethodUnitRepository repository;
         private final MethodReference.Handle handle;
         private final MethodNode methodNode;
         private final Frame<SourceValue>[] frames;
         private final BuildFactSnapshot.MethodConstraintFacts constraints;
         private final List<PtaInvokeSite> invokeSites;
-        private final Map<MethodReference.Handle, MethodUnit> siblings;
 
-        private MethodUnit(MethodReference.Handle handle,
+        private MethodUnit(MethodUnitRepository repository,
+                           MethodReference.Handle handle,
                            MethodNode methodNode,
                            Frame<SourceValue>[] frames,
                            BuildFactSnapshot.MethodConstraintFacts constraints,
                            List<PtaInvokeSite> invokeSites) {
+            this.repository = repository;
             this.handle = handle;
             this.methodNode = methodNode;
             this.frames = frames;
@@ -1367,7 +1295,6 @@ public final class SelectivePtaRefiner {
                     ? BuildFactSnapshot.MethodConstraintFacts.empty()
                     : constraints;
             this.invokeSites = invokeSites == null ? List.of() : invokeSites;
-            this.siblings = new HashMap<>();
         }
 
         private MethodReference.Handle handle() {
@@ -1440,8 +1367,96 @@ public final class SelectivePtaRefiner {
             return safe(handle.getClassReference().getName()).equals(safe(other.getClassReference().getName()));
         }
 
-        private Map<MethodReference.Handle, MethodUnit> siblings() {
-            return siblings;
+        private MethodUnit sibling(MethodReference.Handle other) {
+            if (!isSameClass(other) || repository == null) {
+                return null;
+            }
+            return repository.get(other);
+        }
+    }
+
+    private static final class MethodUnitRepository {
+        private final BuildFactSnapshot snapshot;
+        private final BuildBytecodeWorkspace workspace;
+        private final Map<MethodReference.Handle, List<CallSiteEntity>> callSitesByCaller;
+        private final Map<MethodReference.Handle, MethodUnit> loadedUnits;
+        private final Set<MethodReference.Handle> missingUnits;
+
+        private MethodUnitRepository(BuildFactSnapshot snapshot,
+                                     BuildBytecodeWorkspace workspace) {
+            this.snapshot = snapshot;
+            this.workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
+            this.callSitesByCaller = snapshot == null ? Map.of() : snapshot.symbols().callSitesByCaller();
+            this.loadedUnits = new HashMap<>();
+            this.missingUnits = new HashSet<>();
+        }
+
+        private boolean hasBytecode() {
+            return !workspace.classesByHandle().isEmpty();
+        }
+
+        private int loadedCount() {
+            return loadedUnits.size();
+        }
+
+        private MethodUnit get(MethodReference.Handle handle) {
+            if (handle == null) {
+                return null;
+            }
+            MethodUnit cached = loadedUnits.get(handle);
+            if (cached != null) {
+                return cached;
+            }
+            if (missingUnits.contains(handle)) {
+                return null;
+            }
+            MethodUnit loaded = load(handle);
+            if (loaded == null) {
+                missingUnits.add(handle);
+                return null;
+            }
+            loadedUnits.put(handle, loaded);
+            return loaded;
+        }
+
+        private MethodUnit load(MethodReference.Handle handle) {
+            if (snapshot == null || handle == null || handle.getClassReference() == null) {
+                return null;
+            }
+            BuildBytecodeWorkspace.ParsedClass parsedClass = workspace.findClass(
+                    handle.getClassReference().getName(),
+                    handle.getJarId()
+            );
+            if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
+                return null;
+            }
+            try {
+                for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                    MethodNode methodNode = parsedMethod == null ? null : parsedMethod.methodNode();
+                    if (methodNode == null
+                            || methodNode.instructions == null
+                            || methodNode.instructions.size() == 0
+                            || !safe(methodNode.name).equals(safe(handle.getName()))
+                            || !safe(methodNode.desc).equals(safe(handle.getDesc()))) {
+                        continue;
+                    }
+                    Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+                    if (frames == null) {
+                        return null;
+                    }
+                    return new MethodUnit(
+                            this,
+                            handle,
+                            methodNode,
+                            frames,
+                            snapshot.constraints().methodConstraints(handle),
+                            buildInvokeSites(handle, methodNode.instructions, callSitesByCaller.get(handle))
+                    );
+                }
+            } catch (Exception ex) {
+                logger.debug("pta unit load failed: {}", ex.toString());
+            }
+            return null;
         }
     }
 

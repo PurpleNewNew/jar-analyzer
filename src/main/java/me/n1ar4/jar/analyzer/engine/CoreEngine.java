@@ -30,7 +30,6 @@ import me.n1ar4.jar.analyzer.entity.MemberEntity;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
-import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
@@ -124,45 +123,14 @@ public class CoreEngine {
     private CallGraphCache buildCallGraphCache() {
         long startNs = System.nanoTime();
         GraphSnapshot snapshot = loadQuerySnapshotOrThrow();
-        Map<Long, MethodResult> methods = new HashMap<>();
-        for (GraphNode node : snapshot.getNodesByKindView("method")) {
-            if (node == null) {
+        Map<Integer, String> jarNames = new HashMap<>();
+        for (JarEntity jar : DatabaseManager.getJarsMeta()) {
+            if (jar == null) {
                 continue;
             }
-            methods.put(node.getNodeId(), toMethodResult(node));
+            jarNames.put(jar.getJid(), safe(jar.getJarName()));
         }
-        List<MethodCallResult> edges = new ArrayList<>();
-        for (Map.Entry<Long, MethodResult> entry : methods.entrySet()) {
-            long srcId = entry.getKey();
-            MethodResult src = entry.getValue();
-            for (GraphEdge edge : snapshot.getOutgoingView(srcId)) {
-                if (!isCallEdge(edge.getRelType())) {
-                    continue;
-                }
-                MethodResult dst = methods.get(edge.getDstId());
-                if (dst == null) {
-                    continue;
-                }
-                MethodCallResult row = new MethodCallResult();
-                row.setCallerClassName(src.getClassName());
-                row.setCallerMethodName(src.getMethodName());
-                row.setCallerMethodDesc(src.getMethodDesc());
-                row.setCallerJarId(src.getJarId());
-                row.setCallerJarName(src.getJarName());
-                row.setCalleeClassName(dst.getClassName());
-                row.setCalleeMethodName(dst.getMethodName());
-                row.setCalleeMethodDesc(dst.getMethodDesc());
-                row.setCalleeJarId(dst.getJarId());
-                row.setCalleeJarName(dst.getJarName());
-                row.setOpCode(edge.getOpCode());
-                row.setEdgeType(resolveEdgeType(edge));
-                row.setEdgeConfidence(safe(edge.getConfidence()));
-                row.setEdgeEvidence(safe(edge.getEvidence()));
-                row.setCallSiteKey(safe(edge.getCallSiteKey()));
-                edges.add(row);
-            }
-        }
-        CallGraphCache cache = CallGraphCache.build(edges);
+        CallGraphCache cache = CallGraphCache.build(snapshot, jarNames);
         long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
         logger.info("call graph cache loaded: edges={}, methods={}, elapsedMs={}",
                 cache.getEdgeCount(), cache.getMethodCount(), elapsedMs);
@@ -1608,51 +1576,6 @@ public class CoreEngine {
         int from = Math.min(begin, out.size());
         int to = Math.min(from + size, out.size());
         return new ArrayList<>(out.subList(from, to));
-    }
-
-    private static boolean isCallEdge(String relType) {
-        if (relType == null || relType.isBlank()) {
-            return false;
-        }
-        return relType.startsWith("CALLS_");
-    }
-
-    private String resolveEdgeType(GraphEdge edge) {
-        if (edge == null) {
-            return MethodCallMeta.TYPE_DIRECT;
-        }
-        String relation = safe(edge.getRelType());
-        return switch (relation) {
-            case "CALLS_DISPATCH" -> MethodCallMeta.TYPE_DISPATCH;
-            case "CALLS_REFLECTION" -> MethodCallMeta.TYPE_REFLECTION;
-            case "CALLS_CALLBACK" -> MethodCallMeta.TYPE_CALLBACK;
-            case "CALLS_OVERRIDE" -> MethodCallMeta.TYPE_OVERRIDE;
-            case "CALLS_FRAMEWORK" -> MethodCallMeta.TYPE_FRAMEWORK;
-            case "CALLS_METHOD_HANDLE" -> MethodCallMeta.TYPE_METHOD_HANDLE;
-            case "CALLS_PTA" -> MethodCallMeta.TYPE_PTA;
-            case "CALLS_INDY" -> MethodCallMeta.TYPE_INDY;
-            default -> resolveEdgeTypeFromEvidence(edge.getEvidence());
-        };
-    }
-
-    private String resolveEdgeTypeFromEvidence(String evidence) {
-        String ev = safe(evidence).toLowerCase(Locale.ROOT);
-        if (ev.contains("pta:" ) || ev.contains("pta_ctx=") || ev.contains("|pta:")) {
-            return MethodCallMeta.TYPE_PTA;
-        }
-        if (ev.contains("method_handle") || ev.contains("mh:")) {
-            return MethodCallMeta.TYPE_METHOD_HANDLE;
-        }
-        if (ev.contains("framework") || ev.contains("spring_web_entry")) {
-            return MethodCallMeta.TYPE_FRAMEWORK;
-        }
-        if (ev.contains("callback") || ev.contains("dynamic_proxy")) {
-            return MethodCallMeta.TYPE_CALLBACK;
-        }
-        if (ev.contains("reflection") || ev.contains("tamiflex") || ev.contains("reflect")) {
-            return MethodCallMeta.TYPE_REFLECTION;
-        }
-        return MethodCallMeta.TYPE_DIRECT;
     }
 
     private MethodResult toMethodResult(GraphNode node) {

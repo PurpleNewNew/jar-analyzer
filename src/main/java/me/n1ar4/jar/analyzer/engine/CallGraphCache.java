@@ -14,6 +14,9 @@ import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
+import me.n1ar4.jar.analyzer.graph.store.GraphNode;
+import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -200,6 +203,132 @@ public final class CallGraphCache {
                 edgesByCallerScoped, edgesByCalleeScoped, edgesByCaller, edgesByCallee,
                 edgesByCallerSimple, edgesByCalleeSimple, allCallEdges,
                 metaMap, edgeCounter, methodCache.size());
+    }
+
+    public static CallGraphCache build(GraphSnapshot snapshot, Map<Integer, String> jarNames) {
+        if (snapshot == null || snapshot.getNodeCount() <= 0 || snapshot.getEdgeCount() <= 0) {
+            return new CallGraphCache(Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
+                    Collections.emptyMap(), Collections.emptyMap(),
+                    new ArrayList<>(),
+                    Collections.emptyMap(), 0, 0);
+        }
+        Map<Long, MethodResult> methodCache = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> callersScopedTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> calleesScopedTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> callersTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> calleesTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> callersSimpleTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodResult>> calleesSimpleTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCallerScopedTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCalleeScopedTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCallerTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCalleeTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCallerSimpleTmp = new HashMap<>();
+        Map<String, LinkedHashMap<String, MethodCallResult>> callEdgesByCalleeSimpleTmp = new HashMap<>();
+        Map<String, MethodCallResult> callEdgeCache = new LinkedHashMap<>();
+        Map<MethodCallKey, MethodCallMeta> metaMap = new HashMap<>(Math.max(16, snapshot.getEdgeCount() * 2));
+        Set<String> scopedEdgeKeys = new HashSet<>(Math.max(16, snapshot.getEdgeCount() * 2));
+
+        for (GraphNode callerNode : snapshot.getNodesByKindView("method")) {
+            if (!isMethodNode(callerNode)) {
+                continue;
+            }
+            MethodResult caller = getOrCreateMethod(methodCache, callerNode, jarNames);
+            String callerClass = caller.getClassName();
+            String callerMethod = caller.getMethodName();
+            String callerDesc = caller.getMethodDesc();
+            String callerKey = methodKey(callerClass, callerMethod, callerDesc);
+            String callerSimpleKey = methodSimpleKey(callerClass, callerMethod);
+            String callerScopedKey = methodScopedKey(callerClass, callerMethod, callerDesc, caller.getJarId());
+
+            for (GraphEdge edge : snapshot.getOutgoingView(callerNode.getNodeId())) {
+                if (edge == null || !isCallEdge(edge.getRelType())) {
+                    continue;
+                }
+                GraphNode calleeNode = snapshot.getNode(edge.getDstId());
+                if (!isMethodNode(calleeNode)) {
+                    continue;
+                }
+                MethodResult callee = getOrCreateMethod(methodCache, calleeNode, jarNames);
+                String calleeClass = callee.getClassName();
+                String calleeMethod = callee.getMethodName();
+                String calleeDesc = callee.getMethodDesc();
+                String calleeKey = methodKey(calleeClass, calleeMethod, calleeDesc);
+                String calleeSimpleKey = methodSimpleKey(calleeClass, calleeMethod);
+                String calleeScopedKey = methodScopedKey(calleeClass, calleeMethod, calleeDesc, callee.getJarId());
+
+                callersTmp.computeIfAbsent(calleeKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(callerScopedKey, caller);
+                calleesTmp.computeIfAbsent(callerKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(calleeScopedKey, callee);
+                callersScopedTmp.computeIfAbsent(calleeScopedKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(callerScopedKey, caller);
+                calleesScopedTmp.computeIfAbsent(callerScopedKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(calleeScopedKey, callee);
+                callersSimpleTmp.computeIfAbsent(calleeSimpleKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(callerScopedKey, caller);
+                calleesSimpleTmp.computeIfAbsent(callerSimpleKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(calleeScopedKey, callee);
+
+                String scopedEdgeKey = callerScopedKey + "->" + calleeScopedKey;
+                scopedEdgeKeys.add(scopedEdgeKey);
+                MethodCallResult cachedEdge = callEdgeCache.get(scopedEdgeKey);
+                if (cachedEdge == null) {
+                    cachedEdge = toEdge(caller, callee, edge);
+                    callEdgeCache.put(scopedEdgeKey, cachedEdge);
+                } else {
+                    mergeEdge(cachedEdge, edge);
+                }
+                callEdgesByCallerScopedTmp.computeIfAbsent(callerScopedKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+                callEdgesByCalleeScopedTmp.computeIfAbsent(calleeScopedKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+                callEdgesByCallerTmp.computeIfAbsent(callerKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+                callEdgesByCalleeTmp.computeIfAbsent(calleeKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+                callEdgesByCallerSimpleTmp.computeIfAbsent(callerSimpleKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+                callEdgesByCalleeSimpleTmp.computeIfAbsent(calleeSimpleKey, k -> new LinkedHashMap<>())
+                        .putIfAbsent(scopedEdgeKey, cachedEdge);
+
+                MethodCallKey key = new MethodCallKey(
+                        callerClass, callerMethod, callerDesc, caller.getJarId(),
+                        calleeClass, calleeMethod, calleeDesc, callee.getJarId()
+                );
+                MethodCallMeta incoming = new MethodCallMeta(
+                        resolveEdgeType(edge),
+                        safe(edge.getConfidence()),
+                        safe(edge.getEvidence())
+                );
+                MethodCallMeta existing = metaMap.get(key);
+                metaMap.put(key, mergeMeta(existing, incoming));
+            }
+        }
+
+        Map<String, ArrayList<MethodResult>> callersScoped = finalizeMap(callersScopedTmp);
+        Map<String, ArrayList<MethodResult>> calleesScoped = finalizeMap(calleesScopedTmp);
+        Map<String, ArrayList<MethodResult>> callers = finalizeMap(callersTmp);
+        Map<String, ArrayList<MethodResult>> callees = finalizeMap(calleesTmp);
+        Map<String, ArrayList<MethodResult>> callersSimple = finalizeMap(callersSimpleTmp);
+        Map<String, ArrayList<MethodResult>> calleesSimple = finalizeMap(calleesSimpleTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCallerScoped = finalizeEdgeMap(callEdgesByCallerScopedTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCalleeScoped = finalizeEdgeMap(callEdgesByCalleeScopedTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCaller = finalizeEdgeMap(callEdgesByCallerTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCallee = finalizeEdgeMap(callEdgesByCalleeTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCallerSimple = finalizeEdgeMap(callEdgesByCallerSimpleTmp);
+        Map<String, ArrayList<MethodCallResult>> edgesByCalleeSimple = finalizeEdgeMap(callEdgesByCalleeSimpleTmp);
+        ArrayList<MethodCallResult> allCallEdges = new ArrayList<>(callEdgeCache.values());
+        allCallEdges.sort(EDGE_COMPARATOR);
+
+        return new CallGraphCache(callersScoped, calleesScoped, callers, callees, callersSimple, calleesSimple,
+                edgesByCallerScoped, edgesByCalleeScoped, edgesByCaller, edgesByCallee,
+                edgesByCallerSimple, edgesByCalleeSimple, allCallEdges,
+                metaMap, scopedEdgeKeys.size(), methodCache.size());
     }
 
     public ArrayList<MethodResult> getCallers(MethodResult callee) {
@@ -460,6 +589,26 @@ public final class CallGraphCache {
         return copy;
     }
 
+    private static MethodCallResult toEdge(MethodResult caller, MethodResult callee, GraphEdge edge) {
+        MethodCallResult row = new MethodCallResult();
+        row.setCallerClassName(caller == null ? "" : caller.getClassName());
+        row.setCallerMethodName(caller == null ? "" : caller.getMethodName());
+        row.setCallerMethodDesc(caller == null ? "" : caller.getMethodDesc());
+        row.setCallerJarId(caller == null ? -1 : caller.getJarId());
+        row.setCallerJarName(caller == null ? "" : caller.getJarName());
+        row.setCalleeClassName(callee == null ? "" : callee.getClassName());
+        row.setCalleeMethodName(callee == null ? "" : callee.getMethodName());
+        row.setCalleeMethodDesc(callee == null ? "" : callee.getMethodDesc());
+        row.setCalleeJarId(callee == null ? -1 : callee.getJarId());
+        row.setCalleeJarName(callee == null ? "" : callee.getJarName());
+        row.setOpCode(edge == null ? null : edge.getOpCode());
+        row.setEdgeType(resolveEdgeType(edge));
+        row.setEdgeConfidence(edge == null ? "" : safe(edge.getConfidence()));
+        row.setEdgeEvidence(edge == null ? "" : safe(edge.getEvidence()));
+        row.setCallSiteKey(edge == null ? "" : safe(edge.getCallSiteKey()));
+        return row;
+    }
+
     private static void mergeEdge(MethodCallResult existing, MethodCallResult incoming) {
         if (existing == null || incoming == null) {
             return;
@@ -479,6 +628,28 @@ public final class CallGraphCache {
         if ((existing.getCallSiteKey() == null || existing.getCallSiteKey().isBlank())
                 && incoming.getCallSiteKey() != null
                 && !incoming.getCallSiteKey().isBlank()) {
+            existing.setCallSiteKey(incoming.getCallSiteKey());
+        }
+    }
+
+    private static void mergeEdge(MethodCallResult existing, GraphEdge incoming) {
+        if (existing == null || incoming == null) {
+            return;
+        }
+        MethodCallMeta merged = mergeMeta(
+                new MethodCallMeta(existing.getEdgeType(), existing.getEdgeConfidence(), existing.getEdgeEvidence()),
+                new MethodCallMeta(resolveEdgeType(incoming), safe(incoming.getConfidence()), safe(incoming.getEvidence()))
+        );
+        if (merged != null) {
+            existing.setEdgeType(merged.getType());
+            existing.setEdgeConfidence(merged.getConfidence());
+            existing.setEdgeEvidence(merged.getEvidence());
+        }
+        if (existing.getOpCode() == null) {
+            existing.setOpCode(incoming.getOpCode());
+        }
+        if ((existing.getCallSiteKey() == null || existing.getCallSiteKey().isBlank())
+                && !safe(incoming.getCallSiteKey()).isBlank()) {
             existing.setCallSiteKey(incoming.getCallSiteKey());
         }
     }
@@ -505,6 +676,26 @@ public final class CallGraphCache {
             result.setJarId(jarId);
         }
         cache.put(key, result);
+        return result;
+    }
+
+    private static MethodResult getOrCreateMethod(Map<Long, MethodResult> cache,
+                                                  GraphNode node,
+                                                  Map<Integer, String> jarNames) {
+        if (node == null) {
+            return null;
+        }
+        MethodResult cached = cache.get(node.getNodeId());
+        if (cached != null) {
+            return cached;
+        }
+        MethodResult result = new MethodResult();
+        result.setClassName(safe(node.getClassName()));
+        result.setMethodName(safe(node.getMethodName()));
+        result.setMethodDesc(safe(node.getMethodDesc()));
+        result.setJarId(node.getJarId());
+        result.setJarName(resolveJarName(node.getJarId(), jarNames));
+        cache.put(node.getNodeId(), result);
         return result;
     }
 
@@ -547,6 +738,60 @@ public final class CallGraphCache {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static boolean isMethodNode(GraphNode node) {
+        return node != null && "method".equalsIgnoreCase(node.getKind());
+    }
+
+    private static boolean isCallEdge(String relType) {
+        String value = safe(relType);
+        return !value.isEmpty() && value.startsWith("CALLS_");
+    }
+
+    private static String resolveJarName(int jarId, Map<Integer, String> jarNames) {
+        if (jarId < 0 || jarNames == null || jarNames.isEmpty()) {
+            return "";
+        }
+        return safe(jarNames.get(jarId));
+    }
+
+    private static String resolveEdgeType(GraphEdge edge) {
+        if (edge == null) {
+            return MethodCallMeta.TYPE_DIRECT;
+        }
+        String relation = safe(edge.getRelType());
+        return switch (relation) {
+            case "CALLS_DISPATCH" -> MethodCallMeta.TYPE_DISPATCH;
+            case "CALLS_REFLECTION" -> MethodCallMeta.TYPE_REFLECTION;
+            case "CALLS_CALLBACK" -> MethodCallMeta.TYPE_CALLBACK;
+            case "CALLS_OVERRIDE" -> MethodCallMeta.TYPE_OVERRIDE;
+            case "CALLS_FRAMEWORK" -> MethodCallMeta.TYPE_FRAMEWORK;
+            case "CALLS_METHOD_HANDLE" -> MethodCallMeta.TYPE_METHOD_HANDLE;
+            case "CALLS_PTA" -> MethodCallMeta.TYPE_PTA;
+            case "CALLS_INDY" -> MethodCallMeta.TYPE_INDY;
+            default -> resolveEdgeTypeFromEvidence(edge.getEvidence());
+        };
+    }
+
+    private static String resolveEdgeTypeFromEvidence(String evidence) {
+        String ev = safe(evidence).toLowerCase();
+        if (ev.contains("pta:") || ev.contains("pta_ctx=") || ev.contains("|pta:")) {
+            return MethodCallMeta.TYPE_PTA;
+        }
+        if (ev.contains("method_handle") || ev.contains("mh:")) {
+            return MethodCallMeta.TYPE_METHOD_HANDLE;
+        }
+        if (ev.contains("framework") || ev.contains("spring_web_entry")) {
+            return MethodCallMeta.TYPE_FRAMEWORK;
+        }
+        if (ev.contains("callback") || ev.contains("dynamic_proxy")) {
+            return MethodCallMeta.TYPE_CALLBACK;
+        }
+        if (ev.contains("reflection") || ev.contains("tamiflex") || ev.contains("reflect")) {
+            return MethodCallMeta.TYPE_REFLECTION;
+        }
+        return MethodCallMeta.TYPE_DIRECT;
     }
 
     private static MethodCallMeta mergeMeta(MethodCallMeta existing, MethodCallMeta incoming) {

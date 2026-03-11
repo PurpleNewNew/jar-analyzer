@@ -49,6 +49,8 @@ class SelectivePtaRefinerFactModeTest {
         );
 
         assertTrue(result.ptaEdges() > 0);
+        assertTrue(result.scannedMethods() > 0);
+        assertTrue(result.scannedMethods() < snapshot.methods().methodsByHandle().size());
         CallSiteEntity fieldDispatchSite = snapshot.symbols().callSites().stream()
                 .filter(site -> site != null
                         && "me/n1ar4/cb/CallbackEntry".equals(site.getCallerClassName())
