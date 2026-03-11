@@ -9,6 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -90,6 +91,14 @@ public final class DispatchCallResolver {
             }
         }
         return out.isEmpty() ? Set.of() : Set.copyOf(out);
+    }
+
+    public static Set<ClassReference.Handle> collectInstantiatedClasses(BuildBytecodeWorkspace workspace,
+                                                                        InheritanceMap inheritanceMap) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return Set.of();
+        }
+        return workspace.collectInstantiatedClasses(inheritanceMap);
     }
 
     public static int expandVirtualCalls(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,

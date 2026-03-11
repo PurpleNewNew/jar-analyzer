@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
@@ -103,6 +104,34 @@ public final class BytecodeSymbolRunner {
         }
     }
 
+    public static Result start(BuildBytecodeWorkspace workspace) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return Result.empty();
+        }
+        List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
+        List<CallSiteEntity> callSites = new ArrayList<>();
+        List<LocalVarEntity> localVars = new ArrayList<>();
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : parsedClasses) {
+            if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
+                continue;
+            }
+            for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                if (parsedMethod == null || parsedMethod.methodNode() == null || parsedMethod.methodNode().instructions == null) {
+                    continue;
+                }
+                MethodResultBundle bundle = analyzeMethod(
+                        parsedClass.classNode(),
+                        parsedMethod.methodNode(),
+                        parsedClass.jarId(),
+                        parsedMethod.sourceFrames()
+                );
+                callSites.addAll(bundle.callSites);
+                localVars.addAll(bundle.localVars);
+            }
+        }
+        return new Result(callSites, localVars);
+    }
+
     private static Result analyzeChunk(List<ClassFileEntity> classFileList) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
@@ -125,7 +154,7 @@ public final class BytecodeSymbolRunner {
                     if (mn == null || mn.instructions == null) {
                         continue;
                     }
-                    MethodResultBundle bundle = analyzeMethod(cn, mn, file.getJarId());
+                    MethodResultBundle bundle = analyzeMethod(cn, mn, file.getJarId(), null);
                     callSites.addAll(bundle.callSites);
                     localVars.addAll(bundle.localVars);
                 }
@@ -137,7 +166,10 @@ public final class BytecodeSymbolRunner {
         return new Result(callSites, localVars);
     }
 
-    private static MethodResultBundle analyzeMethod(ClassNode cn, MethodNode mn, Integer jarId) {
+    private static MethodResultBundle analyzeMethod(ClassNode cn,
+                                                    MethodNode mn,
+                                                    Integer jarId,
+                                                    Frame<SourceValue>[] precomputedFrames) {
         InsnList instructions = mn.instructions;
         int size = instructions.size();
         Map<LabelNode, Integer> labelIndex = new IdentityHashMap<>();
@@ -157,8 +189,8 @@ public final class BytecodeSymbolRunner {
         List<LocalVarEntity> localVars = buildLocalVarEntities(cn, mn, jarId, lineByLabel);
 
         boolean needsInfer = containsVirtualCalls(instructions);
-        Frame<SourceValue>[] frames = null;
-        if (needsInfer) {
+        Frame<SourceValue>[] frames = precomputedFrames;
+        if (needsInfer && frames == null) {
             try {
                 Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
                 frames = analyzer.analyze(cn.name, mn);

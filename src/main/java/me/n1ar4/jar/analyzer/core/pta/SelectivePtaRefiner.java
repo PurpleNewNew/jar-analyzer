@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.core.MethodCallKey;
 import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.MethodCallUtils;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
@@ -73,6 +74,15 @@ public final class SelectivePtaRefiner {
 
     public static Result refine(BuildContext context,
                                 InheritanceMap inheritanceMap) {
+        BuildBytecodeWorkspace workspace = context == null
+                ? BuildBytecodeWorkspace.empty()
+                : BuildBytecodeWorkspace.parse(context.classFileList);
+        return refine(context, workspace, inheritanceMap);
+    }
+
+    public static Result refine(BuildContext context,
+                                BuildBytecodeWorkspace workspace,
+                                InheritanceMap inheritanceMap) {
         if (context == null
                 || context.callSites == null
                 || context.callSites.isEmpty()
@@ -82,7 +92,7 @@ public final class SelectivePtaRefiner {
             return Result.empty();
         }
         MethodLookup lookup = MethodLookup.build(context.methodMap);
-        Map<MethodReference.Handle, MethodUnit> methodUnits = loadMethodUnits(context, lookup);
+        Map<MethodReference.Handle, MethodUnit> methodUnits = loadMethodUnits(context, workspace, lookup);
         if (methodUnits.isEmpty()) {
             return Result.empty();
         }
@@ -318,30 +328,31 @@ public final class SelectivePtaRefiner {
     }
 
     private static Map<MethodReference.Handle, MethodUnit> loadMethodUnits(BuildContext context,
+                                                                           BuildBytecodeWorkspace workspace,
                                                                            MethodLookup lookup) {
-        if (context == null || context.classFileList == null || context.classFileList.isEmpty()) {
+        if (context == null || workspace == null || workspace.parsedClasses().isEmpty()) {
             return Map.of();
         }
         LinkedHashMap<MethodReference.Handle, MethodUnit> out = new LinkedHashMap<>();
-        for (ClassFileEntity file : context.classFileList) {
-            if (file == null || file.getFile() == null || file.getFile().length == 0) {
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
+            if (parsedClass == null || parsedClass.classNode() == null) {
                 continue;
             }
             try {
-                ClassNode cn = new ClassNode();
-                new ClassReader(file.getFile()).accept(cn, Const.GlobalASMOptions);
+                ClassNode cn = parsedClass.classNode();
                 if (cn.methods == null || cn.methods.isEmpty()) {
                     continue;
                 }
-                for (MethodNode mn : cn.methods) {
+                for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                    MethodNode mn = parsedMethod.methodNode();
                     if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
                         continue;
                     }
-                    MethodReference.Handle handle = lookup.resolve(cn.name, mn.name, mn.desc, file.getJarId());
+                    MethodReference.Handle handle = lookup.resolve(cn.name, mn.name, mn.desc, parsedClass.jarId());
                     if (handle == null) {
                         continue;
                     }
-                    Frame<SourceValue>[] frames = analyzeFrames(cn.name, mn);
+                    Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
                     if (frames == null) {
                         continue;
                     }

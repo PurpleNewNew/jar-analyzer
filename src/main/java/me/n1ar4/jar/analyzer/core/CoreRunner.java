@@ -14,6 +14,8 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.core.facts.BytecodeFactRunner;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
@@ -77,8 +79,6 @@ public class CoreRunner {
     private static final String ALL_COMMON_POLICY_PROP = "jar.analyzer.all-common.policy";
     private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
     private static final String CALL_GRAPH_ENGINE_PROP = "jar.analyzer.callgraph.engine";
-    private static final String CALL_GRAPH_ENGINE_TAIE = "taie";
-    private static final String CALL_GRAPH_ENGINE_BYTECODE = BytecodeMainlineCallGraphRunner.ENGINE;
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
@@ -138,7 +138,11 @@ public class CoreRunner {
             BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress, metrics);
             markBuildStage("prepare-class-files");
             prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress, metrics);
-            BytecodeSymbolRunner.Result symbolResult = runBytecodeStages(context, quickMode, progress, metrics);
+            BytecodeFrontEndStageResult frontEndStage = runBytecodeStages(context, quickMode, progress, metrics);
+            BytecodeSymbolRunner.Result symbolResult = frontEndStage.symbolResult();
+            List<LocalVarEntity> localVars = symbolResult == null || symbolResult.getLocalVars() == null
+                    ? Collections.emptyList()
+                    : symbolResult.getLocalVars();
             CallGraphStageResult callGraphStage = runCallGraphStage(
                     jarPath,
                     quickMode,
@@ -146,6 +150,8 @@ public class CoreRunner {
                     inputs.scopeSummary(),
                     inputs.runtimeHint(),
                     inputs.jarOriginsById(),
+                    frontEndStage.workspace(),
+                    localVars,
                     progress,
                     metrics
             );
@@ -438,14 +444,15 @@ public class CoreRunner {
         }
     }
 
-    private static BytecodeSymbolRunner.Result runBytecodeStages(BuildContext context,
+    private static BytecodeFrontEndStageResult runBytecodeStages(BuildContext context,
                                                                  boolean quickMode,
                                                                  IntConsumer progress,
                                                                  BuildMetricsCollector metrics) {
         markBuildStage("discovery");
         long stageStartNs = System.nanoTime();
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
         DiscoveryRunner.start(
-                context.classFileList,
+                workspace,
                 context.discoveredClasses,
                 context.discoveredMethods,
                 context.classMap,
@@ -471,7 +478,7 @@ public class CoreRunner {
         stageStartNs = System.nanoTime();
         progress.accept(35);
         ClassAnalysisRunner.start(
-                context.classFileList,
+                workspace,
                 context.methodMap,
                 context.strMap,
                 context.classMap,
@@ -558,9 +565,9 @@ public class CoreRunner {
                         "skipped", true
                 ));
             }
-            return null;
+            return new BytecodeFrontEndStageResult(workspace, null);
         }
-        BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(context.classFileList);
+        BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(workspace);
         List<CallSiteEntity> callSites = symbolResult.getCallSites();
         context.callSites.clear();
         if (callSites != null && !callSites.isEmpty()) {
@@ -578,7 +585,7 @@ public class CoreRunner {
                     "skipped", false
             ));
         }
-        return symbolResult;
+        return new BytecodeFrontEndStageResult(workspace, symbolResult);
     }
 
     private static CallGraphStageResult runCallGraphStage(Path jarPath,
@@ -587,13 +594,20 @@ public class CoreRunner {
                                                           ScopeSummary scopeSummary,
                                                           Path runtimeHint,
                                                           Map<Integer, ProjectOrigin> jarOriginsById,
+                                                          BuildBytecodeWorkspace workspace,
+                                                          List<LocalVarEntity> localVars,
                                                           IntConsumer progress,
                                                           BuildMetricsCollector metrics) {
         markBuildStage("taie-callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
         JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
-        AnalysisProfile profile = TaieAnalysisRunner.resolveProfile();
+        AnalysisProfile taieProfile = TaieAnalysisRunner.resolveProfile();
+        CallGraphPlan callGraphPlan = CallGraphPlan.resolve(
+                System.getProperty(CALL_GRAPH_ENGINE_PROP),
+                System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP),
+                taieProfile
+        );
         TaieEdgeMapper.EdgePolicy edgePolicy = TaieEdgeMapper.resolveEdgePolicy();
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
         List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
@@ -603,8 +617,9 @@ public class CoreRunner {
         taieClasspath.addAll(libraryArchives);
         taieClasspath.addAll(jdkResolution.archives());
 
-        String callGraphEngine = CALL_GRAPH_ENGINE_TAIE;
-        String callGraphModeMeta = "taie:" + profile.value();
+        String callGraphEngine = callGraphPlan.callGraphEngine();
+        String callGraphModeMeta = callGraphPlan.callGraphModeMeta();
+        String analysisProfile = callGraphPlan.analysisProfile();
         int taieEdgeCount = 0;
         int taieEntryMethodCount = 0;
         int taieReachableMethodCount = 0;
@@ -630,11 +645,20 @@ public class CoreRunner {
             logger.info("all archives are common/sdk, continue without call graph (policy={})",
                     policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
         } else {
-            String requestedEngine = resolveCallGraphEngineSetting();
-            if (CALL_GRAPH_ENGINE_BYTECODE.equals(requestedEngine)) {
-                callGraphEngine = CALL_GRAPH_ENGINE_BYTECODE;
-                callGraphModeMeta = BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1;
-                bytecodeResult = BytecodeMainlineCallGraphRunner.run(context);
+            if (callGraphPlan.bytecodeMainline()) {
+                BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(
+                        context,
+                        scopeSummary,
+                        jarOriginsById,
+                        localVars,
+                        workspace
+                );
+                bytecodeResult = BytecodeMainlineCallGraphRunner.run(
+                        facts.snapshot(),
+                        facts.edges(),
+                        callGraphPlan.bytecodeSettings()
+                );
+                facts.edges().copyInto(context);
                 logger.info("build stage bytecode-mainline: {} ms (mode={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, callbackEdges={}, frameworkEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                         msSince(stageStartNs),
                         callGraphModeMeta,
@@ -659,11 +683,14 @@ public class CoreRunner {
                         bytecodeResult.totalEdges(),
                         heapUsage());
             } else {
+                AnalysisProfile resolvedTaieProfile = callGraphPlan.taieProfile() == null
+                        ? taieProfile
+                        : callGraphPlan.taieProfile();
                 String mainClass = resolveMainClass(jarPath, appArchives, context.discoveredMethods);
                 TaieRunResult taieResult = TaieAnalysisRunner.run(
                         appArchives,
                         new ArrayList<>(taieClasspath),
-                        profile,
+                        resolvedTaieProfile,
                         mainClass,
                         explicitEntryMethods,
                         DEFAULT_COLLECT_ENDPOINT_ALIAS_STATS
@@ -698,7 +725,7 @@ public class CoreRunner {
                 taieReflectionLog = safe(taieResult.reflectionLog());
                 logger.info("build stage taie: {} ms (profile={}, edgePolicy={}, totalEdges={}, keptEdges={}, skippedByPolicy={}, unresolvedCaller={}, unresolvedCallee={}, explicitEntries={}, entryMethods={}, reachableMethods={}, pointsToVars={}, pointsToObjects={}, endpointThisVars={}, endpointAliasPairs={}, reflection={}, reflectionLog={}, heap={})",
                         taieResult.elapsedMs(),
-                        profile.value(),
+                        resolvedTaieProfile.value(),
                         mapped.edgePolicy(),
                         mapped.totalEdges(),
                         mapped.keptEdges(),
@@ -722,7 +749,7 @@ public class CoreRunner {
         if (metrics != null) {
             Map<String, Object> callGraphMetrics = new LinkedHashMap<>(metricMap(
                     "engine", callGraphEngine,
-                    "analysis_profile", profile == null ? "" : profile.value(),
+                    "analysis_profile", safe(analysisProfile),
                     "quick_mode", quickMode,
                     "app_archives", appArchives.size(),
                     "classpath_archives", taieClasspath.size(),
@@ -737,7 +764,7 @@ public class CoreRunner {
                     "endpoint_this_vars", taieEndpointThisVarCount,
                     "endpoint_alias_pairs", taieEndpointAliasPairs
             ));
-            if (CALL_GRAPH_ENGINE_BYTECODE.equals(callGraphEngine)) {
+            if (callGraphPlan.bytecodeMainline()) {
                 callGraphMetrics.put("direct_edges", bytecodeResult.directEdges());
                 callGraphMetrics.put("declared_dispatch_edges", bytecodeResult.declaredDispatchEdges());
                 callGraphMetrics.put("invoke_dynamic_edges", bytecodeResult.invokeDynamicEdges());
@@ -768,7 +795,7 @@ public class CoreRunner {
         return new CallGraphStageResult(
                 scopeSummary,
                 jdkResolution,
-                profile,
+                analysisProfile,
                 callGraphEngine,
                 callGraphModeMeta,
                 taieEdgeCount,
@@ -872,7 +899,7 @@ public class CoreRunner {
                 },
                 buildMeta(
                         callGraphStage.callGraphEngine(),
-                        callGraphStage.profile(),
+                        callGraphStage.analysisProfile(),
                         callGraphStage.scopeSummary(),
                         callGraphStage.jdkResolution(),
                         callGraphStage.taieEdgeCount(),
@@ -956,7 +983,7 @@ public class CoreRunner {
                 quickMode,
                 callGraphStage.callGraphEngine(),
                 callGraphStage.callGraphModeMeta(),
-                callGraphStage.profile().value(),
+                callGraphStage.analysisProfile(),
                 callGraphStage.scopeSummary().targetArchiveCount(),
                 callGraphStage.scopeSummary().libraryArchiveCount(),
                 callGraphStage.jdkResolution().sdkEntryCount(),
@@ -985,9 +1012,16 @@ public class CoreRunner {
                                Path runtimeHint) {
     }
 
+    private record BytecodeFrontEndStageResult(BuildBytecodeWorkspace workspace,
+                                               BytecodeSymbolRunner.Result symbolResult) {
+        private BytecodeFrontEndStageResult {
+            workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
+        }
+    }
+
     private record CallGraphStageResult(ScopeSummary scopeSummary,
                                         JdkResolution jdkResolution,
-                                        AnalysisProfile profile,
+                                        String analysisProfile,
                                         String callGraphEngine,
                                         String callGraphModeMeta,
                                         int taieEdgeCount,
@@ -1762,7 +1796,7 @@ public class CoreRunner {
     }
 
     private static Map<String, Object> buildMeta(String callGraphEngine,
-                                                 AnalysisProfile profile,
+                                                 String analysisProfile,
                                                  ScopeSummary scopeSummary,
                                                  JdkResolution jdkResolution,
                                                  int taieEdgeCount,
@@ -1774,10 +1808,10 @@ public class CoreRunner {
                                                  long taieEndpointAliasPairs,
                                                  String taieReflectionInference,
                                                  String taieReflectionLog,
-                                                 int explicitEntryMethodCount) {
+        int explicitEntryMethodCount) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("call_graph_engine", safe(callGraphEngine));
-        meta.put("analysis_profile", profile == null ? "" : profile.value());
+        meta.put("analysis_profile", safe(analysisProfile));
         meta.put("target_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.targetArchiveCount()));
         meta.put("library_jar_count", scopeSummary == null ? 0 : Math.max(0, scopeSummary.libraryArchiveCount()));
         meta.put("sdk_entry_count", jdkResolution == null ? 0 : Math.max(0, jdkResolution.sdkEntryCount()));
@@ -1796,19 +1830,6 @@ public class CoreRunner {
             meta.put("taie_reflection_log", taieReflectionLog);
         }
         return meta;
-    }
-
-    private static String resolveCallGraphEngineSetting() {
-        String value = safe(System.getProperty(CALL_GRAPH_ENGINE_PROP));
-        if (value.isBlank()) {
-            return CALL_GRAPH_ENGINE_TAIE;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        if (CALL_GRAPH_ENGINE_TAIE.equals(normalized) || CALL_GRAPH_ENGINE_BYTECODE.equals(normalized)) {
-            return normalized;
-        }
-        logger.warn("unknown call graph engine setting: {} (fallback to {})", value, CALL_GRAPH_ENGINE_TAIE);
-        return CALL_GRAPH_ENGINE_TAIE;
     }
 
     private static List<Path> normalizePaths(List<String> paths) {

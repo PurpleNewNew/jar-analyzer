@@ -10,6 +10,11 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactAssembler;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
+import me.n1ar4.jar.analyzer.core.facts.BytecodeFactRunner;
 import me.n1ar4.jar.analyzer.core.pta.SelectivePtaRefiner;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -29,6 +34,9 @@ import java.util.Set;
 public final class BytecodeMainlineCallGraphRunner {
     public static final String ENGINE = "bytecode-mainline";
     public static final String MODE_SEMANTIC_V1 = "bytecode:semantic-v1";
+    public static final String MODE_FAST_V1 = "bytecode:fast-v1";
+    public static final String MODE_BALANCED_V1 = "bytecode:balanced-v1";
+    public static final String MODE_PRECISION_V1 = "bytecode:precision-v1";
 
     private BytecodeMainlineCallGraphRunner() {
     }
@@ -37,46 +45,67 @@ public final class BytecodeMainlineCallGraphRunner {
         if (context == null) {
             return Result.empty();
         }
-        InheritanceMap inheritanceMap = InheritanceMap.fromClasses(context.classMap);
-        MethodLookup lookup = MethodLookup.build(context.methodMap);
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
+        BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(context, null, Map.of(), List.of(), workspace);
+        Result result = run(facts.snapshot(), facts.edges(), Settings.legacySemanticV1());
+        facts.edges().copyInto(context);
+        return result;
+    }
+
+    public static Result run(BuildFactSnapshot snapshot,
+                             BuildEdgeAccumulator edges,
+                             Settings settings) {
+        if (snapshot == null || edges == null) {
+            return Result.empty();
+        }
+        BuildContext legacyView = BuildFactAssembler.legacyView(snapshot, edges);
+        Settings resolved = settings == null ? Settings.legacySemanticV1() : settings;
+        InheritanceMap inheritanceMap = snapshot.types().inheritanceMap();
+        BuildBytecodeWorkspace workspace = snapshot.bytecode().workspace();
+        MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
         SeedResult seeded = seedDeclaredEdges(
-                context.methodCalls,
-                context.methodCallMeta,
-                context.callSites,
+                legacyView.methodCalls,
+                legacyView.methodCallMeta,
+                snapshot.symbols().callSites(),
                 lookup
         );
-        Set<ClassReference.Handle> instantiatedClasses = DispatchCallResolver.collectInstantiatedClasses(
-                context.classFileList,
-                inheritanceMap
-        );
+        Set<ClassReference.Handle> instantiatedClasses = snapshot.types().instantiatedClasses().isEmpty()
+                ? DispatchCallResolver.collectInstantiatedClasses(workspace, inheritanceMap)
+                : snapshot.types().instantiatedClasses();
         int typedDispatchEdges = TypedDispatchResolver.expandWithTypes(
-                context.methodCalls,
-                context.methodCallMeta,
-                context.methodMap,
-                context.classMap,
+                legacyView.methodCalls,
+                legacyView.methodCallMeta,
+                snapshot.methods().methodsByHandle(),
+                snapshot.types().classesByHandle(),
                 inheritanceMap,
-                context.callSites
+                snapshot.symbols().callSites()
         );
         int dispatchExpansionEdges = DispatchCallResolver.expandVirtualCalls(
-                context.methodCalls,
-                context.methodCallMeta,
-                context.methodMap,
-                context.classMap,
+                legacyView.methodCalls,
+                legacyView.methodCallMeta,
+                snapshot.methods().methodsByHandle(),
+                snapshot.types().classesByHandle(),
                 inheritanceMap,
                 instantiatedClasses
         );
         BytecodeMainlineReflectionResolver.Result reflectionResult =
-                BytecodeMainlineReflectionResolver.appendEdges(context, lookup);
+                BytecodeMainlineReflectionResolver.appendEdges(legacyView, workspace, lookup);
         BytecodeMainlineSemanticEdgeRunner.Result semanticResult =
                 BytecodeMainlineSemanticEdgeRunner.appendEdges(
-                        context,
+                        legacyView,
                         inheritanceMap,
                         instantiatedClasses,
                         lookup
                 );
-        SelectivePtaRefiner.Result ptaResult =
-                SelectivePtaRefiner.refine(context, inheritanceMap);
-        long totalEdges = countEdges(context.methodCalls);
+        SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
+                ? SelectivePtaRefiner.refine(legacyView, workspace, inheritanceMap)
+                : SelectivePtaRefiner.Result.empty();
+        BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(legacyView);
+        edges.methodCalls().clear();
+        edges.methodCallMeta().clear();
+        edges.methodCalls().putAll(updated.methodCalls());
+        edges.methodCallMeta().putAll(updated.methodCallMeta());
+        long totalEdges = countEdges(edges.methodCalls());
         return new Result(
                 seeded.directEdges(),
                 seeded.declaredDispatchEdges(),
@@ -103,6 +132,16 @@ public final class BytecodeMainlineCallGraphRunner {
                 seeded.unresolvedDeclaredTargetCount(),
                 totalEdges
         );
+    }
+
+    public static Result run(BuildContext context, Settings settings) {
+        if (context == null) {
+            return Result.empty();
+        }
+        BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(context, null, Map.of(), List.of());
+        Result result = run(facts.snapshot(), facts.edges(), settings);
+        facts.edges().copyInto(context);
+        return result;
     }
 
     private static SeedResult seedDeclaredEdges(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
@@ -254,6 +293,16 @@ public final class BytecodeMainlineCallGraphRunner {
     }
 
     private record EdgeSeed(SeedKind kind, String type, String confidence, String reason) {
+    }
+
+    public record Settings(String modeMeta, boolean enableSelectivePta) {
+        public Settings {
+            modeMeta = modeMeta == null || modeMeta.isBlank() ? MODE_SEMANTIC_V1 : modeMeta;
+        }
+
+        public static Settings legacySemanticV1() {
+            return new Settings(MODE_SEMANTIC_V1, true);
+        }
     }
 
     static final class MethodLookup {

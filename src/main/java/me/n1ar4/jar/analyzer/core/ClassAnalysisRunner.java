@@ -13,6 +13,7 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.analyze.spring.asm.SpringClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.JavaWebClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -129,6 +130,42 @@ public final class ClassAnalysisRunner {
         }
     }
 
+    public static void start(BuildBytecodeWorkspace workspace,
+                             Map<MethodReference.Handle, MethodReference> methodMap,
+                             Map<MethodReference.Handle, List<String>> strMap,
+                             Map<ClassReference.Handle, ClassReference> classMap,
+                             List<SpringController> controllers,
+                             ArrayList<String> interceptors,
+                             ArrayList<String> servlets,
+                             ArrayList<String> filters,
+                             ArrayList<String> listeners,
+                             boolean analyzeStrings,
+                             boolean analyzeSpring,
+                             boolean analyzeWeb) {
+        logger.info("start class analysis pipeline");
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return;
+        }
+        if (!analyzeStrings && !analyzeSpring && !analyzeWeb) {
+            logger.debug("class analysis skip: all analyzers disabled");
+            return;
+        }
+        LocalResult result = analyzeParsedClasses(
+                workspace.parsedClasses(),
+                methodMap,
+                classMap,
+                analyzeStrings,
+                analyzeSpring,
+                analyzeWeb
+        );
+        mergeStrings(strMap, result.strMap);
+        mergeList(controllers, result.controllers);
+        mergeList(interceptors, result.interceptors);
+        mergeList(servlets, result.servlets);
+        mergeList(filters, result.filters);
+        mergeList(listeners, result.listeners);
+    }
+
     private static int resolveThreads(List<ClassFileEntity> files) {
         int classCount = files.size();
         String raw = System.getProperty(THREADS_PROP);
@@ -226,6 +263,57 @@ public final class ClassAnalysisRunner {
             } catch (Exception e) {
                 throw new IllegalStateException("class analysis failed for class file: "
                         + safe(file.getClassName()), e);
+            }
+        }
+
+        return new LocalResult(strMap,
+                controllers, interceptors, servlets, filters, listeners);
+    }
+
+    private static LocalResult analyzeParsedClasses(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses,
+                                                    Map<MethodReference.Handle, MethodReference> methodMap,
+                                                    Map<ClassReference.Handle, ClassReference> classMap,
+                                                    boolean analyzeStrings,
+                                                    boolean analyzeSpring,
+                                                    boolean analyzeWeb) {
+        Map<MethodReference.Handle, List<String>> strMap = analyzeStrings ? new HashMap<>() : null;
+        List<SpringController> controllers = analyzeSpring ? new ArrayList<>() : null;
+        ArrayList<String> interceptors = analyzeWeb ? new ArrayList<>() : null;
+        ArrayList<String> servlets = analyzeWeb ? new ArrayList<>() : null;
+        ArrayList<String> filters = analyzeWeb ? new ArrayList<>() : null;
+        ArrayList<String> listeners = analyzeWeb ? new ArrayList<>() : null;
+
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : parsedClasses) {
+            if (parsedClass == null || parsedClass.classNode() == null) {
+                continue;
+            }
+            try {
+                ClassVisitor chain = new ClassVisitor(Const.ASMVersion) {
+                };
+                if (analyzeWeb) {
+                    chain = new JavaWebClassVisitor(interceptors, servlets, filters, listeners, chain);
+                }
+                if (analyzeSpring) {
+                    chain = new SpringClassVisitor(
+                            controllers,
+                            classMap,
+                            methodMap,
+                            parsedClass.jarId(),
+                            chain
+                    );
+                }
+                if (analyzeStrings) {
+                    chain = new StringClassVisitor(
+                            strMap,
+                            methodMap,
+                            parsedClass.jarId(),
+                            chain
+                    );
+                }
+                parsedClass.classNode().accept(chain);
+            } catch (Exception ex) {
+                throw new IllegalStateException("class analysis failed for parsed class: "
+                        + safe(parsedClass.className()), ex);
             }
         }
 

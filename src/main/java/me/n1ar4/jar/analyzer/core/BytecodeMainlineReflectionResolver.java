@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -84,10 +85,19 @@ final class BytecodeMainlineReflectionResolver {
 
     static Result appendEdges(BuildContext context,
                               BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
+        BuildBytecodeWorkspace workspace = context == null
+                ? BuildBytecodeWorkspace.empty()
+                : BuildBytecodeWorkspace.parse(context.classFileList);
+        return appendEdges(context, workspace, lookup);
+    }
+
+    static Result appendEdges(BuildContext context,
+                              BuildBytecodeWorkspace workspace,
+                              BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
         if (context == null
                 || lookup == null
-                || context.classFileList == null
-                || context.classFileList.isEmpty()
+                || workspace == null
+                || workspace.parsedClasses().isEmpty()
                 || context.methodMap == null
                 || context.methodMap.isEmpty()) {
             return Result.empty();
@@ -95,20 +105,16 @@ final class BytecodeMainlineReflectionResolver {
         int reflectionEdges = 0;
         int methodHandleEdges = 0;
         int invokeDynamicEdges = 0;
-        for (ClassFileEntity file : context.classFileList) {
-            if (file == null) {
-                continue;
-            }
-            byte[] bytes = file.getFile();
-            if (bytes == null || bytes.length == 0) {
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
+            if (parsedClass == null || parsedClass.classNode() == null) {
                 continue;
             }
             try {
-                ClassNode cn = new ClassNode();
-                new ClassReader(bytes).accept(cn, Const.GlobalASMOptions);
+                ClassNode cn = parsedClass.classNode();
                 Map<String, String> staticStrings = collectStaticStringConstants(cn);
-                invokeDynamicEdges += appendInvokeDynamicEdges(cn, file, context, lookup);
-                for (MethodNode mn : cn.methods) {
+                invokeDynamicEdges += appendInvokeDynamicEdges(cn, parsedClass.file(), context, lookup);
+                for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                    MethodNode mn = parsedMethod.methodNode();
                     if (mn == null || mn.instructions == null || mn.instructions.size() == 0) {
                         continue;
                     }
@@ -121,7 +127,7 @@ final class BytecodeMainlineReflectionResolver {
                             cn.name,
                             mn.name,
                             mn.desc,
-                            file.getJarId()
+                            parsedClass.jarId()
                     );
                     if (caller == null) {
                         continue;
@@ -131,6 +137,7 @@ final class BytecodeMainlineReflectionResolver {
                             mn,
                             cn.name,
                             cn,
+                            parsedMethod.sourceFrames(),
                             staticStrings,
                             context.methodCalls,
                             context.methodMap,
@@ -238,13 +245,17 @@ final class BytecodeMainlineReflectionResolver {
                                                        MethodNode mn,
                                                        String owner,
                                                        ClassNode classNode,
+                                                       Frame<SourceValue>[] precomputedFrames,
                                                        Map<String, String> staticStrings,
                                                        Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
                                                        Map<MethodReference.Handle, MethodReference> methodMap,
                                                        Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
         try {
-            Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
-            Frame<SourceValue>[] frames = analyzer.analyze(owner, mn);
+            Frame<SourceValue>[] frames = precomputedFrames;
+            if (frames == null) {
+                Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
+                frames = analyzer.analyze(owner, mn);
+            }
             ResolveContext ctx = new ResolveContext(frames, mn.instructions, classNode, staticStrings);
             int reflectionEdges = 0;
             int methodHandleEdges = 0;

@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.asm.DiscoveryClassVisitor;
 import me.n1ar4.jar.analyzer.core.asm.StringAnnoClassVisitor;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -124,6 +125,43 @@ public class DiscoveryRunner {
         logger.info("string annotation analyze merged");
     }
 
+    public static void start(BuildBytecodeWorkspace workspace,
+                             Set<ClassReference> discoveredClasses,
+                             Set<MethodReference> discoveredMethods,
+                             Map<ClassReference.Handle, ClassReference> classMap,
+                             Map<MethodReference.Handle, MethodReference> methodMap,
+                             Map<MethodReference.Handle, List<String>> stringAnnoMap) {
+        logger.info("start class analyze");
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
+            return;
+        }
+        LocalResult result = analyzeParsedClasses(workspace.parsedClasses());
+        mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, result);
+        List<ClassReference> classRows = new ArrayList<>(discoveredClasses);
+        classRows.sort(Comparator
+                .comparing((ClassReference row) -> safe(row == null ? null : row.getName()))
+                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
+        for (ClassReference clazz : classRows) {
+            if (clazz == null || clazz.getName() == null || clazz.getName().isBlank()) {
+                continue;
+            }
+            classMap.put(clazz.getHandle(), clazz);
+        }
+        List<MethodReference> methodRows = new ArrayList<>(discoveredMethods);
+        methodRows.sort(Comparator
+                .comparing((MethodReference row) -> safe(className(row)))
+                .thenComparing(row -> safe(row == null ? null : row.getName()))
+                .thenComparing(row -> safe(row == null ? null : row.getDesc()))
+                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
+        for (MethodReference method : methodRows) {
+            if (method == null || method.getClassReference() == null) {
+                continue;
+            }
+            methodMap.put(method.getHandle(), method);
+        }
+        logger.info("string annotation analyze merged");
+    }
+
     private static int resolveThreads(int classCount) {
         String raw = System.getProperty(THREADS_PROP);
         if (raw != null && !raw.trim().isEmpty()) {
@@ -202,6 +240,32 @@ public class DiscoveryRunner {
             } catch (Exception e) {
                 throw new IllegalStateException("discovery failed for class file: "
                         + safe(file == null ? null : file.getClassName()), e);
+            }
+        }
+        return new LocalResult(discoveredClasses, discoveredMethods, stringAnnoMap);
+    }
+
+    private static LocalResult analyzeParsedClasses(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
+        Set<ClassReference> discoveredClasses = new HashSet<>();
+        Set<MethodReference> discoveredMethods = new HashSet<>();
+        Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
+        for (BuildBytecodeWorkspace.ParsedClass parsedClass : parsedClasses) {
+            if (parsedClass == null || parsedClass.classNode() == null) {
+                continue;
+            }
+            try {
+                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap, parsedClass.jarId());
+                DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(
+                        discoveredClasses,
+                        discoveredMethods,
+                        parsedClass.file() == null ? null : parsedClass.file().getJarName(),
+                        parsedClass.jarId(),
+                        sav
+                );
+                parsedClass.classNode().accept(dcv);
+            } catch (Exception ex) {
+                throw new IllegalStateException("discovery failed for parsed class: "
+                        + safe(parsedClass.className()), ex);
             }
         }
         return new LocalResult(discoveredClasses, discoveredMethods, stringAnnoMap);
