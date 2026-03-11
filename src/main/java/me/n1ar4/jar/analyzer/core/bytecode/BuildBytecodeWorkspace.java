@@ -296,7 +296,10 @@ public final class BuildBytecodeWorkspace {
         }
 
         public Integer jarId() {
-            return file == null ? -1 : file.getJarId();
+            if (file == null || file.getJarId() == null) {
+                return -1;
+            }
+            return file.getJarId();
         }
 
         public String className() {

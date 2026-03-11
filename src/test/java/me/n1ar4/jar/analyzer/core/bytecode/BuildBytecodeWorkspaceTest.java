@@ -62,4 +62,24 @@ class BuildBytecodeWorkspaceTest {
         assertTrue(workspace.collectInstantiatedClasses(inheritanceMap).stream().anyMatch(handle ->
                 handle != null && "me/n1ar4/cb/FastTask".equals(handle.getName())));
     }
+
+    @Test
+    void workspaceShouldTolerateClassFilesWithNullJarId() {
+        Path jar = FixtureJars.callbackTestJar();
+        List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
+                List.of(jar.toString()),
+                new HashMap<>(java.util.Map.of(jar.toString(), 1)),
+                new ArrayList<>(),
+                false
+        );
+        assertTrue(!classFiles.isEmpty());
+        classFiles.get(0).setJarId(null);
+
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(new HashSet<>(classFiles));
+
+        assertTrue(!workspace.parsedClasses().isEmpty());
+        assertTrue(workspace.parsedClasses().stream().anyMatch(parsed ->
+                parsed != null
+                        && Integer.valueOf(-1).equals(parsed.jarId())));
+    }
 }
