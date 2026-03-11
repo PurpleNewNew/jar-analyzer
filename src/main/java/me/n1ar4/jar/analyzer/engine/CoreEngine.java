@@ -123,7 +123,7 @@ public class CoreEngine {
 
     private CallGraphCache buildCallGraphCache() {
         long startNs = System.nanoTime();
-        GraphSnapshot snapshot = loadSnapshotOrThrow();
+        GraphSnapshot snapshot = loadQuerySnapshotOrThrow();
         Map<Long, MethodResult> methods = new HashMap<>();
         for (GraphNode node : snapshot.getNodesByKindView("method")) {
             if (node == null) {
@@ -262,7 +262,7 @@ public class CoreEngine {
         String method = safe(calleeMethod);
         String desc = safe(calleeDesc);
         ArrayList<MethodResult> out = new ArrayList<>();
-        GraphSnapshot snapshot = loadSnapshotOrThrow();
+        GraphSnapshot snapshot = loadQuerySnapshotOrThrow();
         Map<Long, MethodResult> methods = methodNodeMap(snapshot);
         for (Map.Entry<Long, MethodResult> entry : methods.entrySet()) {
             MethodResult callee = entry.getValue();
@@ -1572,6 +1572,10 @@ public class CoreEngine {
 
     private GraphSnapshot loadSnapshotOrThrow() {
         return graphStore.loadSnapshot();
+    }
+
+    private GraphSnapshot loadQuerySnapshotOrThrow() {
+        return graphStore.loadQuerySnapshot();
     }
 
     private Map<Long, MethodResult> methodNodeMap(GraphSnapshot snapshot) {
