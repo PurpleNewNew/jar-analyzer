@@ -1697,7 +1697,7 @@ public class DatabaseManager {
                     normalized
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.ClassFileData> snapshotClassFileData(java.util.Collection<ClassFileEntity> rows) {
@@ -1719,7 +1719,7 @@ public class DatabaseManager {
                     row.getJarId()
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.ClassReferenceData> snapshotClassReferenceData(java.util.Collection<ClassReference> rows) {
@@ -1735,7 +1735,7 @@ public class DatabaseManager {
                 out.add(data);
             }
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.MethodReferenceData> snapshotMethodReferenceData(java.util.Collection<MethodReference> rows) {
@@ -1751,7 +1751,7 @@ public class DatabaseManager {
                 out.add(data);
             }
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static Map<String, List<String>> snapshotMethodStringMap(Map<MethodReference.Handle, List<String>> source) {
@@ -1760,23 +1760,7 @@ public class DatabaseManager {
         }
         Map<String, List<String>> out = new HashMap<>();
         saveMethodStringMap(out, source);
-        return snapshotStringMap(out);
-    }
-
-    private static Map<String, List<String>> snapshotStringMap(Map<String, List<String>> source) {
-        if (source == null || source.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, List<String>> out = new HashMap<>();
-        for (Map.Entry<String, List<String>> entry : source.entrySet()) {
-            String key = entry.getKey();
-            List<String> values = entry.getValue();
-            if (key == null || values == null || values.isEmpty()) {
-                continue;
-            }
-            out.put(key, List.copyOf(values));
-        }
-        return out;
+        return out.isEmpty() ? Map.of() : ProjectRuntimeSnapshot.ownedMap(out);
     }
 
     private static List<ProjectRuntimeSnapshot.ResourceData> snapshotResourceData(java.util.Collection<ResourceEntity> rows) {
@@ -1798,7 +1782,7 @@ public class DatabaseManager {
                     row.getIsText()
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.CallSiteData> snapshotCallSiteData(java.util.Collection<CallSiteEntity> rows) {
@@ -1825,7 +1809,7 @@ public class DatabaseManager {
                     row.getCallSiteKey()
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.LocalVarData> snapshotLocalVarData(java.util.Collection<LocalVarEntity> rows) {
@@ -1850,7 +1834,7 @@ public class DatabaseManager {
                     row.getJarId()
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static List<ProjectRuntimeSnapshot.SpringControllerData> snapshotSpringControllerData(java.util.Collection<SpringController> rows) {
@@ -1864,7 +1848,7 @@ public class DatabaseManager {
                 out.add(data);
             }
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static Set<String> snapshotClassNameSet(java.util.Collection<String> values) {
@@ -1873,7 +1857,7 @@ public class DatabaseManager {
         }
         Set<String> out = new LinkedHashSet<>();
         saveClassNameSet(out, new ArrayList<>(values));
-        return out;
+        return out.isEmpty() ? Set.of() : ProjectRuntimeSnapshot.ownedSet(out);
     }
 
     private static void restoreJarData(List<ProjectRuntimeSnapshot.JarData> jars) {
@@ -2104,8 +2088,8 @@ public class DatabaseManager {
                 model.buildMode() == null ? "" : model.buildMode().name(),
                 model.primaryInputPath() == null ? "" : model.primaryInputPath().toString(),
                 model.runtimePath() == null ? "" : model.runtimePath().toString(),
-                roots,
-                archives,
+                roots.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(roots),
+                archives.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(archives),
                 model.resolveInnerJars()
         );
     }
@@ -2179,9 +2163,11 @@ public class DatabaseManager {
                 ref.getAccess(),
                 ref.getName(),
                 ref.getSuperClass(),
-                ref.getInterfaces() == null ? List.of() : List.copyOf(ref.getInterfaces()),
+                ref.getInterfaces() == null || ref.getInterfaces().isEmpty()
+                        ? List.of()
+                        : ProjectRuntimeSnapshot.ownedList(new ArrayList<>(ref.getInterfaces())),
                 ref.isInterface(),
-                members,
+                members.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(members),
                 toAnnoData(ref.getAnnotations()),
                 ref.getJarName(),
                 ref.getJarId()
@@ -2271,7 +2257,7 @@ public class DatabaseManager {
                     annotation.getParameter()
             ));
         }
-        return out;
+        return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
     }
 
     private static Set<AnnoReference> toAnnoReferences(List<ProjectRuntimeSnapshot.AnnoData> annotations) {
@@ -2321,7 +2307,7 @@ public class DatabaseManager {
                 controller.isRest(),
                 controller.getBasePath(),
                 toClassHandleData(controller.getClassName()),
-                mappings
+                mappings.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(mappings)
         );
     }
 
@@ -2365,7 +2351,7 @@ public class DatabaseManager {
                 mapping.getPath(),
                 null,
                 mapping.getPathRestful(),
-                params
+                params.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(params)
         );
     }
 

@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public record BuildFactSnapshot(TypeFacts types,
                                 MethodFacts methods,
@@ -107,13 +108,33 @@ public record BuildFactSnapshot(TypeFacts types,
         }
     }
 
-    public record ConstraintFacts(Map<String, String> receiverVarByCallSiteKey,
-                                  Map<String, AliasValueFact> instanceFieldFactsByKey,
-                                  Map<MethodReference.Handle, MethodConstraintFacts> methodsByHandle) {
-        public ConstraintFacts {
-            receiverVarByCallSiteKey = immutableMapView(receiverVarByCallSiteKey);
-            instanceFieldFactsByKey = immutableAliasFactMap(instanceFieldFactsByKey);
-            methodsByHandle = immutableMapView(methodsByHandle);
+    public static final class ConstraintFacts {
+        private final Map<String, String> receiverVarByCallSiteKey;
+        private final Map<String, AliasValueFact> instanceFieldFactsByKey;
+        private final Map<MethodReference.Handle, MethodReflectionHints> reflectionHintsByHandle;
+        private final Set<MethodReference.Handle> reflectionPrecisionSignalHandles;
+        private final Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodsByHandle;
+        private final ConcurrentHashMap<MethodReference.Handle, MethodConstraintFacts> methodConstraintCache;
+
+        public ConstraintFacts(Map<String, String> receiverVarByCallSiteKey,
+                               Map<String, AliasValueFact> instanceFieldFactsByKey,
+                               Map<MethodReference.Handle, MethodReflectionHints> reflectionHintsByHandle,
+                               Set<MethodReference.Handle> reflectionPrecisionSignalHandles,
+                               Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodsByHandle) {
+            this.receiverVarByCallSiteKey = immutableMapView(receiverVarByCallSiteKey);
+            this.instanceFieldFactsByKey = immutableAliasFactMap(instanceFieldFactsByKey);
+            this.reflectionHintsByHandle = immutableMapView(reflectionHintsByHandle);
+            this.reflectionPrecisionSignalHandles = immutableSetView(reflectionPrecisionSignalHandles);
+            this.parsedMethodsByHandle = immutableMapView(parsedMethodsByHandle);
+            this.methodConstraintCache = new ConcurrentHashMap<>();
+        }
+
+        public Map<String, String> receiverVarByCallSiteKey() {
+            return receiverVarByCallSiteKey;
+        }
+
+        public Map<String, AliasValueFact> instanceFieldFactsByKey() {
+            return instanceFieldFactsByKey;
         }
 
         public AliasValueFact instanceFieldFact(String owner,
@@ -125,16 +146,48 @@ public record BuildFactSnapshot(TypeFacts types,
             return facts == null ? AliasValueFact.empty() : facts;
         }
 
+        public MethodReflectionHints methodReflectionHints(MethodReference.Handle handle) {
+            if (handle == null || reflectionHintsByHandle.isEmpty()) {
+                return MethodReflectionHints.empty();
+            }
+            MethodReflectionHints hints = reflectionHintsByHandle.get(handle);
+            return hints == null ? MethodReflectionHints.empty() : hints;
+        }
+
+        public boolean hasReflectionPrecisionSignal(MethodReference.Handle handle) {
+            return handle != null
+                    && !reflectionPrecisionSignalHandles.isEmpty()
+                    && reflectionPrecisionSignalHandles.contains(handle);
+        }
+
         public MethodConstraintFacts methodConstraints(MethodReference.Handle handle) {
-            if (handle == null || methodsByHandle.isEmpty()) {
+            if (handle == null) {
                 return MethodConstraintFacts.empty();
             }
-            MethodConstraintFacts facts = methodsByHandle.get(handle);
-            return facts == null ? MethodConstraintFacts.empty() : facts;
+            MethodConstraintFacts cached = methodConstraintCache.get(handle);
+            if (cached != null) {
+                return cached;
+            }
+            MethodConstraintFacts loaded = loadMethodConstraints(handle);
+            MethodConstraintFacts existing = methodConstraintCache.putIfAbsent(handle, loaded);
+            return existing == null ? loaded : existing;
         }
 
         public static ConstraintFacts empty() {
-            return new ConstraintFacts(Map.of(), Map.of(), Map.of());
+            return new ConstraintFacts(Map.of(), Map.of(), Map.of(), Set.of(), Map.of());
+        }
+
+        private MethodConstraintFacts loadMethodConstraints(MethodReference.Handle handle) {
+            BuildBytecodeWorkspace.ParsedMethod parsedMethod = parsedMethodsByHandle.get(handle);
+            MethodReflectionHints reflectionHints = methodReflectionHints(handle);
+            if (parsedMethod == null) {
+                return ConstraintFactAssembler.emptyMethodConstraints(reflectionHints);
+            }
+            return ConstraintFactAssembler.buildMethodConstraints(
+                    parsedMethod,
+                    reflectionHints,
+                    instanceFieldFactsByKey
+            );
         }
     }
 

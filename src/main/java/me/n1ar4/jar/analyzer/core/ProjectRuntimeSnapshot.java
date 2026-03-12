@@ -10,6 +10,11 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import java.util.AbstractList;
+import java.util.AbstractMap;
+import java.util.AbstractSet;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,20 +43,20 @@ public record ProjectRuntimeSnapshot(
     public ProjectRuntimeSnapshot {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
         buildSeq = Math.max(0L, buildSeq);
-        jars = jars == null ? List.of() : List.copyOf(jars);
-        classFiles = classFiles == null ? List.of() : List.copyOf(classFiles);
-        classReferences = classReferences == null ? List.of() : List.copyOf(classReferences);
-        methodReferences = methodReferences == null ? List.of() : List.copyOf(methodReferences);
-        methodStrings = methodStrings == null ? Map.of() : Map.copyOf(methodStrings);
-        methodAnnoStrings = methodAnnoStrings == null ? Map.of() : Map.copyOf(methodAnnoStrings);
-        resources = resources == null ? List.of() : List.copyOf(resources);
-        callSites = callSites == null ? List.of() : List.copyOf(callSites);
-        localVars = localVars == null ? List.of() : List.copyOf(localVars);
-        springControllers = springControllers == null ? List.of() : List.copyOf(springControllers);
-        springInterceptors = springInterceptors == null ? Set.of() : Set.copyOf(springInterceptors);
-        servlets = servlets == null ? Set.of() : Set.copyOf(servlets);
-        filters = filters == null ? Set.of() : Set.copyOf(filters);
-        listeners = listeners == null ? Set.of() : Set.copyOf(listeners);
+        jars = immutableList(jars);
+        classFiles = immutableList(classFiles);
+        classReferences = immutableList(classReferences);
+        methodReferences = immutableList(methodReferences);
+        methodStrings = immutableMap(methodStrings);
+        methodAnnoStrings = immutableMap(methodAnnoStrings);
+        resources = immutableList(resources);
+        callSites = immutableList(callSites);
+        localVars = immutableList(localVars);
+        springControllers = immutableList(springControllers);
+        springInterceptors = immutableSet(springInterceptors);
+        servlets = immutableSet(servlets);
+        filters = immutableSet(filters);
+        listeners = immutableSet(listeners);
     }
 
     public record ProjectModelData(
@@ -63,8 +68,8 @@ public record ProjectRuntimeSnapshot(
             boolean resolveInnerJars
     ) {
         public ProjectModelData {
-            roots = roots == null ? List.of() : List.copyOf(roots);
-            analyzedArchives = analyzedArchives == null ? List.of() : List.copyOf(analyzedArchives);
+            roots = immutableList(roots);
+            analyzedArchives = immutableList(analyzedArchives);
         }
     }
 
@@ -131,9 +136,9 @@ public record ProjectRuntimeSnapshot(
             Integer jarId
     ) {
         public ClassReferenceData {
-            interfaces = interfaces == null ? List.of() : List.copyOf(interfaces);
-            members = members == null ? List.of() : List.copyOf(members);
-            annotations = annotations == null ? List.of() : List.copyOf(annotations);
+            interfaces = immutableList(interfaces);
+            members = immutableList(members);
+            annotations = immutableList(annotations);
         }
     }
 
@@ -150,7 +155,7 @@ public record ProjectRuntimeSnapshot(
             int semanticFlags
     ) {
         public MethodReferenceData {
-            annotations = annotations == null ? List.of() : List.copyOf(annotations);
+            annotations = immutableList(annotations);
         }
 
         public MethodReferenceData(ClassHandleData classReference,
@@ -214,7 +219,7 @@ public record ProjectRuntimeSnapshot(
             List<SpringMappingData> mappings
     ) {
         public SpringControllerData {
-            mappings = mappings == null ? List.of() : List.copyOf(mappings);
+            mappings = immutableList(mappings);
         }
     }
 
@@ -229,7 +234,7 @@ public record ProjectRuntimeSnapshot(
             List<SpringParamData> params
     ) {
         public SpringMappingData {
-            params = params == null ? List.of() : List.copyOf(params);
+            params = immutableList(params);
         }
     }
 
@@ -239,5 +244,119 @@ public record ProjectRuntimeSnapshot(
             String paramType,
             String reqName
     ) {
+    }
+
+    static <T> List<T> ownedList(List<T> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values instanceof OwnedView ? values : new OwnedListView<>(values);
+    }
+
+    static <K, V> Map<K, V> ownedMap(Map<K, V> values) {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        return values instanceof OwnedView ? values : new OwnedMapView<>(values);
+    }
+
+    static <T> Set<T> ownedSet(Set<T> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        return values instanceof OwnedView ? values : new OwnedSetView<>(values);
+    }
+
+    private static <T> List<T> immutableList(List<T> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values instanceof OwnedView ? values : List.copyOf(values);
+    }
+
+    private static <K, V> Map<K, V> immutableMap(Map<K, V> values) {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        return values instanceof OwnedView ? values : Map.copyOf(values);
+    }
+
+    private static <T> Set<T> immutableSet(Set<T> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        return values instanceof OwnedView ? values : Set.copyOf(values);
+    }
+
+    private interface OwnedView {
+    }
+
+    private static final class OwnedListView<T> extends AbstractList<T> implements java.util.RandomAccess, OwnedView {
+        private final List<T> delegate;
+
+        private OwnedListView(List<T> delegate) {
+            this.delegate = Collections.unmodifiableList(delegate);
+        }
+
+        @Override
+        public T get(int index) {
+            return delegate.get(index);
+        }
+
+        @Override
+        public int size() {
+            return delegate.size();
+        }
+    }
+
+    private static final class OwnedMapView<K, V> extends AbstractMap<K, V> implements OwnedView {
+        private final Map<K, V> delegate;
+
+        private OwnedMapView(Map<K, V> delegate) {
+            this.delegate = Collections.unmodifiableMap(delegate);
+        }
+
+        @Override
+        public Set<Entry<K, V>> entrySet() {
+            return delegate.entrySet();
+        }
+
+        @Override
+        public V get(Object key) {
+            return delegate.get(key);
+        }
+
+        @Override
+        public int size() {
+            return delegate.size();
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return delegate.containsKey(key);
+        }
+    }
+
+    private static final class OwnedSetView<T> extends AbstractSet<T> implements OwnedView {
+        private final Set<T> delegate;
+
+        private OwnedSetView(Set<T> delegate) {
+            this.delegate = Collections.unmodifiableSet(delegate);
+        }
+
+        @Override
+        public Iterator<T> iterator() {
+            return delegate.iterator();
+        }
+
+        @Override
+        public int size() {
+            return delegate.size();
+        }
+
+        @Override
+        public boolean contains(Object o) {
+            return delegate.contains(o);
+        }
     }
 }

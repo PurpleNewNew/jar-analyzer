@@ -134,23 +134,26 @@ final class BytecodeMainlineReflectionResolver {
                     if (caller == null) {
                         continue;
                     }
-                    BuildFactSnapshot.MethodConstraintFacts constraints = snapshot == null
-                            ? BuildFactSnapshot.MethodConstraintFacts.empty()
-                            : snapshot.constraints().methodConstraints(caller);
+                    BuildFactSnapshot.MethodReflectionHints reflectionHints = snapshot == null
+                            ? BuildFactSnapshot.MethodReflectionHints.empty()
+                            : snapshot.constraints().methodReflectionHints(caller);
                     MethodResolveResult hintResult = applyHintEdges(
                             caller,
                             mn,
-                            constraints.reflectionHints(),
+                            reflectionHints,
                             context.methodCalls,
                             context.methodCallMeta,
                             context.methodMap
                     );
                     reflectionEdges += hintResult.reflectionEdges();
                     methodHandleEdges += hintResult.methodHandleEdges();
-                    hintStats = hintStats.merge(summarizeHints(constraints.reflectionHints()));
-                    if (!constraints.reflectionHints().isEmpty()) {
+                    hintStats = hintStats.merge(summarizeHints(reflectionHints));
+                    if (!reflectionHints.isEmpty()) {
                         continue;
                     }
+                    BuildFactSnapshot.MethodConstraintFacts constraints = snapshot == null
+                            ? BuildFactSnapshot.MethodConstraintFacts.empty()
+                            : snapshot.constraints().methodConstraints(caller);
                     MethodResolveResult resolveResult = resolveInMethod(
                             caller,
                             mn,

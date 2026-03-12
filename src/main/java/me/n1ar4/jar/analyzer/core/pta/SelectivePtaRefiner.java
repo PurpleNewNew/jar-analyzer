@@ -271,7 +271,7 @@ public final class SelectivePtaRefiner {
         );
         boolean semantic = caller != null && hasPrecisionSemanticSignal(snapshot, caller);
         boolean reflection = caller != null
-                && hasReflectionPrecisionSignal(snapshot.constraints().methodConstraints(caller));
+                && snapshot.constraints().hasReflectionPrecisionSignal(caller);
         boolean trigger = isTriggerBridgeSite(site);
         boolean highFanout = caller != null && isHighFanoutSite(edges, caller, site);
         boolean enabled = dispatchHotspot || semantic || reflection || trigger || highFanout;
@@ -365,13 +365,6 @@ public final class SelectivePtaRefiner {
         }
         int semanticFlags = snapshot.semantics().methodSemanticFlags().getOrDefault(caller, 0);
         return (semanticFlags & PRECISION_SEMANTIC_MASK) != 0;
-    }
-
-    private static boolean hasReflectionPrecisionSignal(BuildFactSnapshot.MethodConstraintFacts constraints) {
-        if (constraints == null) {
-            return false;
-        }
-        return !constraints.reflectionHints().isEmpty() || !constraints.nativeModelHints().isEmpty();
     }
 
     private static boolean isTriggerBridgeSite(CallSiteEntity site) {

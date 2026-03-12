@@ -21,6 +21,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -169,6 +170,45 @@ class BuildFactAssemblerTest {
         assertFalse(sourceFramesLoaded(candidate));
     }
 
+    @Test
+    void shouldMaterializeConstraintFactsLazily() throws Exception {
+        Path jar = FixtureJars.callbackTestJar();
+        List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
+                List.of(jar.toString()),
+                new HashMap<>(java.util.Map.of(jar.toString(), 1)),
+                new ArrayList<>(),
+                false
+        );
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(new HashSet<>(classFiles));
+
+        BuildContext context = new BuildContext();
+        DiscoveryRunner.start(
+                workspace,
+                context.discoveredClasses,
+                context.discoveredMethods,
+                context.classMap,
+                context.methodMap,
+                context.stringAnnoMap
+        );
+        context.callSites.addAll(BytecodeSymbolRunner.start(workspace).getCallSites());
+
+        BuildFactSnapshot snapshot = BuildFactAssembler.from(context, workspace);
+        MethodReference.Handle reflectHelper = new MethodReference.Handle(
+                new ClassReference.Handle("me/n1ar4/cb/CallbackEntry", 1),
+                "reflectViaHelperFlow",
+                "()V"
+        );
+
+        assertEquals(0, materializedConstraintCount(snapshot));
+        assertFalse(snapshot.constraints().methodReflectionHints(reflectHelper).isEmpty());
+        assertTrue(snapshot.constraints().hasReflectionPrecisionSignal(reflectHelper));
+        assertEquals(0, materializedConstraintCount(snapshot));
+
+        BuildFactSnapshot.MethodConstraintFacts facts = snapshot.constraints().methodConstraints(reflectHelper);
+        assertFalse(facts.reflectionHints().isEmpty());
+        assertEquals(1, materializedConstraintCount(snapshot));
+    }
+
     private static boolean requiresConstraintFrames(org.objectweb.asm.tree.MethodNode methodNode) {
         if (methodNode == null || methodNode.instructions == null) {
             return false;
@@ -231,5 +271,14 @@ class BuildFactAssemblerTest {
         Field loaded = BuildBytecodeWorkspace.ParsedMethod.class.getDeclaredField("sourceFramesLoaded");
         loaded.setAccessible(true);
         return loaded.getBoolean(method);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int materializedConstraintCount(BuildFactSnapshot snapshot) throws Exception {
+        Field cacheField = BuildFactSnapshot.ConstraintFacts.class.getDeclaredField("methodConstraintCache");
+        cacheField.setAccessible(true);
+        ConcurrentHashMap<MethodReference.Handle, BuildFactSnapshot.MethodConstraintFacts> cache =
+                (ConcurrentHashMap<MethodReference.Handle, BuildFactSnapshot.MethodConstraintFacts>) cacheField.get(snapshot.constraints());
+        return cache.size();
     }
 }

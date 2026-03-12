@@ -52,35 +52,27 @@ final class ConstraintFactAssembler {
         if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return BuildFactSnapshot.ConstraintFacts.empty();
         }
-        Map<String, ParsedMethodBinding> methodsByKey = indexParsedMethods(workspace);
+        ParsedMethodIndex parsedMethodIndex = indexParsedMethods(workspace);
         Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey =
                 ReflectionConstraintAnalyzer.collectInstanceFieldFacts(workspace);
         Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> reflectionHintsByHandle =
                 ReflectionConstraintAnalyzer.collect(workspace, methodMap, instanceFieldFactsByKey);
-        LinkedHashMap<MethodReference.Handle, BuildFactSnapshot.MethodConstraintFacts> methodsByHandle = new LinkedHashMap<>();
-        for (ParsedMethodBinding binding : methodsByKey.values()) {
-            if (binding == null || binding.handle() == null || binding.parsedMethod() == null) {
-                continue;
-            }
-            methodsByHandle.put(
-                    binding.handle(),
-                    buildMethodConstraints(
-                            binding.parsedMethod(),
-                            reflectionHintsByHandle.get(binding.handle()),
-                            instanceFieldFactsByKey
-                    )
-            );
-        }
-        LinkedHashMap<String, String> receiverVarByCallSiteKey = buildReceiverVarFacts(callSites, methodsByKey);
+        Set<MethodReference.Handle> reflectionPrecisionSignalHandles =
+                buildReflectionPrecisionSignalHandles(parsedMethodIndex.byHandle(), reflectionHintsByHandle);
+        LinkedHashMap<String, String> receiverVarByCallSiteKey = buildReceiverVarFacts(callSites, parsedMethodIndex.byKey());
         if (receiverVarByCallSiteKey.isEmpty()
                 && instanceFieldFactsByKey.isEmpty()
-                && methodsByHandle.isEmpty()) {
+                && reflectionHintsByHandle.isEmpty()
+                && reflectionPrecisionSignalHandles.isEmpty()
+                && parsedMethodIndex.byHandle().isEmpty()) {
             return BuildFactSnapshot.ConstraintFacts.empty();
         }
         return new BuildFactSnapshot.ConstraintFacts(
                 receiverVarByCallSiteKey,
                 instanceFieldFactsByKey,
-                methodsByHandle
+                reflectionHintsByHandle,
+                reflectionPrecisionSignalHandles,
+                parsedMethodIndex.byHandle()
         );
     }
 
@@ -115,8 +107,9 @@ final class ConstraintFactAssembler {
         return receiverVarByCallSiteKey;
     }
 
-    private static Map<String, ParsedMethodBinding> indexParsedMethods(BuildBytecodeWorkspace workspace) {
-        LinkedHashMap<String, ParsedMethodBinding> out = new LinkedHashMap<>();
+    private static ParsedMethodIndex indexParsedMethods(BuildBytecodeWorkspace workspace) {
+        LinkedHashMap<String, ParsedMethodBinding> methodsByKey = new LinkedHashMap<>();
+        LinkedHashMap<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> methodsByHandle = new LinkedHashMap<>();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : workspace.parsedClasses()) {
             if (parsedClass == null || parsedClass.classNode() == null || parsedClass.methods().isEmpty()) {
                 continue;
@@ -131,24 +124,28 @@ final class ConstraintFactAssembler {
                         methodNode.name,
                         methodNode.desc
                 );
-                out.put(methodKey(
+                methodsByKey.put(methodKey(
                         parsedClass.className(),
                         methodNode.name,
                         methodNode.desc,
                         parsedClass.jarId()
                 ), new ParsedMethodBinding(handle, parsedMethod));
+                methodsByHandle.put(handle, parsedMethod);
             }
         }
-        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        return new ParsedMethodIndex(
+                methodsByKey.isEmpty() ? Map.of() : Map.copyOf(methodsByKey),
+                methodsByHandle.isEmpty() ? Map.of() : Map.copyOf(methodsByHandle)
+        );
     }
 
-    private static BuildFactSnapshot.MethodConstraintFacts buildMethodConstraints(
+    static BuildFactSnapshot.MethodConstraintFacts buildMethodConstraints(
             BuildBytecodeWorkspace.ParsedMethod parsedMethod,
             BuildFactSnapshot.MethodReflectionHints reflectionHints,
             Map<String, BuildFactSnapshot.AliasValueFact> instanceFieldFactsByKey) {
         MethodNode methodNode = parsedMethod == null ? null : parsedMethod.methodNode();
         if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
-            return BuildFactSnapshot.MethodConstraintFacts.empty();
+            return emptyMethodConstraints(reflectionHints);
         }
         Frame<SourceValue>[] frames = null;
         Map<String, String> staticStrings = collectStaticStringConstants(parsedMethod.owner().classNode());
@@ -270,6 +267,65 @@ final class ConstraintFactAssembler {
                 arrayCopyEdges,
                 returnEdges,
                 nativeModelHints,
+                reflectionHints
+        );
+    }
+
+    private static Set<MethodReference.Handle> buildReflectionPrecisionSignalHandles(
+            Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodsByHandle,
+            Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> reflectionHintsByHandle) {
+        if ((parsedMethodsByHandle == null || parsedMethodsByHandle.isEmpty())
+                && (reflectionHintsByHandle == null || reflectionHintsByHandle.isEmpty())) {
+            return Set.of();
+        }
+        LinkedHashSet<MethodReference.Handle> out = new LinkedHashSet<>();
+        if (reflectionHintsByHandle != null) {
+            for (Map.Entry<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> entry : reflectionHintsByHandle.entrySet()) {
+                if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
+                    continue;
+                }
+                out.add(entry.getKey());
+            }
+        }
+        if (parsedMethodsByHandle != null) {
+            for (Map.Entry<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> entry : parsedMethodsByHandle.entrySet()) {
+                if (entry == null || entry.getKey() == null || !containsNativeModelSignal(entry.getValue())) {
+                    continue;
+                }
+                out.add(entry.getKey());
+            }
+        }
+        return out.isEmpty() ? Set.of() : Set.copyOf(out);
+    }
+
+    private static boolean containsNativeModelSignal(BuildBytecodeWorkspace.ParsedMethod parsedMethod) {
+        MethodNode methodNode = parsedMethod == null ? null : parsedMethod.methodNode();
+        if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
+            return false;
+        }
+        for (int i = 0; i < methodNode.instructions.size(); i++) {
+            AbstractInsnNode insn = methodNode.instructions.get(i);
+            if (insn instanceof MethodInsnNode methodInsn && isArrayCopy(methodInsn)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static BuildFactSnapshot.MethodConstraintFacts emptyMethodConstraints(
+            BuildFactSnapshot.MethodReflectionHints reflectionHints) {
+        return new BuildFactSnapshot.MethodConstraintFacts(
+                List.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
                 reflectionHints
         );
     }
@@ -827,6 +883,10 @@ final class ConstraintFactAssembler {
 
     private record ParsedMethodBinding(MethodReference.Handle handle,
                                        BuildBytecodeWorkspace.ParsedMethod parsedMethod) {
+    }
+
+    private record ParsedMethodIndex(Map<String, ParsedMethodBinding> byKey,
+                                     Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> byHandle) {
     }
 
     private record LocalVarSlot(int start, int end, String name) {
