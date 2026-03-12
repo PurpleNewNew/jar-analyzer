@@ -275,6 +275,57 @@ class ApiHandlerRegressionTest {
     }
 
     @Test
+    void dfsCompletedJobShouldRemainStaleAfterSwitchAwayAndBack() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String projectA = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        String projectB = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+        JSONObject dfsJson = JSON.parseObject(api.get("/api/flow/dfs", Map.of(
+                "mode", "source",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V"
+        )));
+        String dfsJobId = dfsJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/dfs/jobs/", dfsJobId);
+
+        ActiveProjectContext.setActiveProject(projectB, projectB);
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+
+        JSONObject statusJson = JSON.parseObject(api.get("/api/flow/dfs/jobs/" + dfsJobId, Map.of()));
+        assertTrue(statusJson.getBooleanValue("ok"));
+        assertTrue(statusJson.getJSONObject("data").getBooleanValue("stale"));
+        assertEquals("project_switch_required", statusJson.getJSONObject("data").getString("staleReason"));
+
+        JSONObject resultsJson = JSON.parseObject(api.get("/api/flow/dfs/jobs/" + dfsJobId + "/results", Map.of()));
+        assertTrue(resultsJson.getBooleanValue("ok"));
+        assertTrue(resultsJson.getJSONObject("data").getBooleanValue("stale"));
+        assertEquals("project_switch_required", resultsJson.getJSONObject("data").getString("staleReason"));
+    }
+
+    @Test
     void taintEndpointShouldAcceptSinkModeDfsJobsWhenPathOrderIsForward() throws Exception {
         MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
         MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
@@ -458,6 +509,63 @@ class ApiHandlerRegressionTest {
         JSONObject statusJson = JSON.parseObject(api.get("/api/flow/taint/jobs/" + taintJobId, Map.of()));
         assertTrue(statusJson.getBooleanValue("ok"));
         assertEquals("done", statusJson.getJSONObject("data").getString("status"));
+        assertTrue(statusJson.getJSONObject("data").getBooleanValue("stale"));
+        assertEquals("project_switch_required", statusJson.getJSONObject("data").getString("staleReason"));
+
+        JSONObject resultsJson = JSON.parseObject(api.get("/api/flow/taint/jobs/" + taintJobId + "/results", Map.of()));
+        assertTrue(resultsJson.getBooleanValue("ok"));
+        assertTrue(resultsJson.getJSONObject("data").getBooleanValue("stale"));
+        assertEquals("project_switch_required", resultsJson.getJSONObject("data").getString("staleReason"));
+    }
+
+    @Test
+    void taintCompletedJobShouldRemainStaleAfterSwitchAwayAndBack() throws Exception {
+        MethodSpec source = new MethodSpec(1, "flow.jar", "demo/Source", "entry", "()V");
+        MethodSpec sink = new MethodSpec(1, "flow.jar", "demo/Sink", "sink", "()V");
+        String projectA = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        String projectB = prepareProject(
+                List.of(source, sink),
+                List.of(new CallEdgeSpec(source, sink)),
+                Map.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+
+        JSONObject dfsJson = JSON.parseObject(api.get("/api/flow/dfs", Map.of(
+                "mode", "source",
+                "sourceClass", "demo.Source",
+                "sourceMethod", "entry",
+                "sourceDesc", "()V",
+                "sinkClass", "demo.Sink",
+                "sinkMethod", "sink",
+                "sinkDesc", "()V"
+        )));
+        String dfsJobId = dfsJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/dfs/jobs/", dfsJobId);
+
+        JSONObject taintJson = JSON.parseObject(api.get("/api/flow/taint", Map.of(
+                "dfsJobId", dfsJobId
+        )));
+        String taintJobId = taintJson.getJSONObject("data").getString("jobId");
+        waitForJobDone(api, "/api/flow/taint/jobs/", taintJobId);
+
+        ActiveProjectContext.setActiveProject(projectB, projectB);
+        ActiveProjectContext.setActiveProject(projectA, projectA);
+
+        JSONObject statusJson = JSON.parseObject(api.get("/api/flow/taint/jobs/" + taintJobId, Map.of()));
+        assertTrue(statusJson.getBooleanValue("ok"));
         assertTrue(statusJson.getJSONObject("data").getBooleanValue("stale"));
         assertEquals("project_switch_required", statusJson.getJSONObject("data").getString("staleReason"));
 

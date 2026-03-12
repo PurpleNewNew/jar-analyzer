@@ -267,7 +267,7 @@ public class TaintJobManager {
         if (job == null) {
             return "project_switch_required";
         }
-        if (!isExecutionProjectCurrent(job.getProjectKey())) {
+        if (!isExecutionProjectCurrent(job.getProjectKey(), job.getProjectEpoch())) {
             return "project_switch_required";
         }
         if (ProjectStateUtil.isProjectBuildStale(job.getProjectKey(), job.getBuildSeq())) {

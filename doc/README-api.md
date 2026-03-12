@@ -13,7 +13,7 @@
 - 数据路径：
   - TEMP: `db/neo4j-temp/<session-id>/`（进程退出自动清理）
   - PERSISTENT: `db/neo4j-projects/<project-key>/`（项目间隔离）
-- 启动行为：进程启动后默认 active project 为 TEMP。
+- 启动行为：若存在上次持久化 active project，则启动后优先恢复它；否则 active project 为 TEMP。
 
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
@@ -152,19 +152,19 @@
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
   - `traversalMode` 仅支持 `call-only`（默认）和 `call+alias`
   - Cypher 过程侧新增显式 `direction=forward|backward|bidirectional`；HTTP DFS 任务仍沿 `mode` 表达方向
-  - `searchAllSources` / `onlyFromWeb` 会跟随最新 `rules/source.json` 热刷新选择 source，无需重建项目
+  - `searchAllSources` / `onlyFromWeb` 会按“当前 source 真相”热刷新选择 source：复用最新 `rules/source.json`，并叠加当前项目稳定的显式 Web/RPC 入口事实；不会再回退旧的持久化 `source_flags`，无需重建项目
   - active project 构建中会返回 `project_build_in_progress`
   - 提交队列已收敛为有界队列；满载时返回 `503 job_queue_full`
 - `GET /api/flow/dfs/jobs/{jobId}`
   状态
   说明:
   - 返回的 `buildSeq` 是 DFS 执行时绑定的图构建序号
-  - 若任务完成后 active project 切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`
+  - 若任务完成后 active project 发生过切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`；即使后来切回原项目也一样
 - `GET /api/flow/dfs/jobs/{jobId}/results`
   参数: `offset` `limit` `compact`
   说明:
   - `edges` 在可用时会附带 `callSiteKey` `lineNumber` `callIndex`
-  - 已完成 job 在切项目/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`
+  - 已完成 job 在项目切换/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`；即使后来切回原项目也一样
 - `GET /api/flow/dfs/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/dfs/jobs/{jobId}`
 
@@ -181,11 +181,11 @@
   状态
   说明:
   - 返回的 `buildSeq` 是 taint 执行时绑定的图构建序号
-  - 若任务完成后 active project 切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`
+  - 若任务完成后 active project 发生过切换或项目已重建，接口仍可读取结果，但会附带 `stale=true` 与 `staleReason`；即使后来切回原项目也一样
 - `GET /api/flow/taint/jobs/{jobId}/results`
   参数: `offset` `limit`
   说明:
-  - 已完成 job 在切项目/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`
+  - 已完成 job 在项目切换/重建后仍可导出结果，但会附带 `stale=true` 与 `staleReason`；即使后来切回原项目也一样
 - `GET /api/flow/taint/jobs/{jobId}/cancel`
   或 `DELETE /api/flow/taint/jobs/{jobId}`
 
@@ -212,7 +212,7 @@
   - 查询超时、扩展预算、路径预算与 timeout checkpoint 都由服务端硬熔断管理，不再对外暴露；旧 `profile/longChain/maxMs/maxHops/maxPaths/expandBudget/pathBudget/timeoutCheckInterval` 选项会直接返回 `invalid_request`
   - `ja.path.shortest_pruned` / `ja.path.from_to_pruned` 现在走基于 `SummaryEngine + GraphSnapshot` 的 stateful pruning；响应 `warnings` 会附带 `pruned_state_cuts` / `pruned_expanded_edges` 等统计
   - `rules/model.json.pruningPolicy` 可热刷新控制 pruned 语义：
-    `sourceSelection=merged|graph|rules`
+    `sourceSelection=rules|merged|graph`（默认 `rules`）
     `sanitizerMode=hard|ignore`
     `allowAdditionalFlows=true|false`
     `confidenceMode=balanced|strict`
@@ -228,7 +228,7 @@
   - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb` `traversalMode` `direction`
   - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
   - `ja.taint.track(..., direction='backward')` 会显式覆盖旧 `mode`；`direction='bidirectional'` 会在 source/sink 都明确时同时尝试正向和逆向剪枝搜索
-  - `ja.taint.track(..., direction='backward', searchAllSources=true)` 允许 source 为空，并会按最新 `rules/source.json` 选择 source；`onlyFromWeb` 仅在该模式下生效
+  - `ja.taint.track(..., direction='backward', searchAllSources=true)` 允许 source 为空，并会按当前 source 真相选择 source；`onlyFromWeb` 仅在该模式下生效
   - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。现在还支持显式 `direction='forward|backward|bidirectional'`，并会在 `evidence/warnings` 中回显当前搜索方向。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - reflection / method-handle 边的 `edgeEvidence` 会回显 `tier=const|log|cast|unknown`；在阈值内扩成多目标时会追加 `imprecise=1`
@@ -280,6 +280,7 @@
 - `GET /api/projects/active`
   返回当前 active project 详情（包含 `type` 字段：`TEMP|PERSISTENT`）。
 - `POST /api/projects/register`
+  说明：注册项目并立即切换为 active project。
   Body:
   ```json
   {

@@ -1009,9 +1009,18 @@ public final class GraphDfsEngine {
             if (cached != null) {
                 return cached;
             }
-            int flags = node.getSourceFlags();
-            if (ruleSnapshot != null && !ruleSnapshot.isEmpty()) {
-                flags |= SourceRuleSupport.resolveRuleFlags(findMethodReference(node), ruleSnapshot);
+            MethodReference method = findMethodReference(node);
+            int flags;
+            if (method != null) {
+                flags = SourceRuleSupport.resolveCurrentSourceFlags(method, ruleSnapshot);
+            } else {
+                flags = SourceRuleSupport.resolveCurrentSourceFlags(
+                        node.getClassName(),
+                        node.getMethodName(),
+                        node.getMethodDesc(),
+                        node.getJarId(),
+                        ruleSnapshot
+                );
             }
             resolvedFlags.put(node.getNodeId(), flags);
             return flags;

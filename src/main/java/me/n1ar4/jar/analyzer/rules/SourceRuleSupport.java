@@ -125,6 +125,14 @@ public final class SourceRuleSupport {
                                                 String methodName,
                                                 String methodDesc,
                                                 Integer jarId) {
+        return resolveCurrentSourceFlags(className, methodName, methodDesc, jarId, snapshotCurrentRules());
+    }
+
+    public static int resolveCurrentSourceFlags(String className,
+                                                String methodName,
+                                                String methodDesc,
+                                                Integer jarId,
+                                                RuleSnapshot snapshot) {
         String cls = safe(className).replace('.', '/');
         String name = safe(methodName);
         String desc = safe(methodDesc);
@@ -134,25 +142,43 @@ public final class SourceRuleSupport {
         }
 
         int flags = 0;
-        RuleSnapshot snapshot = snapshotCurrentRules();
         BiFunction<String, Integer, ClassReference> classResolver = (owner, ownerJarId) -> resolveCurrentClass(owner, ownerJarId);
         List<MethodReference> methods = DatabaseManager.getMethodReferencesByClass(cls);
+        boolean matchedMethod = false;
         if (methods != null && !methods.isEmpty()) {
             for (MethodReference method : methods) {
                 if (!matchesMethod(method, cls, name, desc, normalizedJarId)) {
                     continue;
                 }
-                flags |= resolveRuleFlags(method, snapshot);
-                flags |= resolveFrameworkFlags(
-                        method,
-                        resolveCurrentClass(
-                                method.getClassReference() == null ? cls : method.getClassReference().getName(),
-                                method.getJarId()
-                        ),
-                        classResolver
-                );
+                matchedMethod = true;
+                flags |= resolveDynamicMethodFlags(method, snapshot, classResolver, cls);
             }
         }
+        if (!matchedMethod) {
+            flags |= resolveRuleFlags(cls, name, desc, snapshot);
+        }
+        int explicitFlags = resolveExplicitProjectFlags(cls, name, desc);
+        if (explicitFlags != 0) {
+            flags |= explicitFlags;
+        }
+        if (flags != 0) {
+            flags |= GraphNode.SOURCE_FLAG_ANY;
+        }
+        return flags;
+    }
+
+    public static int resolveCurrentSourceFlags(MethodReference method, RuleSnapshot snapshot) {
+        if (method == null) {
+            return 0;
+        }
+        String cls = safe(method.getClassReference() == null ? null : method.getClassReference().getName()).replace('.', '/');
+        String name = safe(method.getName());
+        String desc = safe(method.getDesc());
+        if (cls.isBlank() || name.isBlank() || desc.isBlank()) {
+            return 0;
+        }
+        BiFunction<String, Integer, ClassReference> classResolver = (owner, ownerJarId) -> resolveCurrentClass(owner, ownerJarId);
+        int flags = resolveDynamicMethodFlags(method, snapshot, classResolver, cls);
         int explicitFlags = resolveExplicitProjectFlags(cls, name, desc);
         if (explicitFlags != 0) {
             flags |= explicitFlags;
@@ -293,6 +319,47 @@ public final class SourceRuleSupport {
         if ("decode".equals(methodName)
                 && matchesHierarchy(ownerClass, classResolver, NETTY_DECODER_TYPES)) {
             flags |= GraphNode.SOURCE_FLAG_WEB;
+        }
+        return flags;
+    }
+
+    private static int resolveDynamicMethodFlags(MethodReference method,
+                                                 RuleSnapshot snapshot,
+                                                 BiFunction<String, Integer, ClassReference> classResolver,
+                                                 String fallbackClassName) {
+        if (method == null) {
+            return 0;
+        }
+        int flags = resolveRuleFlags(method, snapshot);
+        String owner = method.getClassReference() == null ? fallbackClassName : method.getClassReference().getName();
+        flags |= resolveFrameworkFlags(method, resolveCurrentClass(owner, method.getJarId()), classResolver);
+        return flags;
+    }
+
+    private static int resolveRuleFlags(String className,
+                                        String methodName,
+                                        String methodDesc,
+                                        RuleSnapshot snapshot) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return 0;
+        }
+        String cls = safe(className).replace('.', '/');
+        String name = safe(methodName);
+        String desc = safe(methodDesc);
+        if (cls.isBlank() || name.isBlank() || desc.isBlank()) {
+            return 0;
+        }
+        int flags = 0;
+        Integer exact = snapshot.modelFlags().get(new MethodRuleKey(cls, name, desc));
+        if (exact != null) {
+            flags |= exact;
+        }
+        Integer wildcard = snapshot.modelFlags().get(new MethodRuleKey(cls, name, "*"));
+        if (wildcard != null) {
+            flags |= wildcard;
+        }
+        if (flags != 0) {
+            flags |= GraphNode.SOURCE_FLAG_ANY;
         }
         return flags;
     }

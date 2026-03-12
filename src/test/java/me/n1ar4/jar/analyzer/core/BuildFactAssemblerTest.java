@@ -151,13 +151,13 @@ class BuildFactAssemblerTest {
         assertSame(classFile, snapshot.bytecode().classFiles().iterator().next());
 
         BuildEdgeAccumulator edges = BuildEdgeAccumulator.fromContext(context);
-        BuildContext legacyView = BuildFactAssembler.legacyView(snapshot, edges);
+        BuildContext contextView = BuildFactAssembler.contextView(snapshot, edges);
 
-        assertEquals(context.methodCalls.keySet(), legacyView.methodCalls.keySet());
-        assertEquals(context.methodCallMeta.keySet(), legacyView.methodCallMeta.keySet());
-        assertEquals(1, legacyView.callSites.size());
-        assertEquals(2, legacyView.methodMap.size());
-        assertEquals(1, legacyView.strMap.get(caller.getHandle()).size());
-        assertEquals(3, legacyView.explicitSourceMethodFlags.get(caller.getHandle()));
+        assertEquals(context.methodCalls.keySet(), contextView.methodCalls.keySet());
+        assertEquals(context.methodCallMeta.keySet(), contextView.methodCallMeta.keySet());
+        assertEquals(1, contextView.callSites.size());
+        assertEquals(2, contextView.methodMap.size());
+        assertEquals(1, contextView.strMap.get(caller.getHandle()).size());
+        assertEquals(3, contextView.explicitSourceMethodFlags.get(caller.getHandle()));
     }
 }

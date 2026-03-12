@@ -49,45 +49,55 @@ class GraphDfsEngineTest {
     }
 
     @Test
-    void searchAllSourcesShouldIncludeMarkedSourceWithIncomingEdges() {
-        Map<Long, GraphNode> nodes = new LinkedHashMap<>();
-        nodes.put(1L, new GraphNode(1L, "method", 1, "app/Helper", "helper", "()V", "", -1, -1));
-        nodes.put(2L, new GraphNode(
-                2L,
-                "method",
-                1,
-                "app/Controller",
-                "entry",
-                "()V",
-                "",
-                -1,
-                -1,
-                GraphNode.SOURCE_FLAG_ANY
-        ));
-        nodes.put(3L, new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1));
+    void searchAllSourcesShouldIncludeResolvedSourceWithIncomingEdges() throws Exception {
+        Path model = tempDir.resolve("model-incoming.json");
+        Path source = tempDir.resolve("source-incoming.json");
+        Path sink = tempDir.resolve("sink-incoming.json");
 
-        Map<Long, List<GraphEdge>> outgoing = new LinkedHashMap<>();
-        Map<Long, List<GraphEdge>> incoming = new LinkedHashMap<>();
-        addEdge(outgoing, incoming, new GraphEdge(11L, 1L, 2L, "CALLS_DIRECT", "high", "unit", 0));
-        addEdge(outgoing, incoming, new GraphEdge(12L, 2L, 3L, "CALLS_DIRECT", "high", "unit", 0));
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[],\"sourceModel\":[{\"className\":\"app/Controller\",\"methodName\":\"entry\",\"methodDesc\":\"()V\",\"kind\":\"custom\"}]}",
+                    StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-        GraphSnapshot snapshot = GraphSnapshot.of(1L, nodes, outgoing, incoming, Map.of());
-        FlowOptions options = FlowOptions.builder()
-                .fromSink(true)
-                .searchAllSources(true)
-                .depth(4)
-                .sink("app/Sink", "sink", "()V")
-                .build();
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
 
-        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+            restoreRuntime(
+                    method("app/Helper", "helper", "()V", Set.of()),
+                    method("app/Controller", "entry", "()V", Set.of()),
+                    method("app/Sink", "sink", "()V", Set.of())
+            );
 
-        assertFalse(results.isEmpty());
-        assertTrue(results.stream().anyMatch(result ->
-                result.getSource() != null
-                        && result.getMethodList() != null
-                        && result.getMethodList().size() == 2
-                        && "app/Controller".equals(result.getSource().getClassReference().getName())
-                        && "entry".equals(result.getSource().getName())));
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "()V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "()V", "", -1, -1),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
+            );
+
+            List<DFSResult> results = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "()V")
+                    .build(), null).results();
+
+            assertFalse(results.isEmpty());
+            assertTrue(hasSource(results, "app/Controller", "entry"));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
     }
 
     @Test
@@ -304,6 +314,132 @@ class GraphDfsEngineTest {
                     .sink("app/Sink", "sink", "()V")
                     .build(), null).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
+    @Test
+    void searchAllSourcesShouldDropRemovedSourceModelWithoutRebuildEvenWhenGraphFlagsPersist() throws Exception {
+        Path model = tempDir.resolve("model-remove.json");
+        Path source = tempDir.resolve("source-remove.json");
+        Path sink = tempDir.resolve("sink-remove.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[],\"sourceModel\":[{\"className\":\"app/Controller\",\"methodName\":\"entry\",\"methodDesc\":\"()V\",\"kind\":\"custom\"}]}",
+                    StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            restoreRuntime(
+                    method("app/Helper", "helper", "()V", Set.of()),
+                    method("app/Controller", "entry", "()V", Set.of()),
+                    method("app/Sink", "sink", "()V", Set.of())
+            );
+
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "()V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "()V", "", -1, -1, GraphNode.SOURCE_FLAG_ANY),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
+            );
+
+            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "()V")
+                    .build(), null).results();
+            assertTrue(hasSource(before, "app/Controller", "entry"));
+
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "()V")
+                    .build(), null).results();
+            assertFalse(hasSource(after, "app/Controller", "entry"));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
+    @Test
+    void onlyFromWebShouldDropRemovedSourceAnnotationsWithoutRebuildEvenWhenGraphFlagsPersist() throws Exception {
+        Path model = tempDir.resolve("model-web-remove.json");
+        Path source = tempDir.resolve("source-web-remove.json");
+        Path sink = tempDir.resolve("sink-web-remove.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[\"org.springframework.web.bind.annotation.GetMapping\"],\"sourceModel\":[]}",
+                    StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            restoreRuntime(
+                    method("app/Helper", "helper", "()V", Set.of()),
+                    method("app/Controller", "entry", "()V",
+                            Set.of(new AnnoReference("Lorg/springframework/web/bind/annotation/GetMapping;"))),
+                    method("app/Sink", "sink", "()V", Set.of())
+            );
+
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "()V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "()V", "", -1, -1,
+                            GraphNode.SOURCE_FLAG_ANY | GraphNode.SOURCE_FLAG_WEB),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
+            );
+
+            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .onlyFromWeb(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "()V")
+                    .build(), null).results();
+            assertTrue(hasSource(before, "app/Controller", "entry"));
+
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .onlyFromWeb(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "()V")
+                    .build(), null).results();
+            assertFalse(hasSource(after, "app/Controller", "entry"));
         } finally {
             restoreProperty(MODEL_PROP, oldModelProp);
             restoreProperty(SOURCE_PROP, oldSourceProp);

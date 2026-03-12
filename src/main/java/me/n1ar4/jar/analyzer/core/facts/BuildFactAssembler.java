@@ -151,7 +151,7 @@ public final class BuildFactAssembler {
         );
     }
 
-    public static BuildContext legacyView(BuildFactSnapshot snapshot,
+    public static BuildContext contextView(BuildFactSnapshot snapshot,
                                           BuildEdgeAccumulator edges) {
         BuildContext context = new BuildContext();
         if (snapshot == null) {

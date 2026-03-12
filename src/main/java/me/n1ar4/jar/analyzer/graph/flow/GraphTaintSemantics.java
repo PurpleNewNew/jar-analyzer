@@ -116,22 +116,6 @@ final class GraphTaintSemantics {
         return new MethodReference.Handle(new ClassReference.Handle(clazz, node.getJarId()), method, desc);
     }
 
-    boolean isSink(GraphNode node) {
-        return !sinkKind(node).isBlank();
-    }
-
-    boolean isSource(GraphNode node) {
-        return node != null && node.getSourceFlags() != 0;
-    }
-
-    String sinkKind(GraphNode node) {
-        MethodReference.Handle handle = toHandle(node);
-        if (handle == null) {
-            return "";
-        }
-        String kind = ModelRegistry.resolveSinkKind(handle);
-        return safe(kind);
-    }
 
     PruningPolicy pruningPolicy() {
         PruningPolicy current = pruningPolicy;

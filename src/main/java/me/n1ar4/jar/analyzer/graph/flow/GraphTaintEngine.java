@@ -909,14 +909,23 @@ public final class GraphTaintEngine {
                 return cached;
             }
             int graphFlags = node.getSourceFlags();
-            int ruleFlags = 0;
-            if (ruleSnapshot != null && !ruleSnapshot.isEmpty()) {
-                ruleFlags = SourceRuleSupport.resolveRuleFlags(findMethodReference(node), ruleSnapshot);
+            MethodReference method = findMethodReference(node);
+            int liveFlags;
+            if (method != null) {
+                liveFlags = SourceRuleSupport.resolveCurrentSourceFlags(method, ruleSnapshot);
+            } else {
+                liveFlags = SourceRuleSupport.resolveCurrentSourceFlags(
+                        node.getClassName(),
+                        node.getMethodName(),
+                        node.getMethodDesc(),
+                        node.getJarId(),
+                        ruleSnapshot
+                );
             }
             int flags = switch (sourceSelection) {
                 case GRAPH -> graphFlags;
-                case RULES -> ruleFlags;
-                case MERGED -> graphFlags | ruleFlags;
+                case RULES -> liveFlags;
+                case MERGED -> graphFlags | liveFlags;
             };
             resolvedFlags.put(node.getNodeId(), flags);
             return flags;

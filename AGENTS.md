@@ -171,10 +171,12 @@
 
 ## 12. 交付前检查清单（必须执行）
 - 前置环境：
+  - 若项目目录内存在 JDK（例如 `./jdk-21`），默认优先将其作为项目 JDK；只有当它不满足 **JBR 21 + JCEF** 基线时，才回退到外部 JDK
   - `JAVA_HOME` 必须指向 **JBR 21 + JCEF**
   - `java.vendor` 必须为 `JetBrains`
   - `${java.home}/jmods/jcef.jmod` 必须存在
 - 编译：
+  - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
 - 打包：
   - 禁止在正式打包命令中携带 `-Dskip.npm=true`
@@ -199,13 +201,16 @@
 
 ## 14. 常用命令（仓库默认）
 - 前置：`JAVA_HOME=<JBR21+JCEF>`
-- 编译：`mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 若仓库根目录自带 JDK（例如 `./jdk-21`），优先先把 `JAVA_HOME` 指到这个目录，再校验它是否为 **JBR 21 + JCEF**
+- 编译：
+  - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+  - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
 - 打包：`mvn -q -DskipTests package`
 - 打包约束：除非明确只验证后端且不需要可运行 GUI 产物，否则不要为 `package` 增加 `-Dskip.npm=true`
 - 目标测试：`mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=<TestClass> test`
+  - PowerShell 下优先使用：`mvn --% -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=<TestClass> test`
 - 引用扫描：`rg -n "<symbol>" src/main src/test`
 - 文件列表：`rg --files`
-
 ## 15. 文档同步要求
 - 影响使用方式/API/配置的改动，必须同步 `README.md` 与 `doc/README-api.md`。
 - 影响规则体系的改动，必须同步说明：规则来源、优先级、刷新机制。

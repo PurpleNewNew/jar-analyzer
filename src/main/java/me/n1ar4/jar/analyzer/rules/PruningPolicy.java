@@ -139,7 +139,8 @@ public class PruningPolicy {
         return switch (normalized) {
             case "graph", "build", "persisted" -> SourceSelection.GRAPH;
             case "rules", "live" -> SourceSelection.RULES;
-            default -> SourceSelection.MERGED;
+            case "merged" -> SourceSelection.MERGED;
+            default -> SourceSelection.RULES;
         };
     }
 
@@ -235,7 +236,7 @@ public class PruningPolicy {
                          SanitizerMode sanitizerMode,
                          boolean allowAdditionalFlows,
                          ConfidenceMode confidenceMode) {
-            this.sourceSelection = sourceSelection == null ? SourceSelection.MERGED : sourceSelection;
+            this.sourceSelection = sourceSelection == null ? SourceSelection.RULES : sourceSelection;
             this.sanitizerMode = sanitizerMode == null ? SanitizerMode.HARD : sanitizerMode;
             this.allowAdditionalFlows = allowAdditionalFlows;
             this.confidenceMode = confidenceMode == null ? ConfidenceMode.BALANCED : confidenceMode;

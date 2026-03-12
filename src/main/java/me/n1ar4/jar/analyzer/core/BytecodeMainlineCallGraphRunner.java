@@ -58,14 +58,14 @@ public final class BytecodeMainlineCallGraphRunner {
         if (snapshot == null || edges == null) {
             return Result.empty();
         }
-        BuildContext legacyView = BuildFactAssembler.legacyView(snapshot, edges);
+        BuildContext contextView = BuildFactAssembler.contextView(snapshot, edges);
         Settings resolved = settings == null ? Settings.semanticV1() : settings;
         InheritanceMap inheritanceMap = snapshot.types().inheritanceMap();
         BuildBytecodeWorkspace workspace = snapshot.bytecode().workspace();
         MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
         SeedResult seeded = seedDeclaredEdges(
-                legacyView.methodCalls,
-                legacyView.methodCallMeta,
+                contextView.methodCalls,
+                contextView.methodCallMeta,
                 snapshot.symbols().callSites(),
                 lookup
         );
@@ -73,31 +73,31 @@ public final class BytecodeMainlineCallGraphRunner {
                 ? DispatchCallResolver.collectInstantiatedClasses(workspace, inheritanceMap)
                 : snapshot.types().instantiatedClasses();
         int typedDispatchEdges = TypedDispatchResolver.expandWithTypes(
-                legacyView.methodCalls,
-                legacyView.methodCallMeta,
+                contextView.methodCalls,
+                contextView.methodCallMeta,
                 snapshot.methods().methodsByHandle(),
                 snapshot.types().classesByHandle(),
                 inheritanceMap,
                 snapshot.symbols().callSites()
         );
         int dispatchExpansionEdges = DispatchCallResolver.expandVirtualCalls(
-                legacyView.methodCalls,
-                legacyView.methodCallMeta,
+                contextView.methodCalls,
+                contextView.methodCallMeta,
                 snapshot.methods().methodsByHandle(),
                 snapshot.types().classesByHandle(),
                 inheritanceMap,
                 instantiatedClasses
         );
         BytecodeMainlineReflectionResolver.Result reflectionResult =
-                BytecodeMainlineReflectionResolver.appendEdges(snapshot, legacyView, workspace, lookup);
+                BytecodeMainlineReflectionResolver.appendEdges(snapshot, contextView, workspace, lookup);
         BytecodeMainlineSemanticEdgeRunner.Result semanticResult =
                 BytecodeMainlineSemanticEdgeRunner.appendEdges(
-                        legacyView,
+                        contextView,
                         inheritanceMap,
                         instantiatedClasses,
                         lookup
                 );
-        BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(legacyView);
+        BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(contextView);
         SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
                 ? SelectivePtaRefiner.refine(snapshot, updated, workspace, inheritanceMap, resolved.precisionMode())
                 : SelectivePtaRefiner.Result.empty();

@@ -331,6 +331,71 @@ class GraphTaintEngineTest {
         }
     }
 
+    @Test
+    void trackShouldDropRemovedWebSourceRulesWithoutRebuildEvenWhenGraphFlagsPersist() throws Exception {
+        Path model = tempDir.resolve("model-web-remove.json");
+        Path source = tempDir.resolve("source-web-remove.json");
+        Path sink = tempDir.resolve("sink-web-remove.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[\"org.springframework.web.bind.annotation.GetMapping\"],\"sourceModel\":[]}",
+                    StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+
+            restoreRuntime(
+                    method("app/Helper", "helper", "(Ljava/lang/String;)V", Set.of()),
+                    method("app/Controller", "entry", "(Ljava/lang/String;)V",
+                            Set.of(new AnnoReference("Lorg/springframework/web/bind/annotation/GetMapping;"))),
+                    method("app/Sink", "sink", "(Ljava/lang/String;)V", Set.of())
+            );
+
+            GraphSnapshot snapshot = graphSnapshot(
+                    new GraphNode(1L, "method", 1, "app/Helper", "helper", "(Ljava/lang/String;)V", "", -1, -1),
+                    new GraphNode(2L, "method", 1, "app/Controller", "entry", "(Ljava/lang/String;)V", "", -1, -1,
+                            GraphNode.SOURCE_FLAG_ANY | GraphNode.SOURCE_FLAG_WEB),
+                    new GraphNode(3L, "method", 1, "app/Sink", "sink", "(Ljava/lang/String;)V", "", -1, -1)
+            );
+
+            List<TaintResult> before = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .onlyFromWeb(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertTrue(hasSource(before, "app/Controller", "entry"));
+
+            Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            List<TaintResult> after = new GraphTaintEngine().track(snapshot, FlowOptions.builder()
+                    .fromSink(true)
+                    .searchAllSources(true)
+                    .onlyFromWeb(true)
+                    .depth(4)
+                    .sink("app/Sink", "sink", "(Ljava/lang/String;)V")
+                    .build(), null).results();
+            assertFalse(hasSource(after, "app/Controller", "entry"));
+        } finally {
+            restoreProperty(MODEL_PROP, oldModelProp);
+            restoreProperty(SOURCE_PROP, oldSourceProp);
+            restoreProperty(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
     private static GraphNode methodNode(long id, int jarId, String clazz, String method, String desc) {
         return new GraphNode(id, "method", jarId, clazz, method, desc, "", -1, -1);
     }
