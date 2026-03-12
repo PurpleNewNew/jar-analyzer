@@ -27,11 +27,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 public final class ClasspathRegistry {
     private static final Logger logger = LogManager.getLogger();
-    private static final String EXTRA_PROP = "jar.analyzer.classpath.extra";
     private static final String BOOT_INF = "BOOT-INF";
     private static final String WEB_INF = "WEB-INF";
     private static final String CLASSES_DIR = "classes";
@@ -101,9 +99,14 @@ public final class ClasspathRegistry {
     private static List<Path> resolveArchives() {
         Set<Path> out = new LinkedHashSet<>();
         Path root = resolveRootPath();
+        List<Path> libraryRoots = ClasspathResolver.resolveProjectLibraryRoots(ProjectRuntimeContext.getProjectModel());
         if (root != null && Files.exists(root)) {
             try {
-                ClasspathResolver.ClasspathGraph graph = ClasspathResolver.resolveClasspathGraph(root);
+                ClasspathResolver.ClasspathGraph graph = ClasspathResolver.resolveClasspathGraph(
+                        root,
+                        libraryRoots,
+                        ProjectRuntimeContext.resolveInnerJars()
+                );
                 if (graph != null) {
                     out.addAll(graph.getOrderedArchives());
                 }
@@ -131,7 +134,7 @@ public final class ClasspathRegistry {
                 addClasspathEntry(out, path);
             }
         }
-        collectExtraEntries(out);
+        collectProjectLibraryEntries(out);
         Set<String> allowedHashes = buildArchiveHashes(archives, root);
         boolean includeRuntimeCache = containsRuntimeArchives(archives);
         collectTempClassRoots(out, allowedHashes, includeRuntimeCache);
@@ -208,19 +211,13 @@ public final class ClasspathRegistry {
         }
     }
 
-    private static void collectExtraEntries(Set<Path> out) {
-        String extra = System.getProperty(EXTRA_PROP);
-        if (extra == null || extra.trim().isEmpty()) {
+    private static void collectProjectLibraryEntries(Set<Path> out) {
+        List<Path> libraryRoots = ClasspathResolver.resolveProjectLibraryRoots(ProjectRuntimeContext.getProjectModel());
+        if (libraryRoots.isEmpty()) {
             return;
         }
-        String sep = File.pathSeparator;
-        String[] parts = extra.split(Pattern.quote(sep));
-        for (String part : parts) {
-            if (part == null || part.trim().isEmpty()) {
-                continue;
-            }
-            Path path = Paths.get(part.trim());
-            if (!Files.exists(path)) {
+        for (Path path : libraryRoots) {
+            if (path == null || !Files.exists(path)) {
                 continue;
             }
             if (Files.isDirectory(path)) {

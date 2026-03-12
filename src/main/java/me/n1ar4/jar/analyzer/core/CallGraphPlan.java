@@ -29,12 +29,7 @@ public record CallGraphPlan(String analysisProfile,
 
     private static final Logger logger = LogManager.getLogger();
 
-    public static CallGraphPlan resolve(String engineSetting,
-                                        String profileSetting) {
-        String engine = normalize(engineSetting);
-        if (!engine.isBlank()) {
-            return fromEngine(engine);
-        }
+    public static CallGraphPlan resolve(String profileSetting) {
         String profile = normalize(profileSetting);
         if (!profile.isBlank()) {
             return fromProfile(profile);
@@ -48,27 +43,6 @@ public record CallGraphPlan(String analysisProfile,
                 selectivePta,
                 PROFILE_PRECISION.equals(analysisProfile)
         );
-    }
-
-    private static CallGraphPlan fromEngine(String engine) {
-        return switch (engine) {
-            case ENGINE_BYTECODE -> new CallGraphPlan(
-                    PROFILE_BALANCED,
-                    ENGINE_BYTECODE,
-                    BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1,
-                    true
-            );
-            case ENGINE_BYTECODE_PTA -> new CallGraphPlan(
-                    PROFILE_BALANCED,
-                    ENGINE_BYTECODE_PTA,
-                    BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1,
-                    true
-            );
-            default -> {
-                logger.warn("unknown call graph engine setting: {} (fallback to bytecode balanced)", engine);
-                yield balancedBytecode();
-            }
-        };
     }
 
     private static CallGraphPlan fromProfile(String profile) {

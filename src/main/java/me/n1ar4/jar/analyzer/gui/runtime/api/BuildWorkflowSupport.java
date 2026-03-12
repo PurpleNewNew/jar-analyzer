@@ -32,7 +32,6 @@ import java.util.function.BiFunction;
 
 final class BuildWorkflowSupport {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CLASSPATH_EXTRA_PROP = "jar.analyzer.classpath.extra";
 
     private final BiFunction<String, String, String> translator;
     private final Services services;
@@ -156,20 +155,6 @@ final class BuildWorkflowSupport {
                     List.of(normalized),
                     nested
             ));
-        }
-    }
-
-    String pushBuildClasspathProperties(List<Path> extraClasspath) {
-        String previousExtra = System.getProperty(CLASSPATH_EXTRA_PROP);
-        applyBuildClasspathProperties(extraClasspath, previousExtra);
-        return previousExtra;
-    }
-
-    void restoreBuildClasspathProperties(String previousExtra) {
-        if (previousExtra == null) {
-            System.clearProperty(CLASSPATH_EXTRA_PROP);
-        } else {
-            System.setProperty(CLASSPATH_EXTRA_PROP, previousExtra);
         }
     }
 
@@ -409,33 +394,6 @@ final class BuildWorkflowSupport {
             }
         }
         return out.isEmpty() ? List.of() : List.copyOf(out);
-    }
-
-    private void applyBuildClasspathProperties(List<Path> extraClasspath, String previous) {
-        LinkedHashSet<String> merged = new LinkedHashSet<>();
-        if (previous != null && !previous.isBlank()) {
-            String[] items = previous.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator));
-            for (String item : items) {
-                String value = safe(item).trim();
-                if (!value.isBlank()) {
-                    merged.add(value);
-                }
-            }
-        }
-        if (extraClasspath != null && !extraClasspath.isEmpty()) {
-            for (Path entry : extraClasspath) {
-                if (entry == null || Files.notExists(entry)) {
-                    continue;
-                }
-                merged.add(entry.toAbsolutePath().normalize().toString());
-            }
-        }
-        if (merged.isEmpty()) {
-            System.clearProperty(CLASSPATH_EXTRA_PROP);
-            return;
-        }
-        String value = String.join(java.io.File.pathSeparator, merged);
-        System.setProperty(CLASSPATH_EXTRA_PROP, value);
     }
 
     private ProjectModel buildProjectModel(BuildSettingsDto settings,

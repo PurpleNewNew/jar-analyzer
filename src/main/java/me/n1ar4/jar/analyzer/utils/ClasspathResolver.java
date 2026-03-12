@@ -10,17 +10,20 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
-import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -38,9 +41,7 @@ import java.util.zip.ZipFile;
 
 public final class ClasspathResolver {
     private static final Logger logger = LogManager.getLogger();
-    private static final String EXTRA_PROP = "jar.analyzer.classpath.extra";
     private static final String INCLUDE_MANIFEST_PROP = "jar.analyzer.classpath.includeManifest";
-    private static final String INCLUDE_NESTED_LIB_PROP = "jar.analyzer.classpath.includeNestedLib";
     private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
     static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
     private static final String NESTED_CACHE_DIR = "classpath-nested";
@@ -78,21 +79,25 @@ public final class ClasspathResolver {
         return ConflictStrategy.NEAREST;
     }
 
-    public static List<String> resolveInputArchives(Path inputPath, Path rtPath, boolean extended) {
-        return resolveInputArchives(inputPath, rtPath, extended, isNestedLibEnabled());
+    public static List<String> resolveInputArchives(Path inputPath,
+                                                    Path rtPath,
+                                                    boolean extended,
+                                                    boolean includeNested) {
+        return resolveInputArchives(inputPath, rtPath, extended, includeNested, List.of());
     }
 
     public static List<String> resolveInputArchives(Path inputPath,
                                                     Path rtPath,
                                                     boolean extended,
-                                                    boolean includeNested) {
+                                                    boolean includeNested,
+                                                    Collection<Path> explicitClasspathRoots) {
         if (inputPath == null) {
             return Collections.emptyList();
         }
         Set<Path> result = new LinkedHashSet<>();
         collectInputPath(inputPath, result, extended, includeNested);
         if (extended) {
-            collectExtraClasspath(result);
+            collectExplicitClasspath(explicitClasspathRoots, result);
         }
         if (rtPath != null && Files.exists(rtPath)) {
             result.add(rtPath.toAbsolutePath().normalize());
@@ -104,25 +109,29 @@ public final class ClasspathResolver {
         return out;
     }
 
-    public static List<Path> resolveUserArchives(String rootPath) {
-        return resolveUserArchives(rootPath, isNestedLibEnabled());
+    public static List<Path> resolveUserArchives(String rootPath, boolean includeNested) {
+        return resolveUserArchives(rootPath, List.of(), includeNested);
     }
 
-    public static List<Path> resolveUserArchives(String rootPath, boolean includeNested) {
+    public static List<Path> resolveUserArchives(String rootPath,
+                                                 Collection<Path> explicitClasspathRoots,
+                                                 boolean includeNested) {
         if (StringUtil.isBlank(rootPath)) {
             return Collections.emptyList();
         }
         Set<Path> result = new LinkedHashSet<>();
         collectInputPath(Paths.get(rootPath.strip()), result, true, includeNested);
-        collectExtraClasspath(result);
+        collectExplicitClasspath(explicitClasspathRoots, result);
         return new ArrayList<>(result);
     }
 
-    public static ClasspathGraph resolveClasspathGraph(Path inputPath) {
-        return resolveClasspathGraph(inputPath, isNestedLibEnabled());
+    public static ClasspathGraph resolveClasspathGraph(Path inputPath, boolean includeNested) {
+        return resolveClasspathGraph(inputPath, List.of(), includeNested);
     }
 
-    public static ClasspathGraph resolveClasspathGraph(Path inputPath, boolean includeNested) {
+    public static ClasspathGraph resolveClasspathGraph(Path inputPath,
+                                                       Collection<Path> explicitClasspathRoots,
+                                                       boolean includeNested) {
         if (inputPath == null) {
             return new ClasspathGraph(Collections.emptyList(), Collections.emptyMap(), Collections.emptyMap());
         }
@@ -130,7 +139,7 @@ public final class ClasspathResolver {
         Deque<GraphNode> queue = new ArrayDeque<>();
         int order = 0;
         int maxDepth = resolveScanDepth();
-        List<Path> roots = resolveRootArchives(inputPath, maxDepth);
+        List<Path> roots = resolveRootArchives(inputPath);
         for (Path root : roots) {
             if (root == null) {
                 continue;
@@ -139,7 +148,7 @@ public final class ClasspathResolver {
             nodes.put(root, node);
             queue.add(node);
         }
-        List<Path> extra = resolveExtraClasspath(maxDepth);
+        List<Path> extra = resolveExplicitClasspath(explicitClasspathRoots);
         for (Path path : extra) {
             if (path == null || nodes.containsKey(path)) {
                 continue;
@@ -209,9 +218,6 @@ public final class ClasspathResolver {
                 if (isManifestEnabled()) {
                     collectManifestClasspath(normalized, result);
                 }
-                if (isSiblingLibEnabled()) {
-                    collectSiblingLibs(normalized, result);
-                }
                 if (includeNested) {
                     collectNestedLibs(normalized, result);
                 }
@@ -219,26 +225,36 @@ public final class ClasspathResolver {
         }
     }
 
-    private static void collectExtraClasspath(Set<Path> result) {
-        String extra = System.getProperty(EXTRA_PROP);
-        if (StringUtil.isBlank(extra)) {
+    public static List<Path> resolveProjectLibraryRoots(ProjectModel projectModel) {
+        if (projectModel == null || projectModel.roots() == null || projectModel.roots().isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Path> out = new LinkedHashSet<>();
+        for (ProjectRoot root : projectModel.roots()) {
+            if (root == null || root.path() == null || root.kind() != ProjectRootKind.LIBRARY) {
+                continue;
+            }
+            Path normalized = root.path().toAbsolutePath().normalize();
+            if (Files.exists(normalized)) {
+                out.add(normalized);
+            }
+        }
+        return out.isEmpty() ? List.of() : List.copyOf(out);
+    }
+
+    private static void collectExplicitClasspath(Collection<Path> explicitClasspathRoots, Set<Path> result) {
+        if (explicitClasspathRoots == null || explicitClasspathRoots.isEmpty()) {
             return;
         }
-        String sep = File.pathSeparator;
-        String[] parts = extra.split(java.util.regex.Pattern.quote(sep));
-        for (String part : parts) {
-            String p = part == null ? null : part.strip();
-            if (p == null || p.isEmpty()) {
+        for (Path root : explicitClasspathRoots) {
+            if (root == null || Files.notExists(root)) {
                 continue;
             }
-            Path path = Paths.get(p);
-            if (!Files.exists(path)) {
-                continue;
-            }
-            if (Files.isDirectory(path)) {
-                scanDirectoryRecursively(path, result);
-            } else if (isArchive(path) || isClassFile(path)) {
-                result.add(path.toAbsolutePath().normalize());
+            Path normalized = root.toAbsolutePath().normalize();
+            if (Files.isDirectory(normalized)) {
+                scanDirectoryRecursively(normalized, result);
+            } else if (isArchive(normalized) || isClassFile(normalized)) {
+                result.add(normalized);
             }
         }
     }
@@ -270,21 +286,6 @@ public final class ClasspathResolver {
             }
         } catch (Exception ex) {
             logger.debug("manifest classpath parse failed: {}", ex.toString());
-        }
-    }
-
-    private static void collectSiblingLibs(Path archive, Set<Path> result) {
-        Path parent = archive.getParent();
-        if (parent == null || !Files.isDirectory(parent)) {
-            return;
-        }
-        Path lib = parent.resolve("lib");
-        Path libs = parent.resolve("libs");
-        if (Files.isDirectory(lib)) {
-            scanDirectory(lib, result, 2);
-        }
-        if (Files.isDirectory(libs)) {
-            scanDirectory(libs, result, 2);
         }
     }
 
@@ -387,20 +388,6 @@ public final class ClasspathResolver {
         return Paths.get(Const.tempDir, NESTED_CACHE_DIR, safe + "-" + fileName);
     }
 
-    private static void scanDirectory(Path root, Set<Path> result, int depth) {
-        if (root == null || !Files.isDirectory(root)) {
-            return;
-        }
-        try (java.util.stream.Stream<Path> stream = Files.walk(root, Math.max(1, depth))) {
-            stream.filter(Files::isRegularFile)
-                    .filter(p -> isArchive(p) || isClassFile(p))
-                    .map(p -> p.toAbsolutePath().normalize())
-                    .forEach(result::add);
-        } catch (Exception ex) {
-            logger.debug("scan classpath dir failed: {}", ex.toString());
-        }
-    }
-
     private static void scanDirectoryRecursively(Path root, Set<Path> result) {
         if (root == null || !Files.isDirectory(root)) {
             return;
@@ -439,18 +426,6 @@ public final class ClasspathResolver {
         return Boolean.parseBoolean(raw.strip());
     }
 
-    private static boolean isSiblingLibEnabled() {
-        return false;
-    }
-
-    private static boolean isNestedLibEnabled() {
-        String raw = System.getProperty(INCLUDE_NESTED_LIB_PROP);
-        if (StringUtil.isBlank(raw)) {
-            return true;
-        }
-        return Boolean.parseBoolean(raw.strip());
-    }
-
     private static int resolveScanDepth() {
         String raw = System.getProperty(SCAN_DEPTH_PROP);
         if (StringUtil.isBlank(raw)) {
@@ -471,7 +446,7 @@ public final class ClasspathResolver {
         }
     }
 
-    private static List<Path> resolveRootArchives(Path inputPath, int scanDepth) {
+    private static List<Path> resolveRootArchives(Path inputPath) {
         if (inputPath == null) {
             return Collections.emptyList();
         }
@@ -488,27 +463,20 @@ public final class ClasspathResolver {
         return Collections.emptyList();
     }
 
-    private static List<Path> resolveExtraClasspath(int scanDepth) {
-        String extra = System.getProperty(EXTRA_PROP);
-        if (StringUtil.isBlank(extra)) {
+    private static List<Path> resolveExplicitClasspath(Collection<Path> explicitClasspathRoots) {
+        if (explicitClasspathRoots == null || explicitClasspathRoots.isEmpty()) {
             return Collections.emptyList();
         }
-        String sep = File.pathSeparator;
-        String[] parts = extra.split(java.util.regex.Pattern.quote(sep));
         List<Path> out = new ArrayList<>();
-        for (String part : parts) {
-            String p = part == null ? null : part.strip();
-            if (p == null || p.isEmpty()) {
+        for (Path root : explicitClasspathRoots) {
+            if (root == null || Files.notExists(root)) {
                 continue;
             }
-            Path path = Paths.get(p);
-            if (!Files.exists(path)) {
-                continue;
-            }
-            if (Files.isDirectory(path)) {
-                out.addAll(scanDirectoryOrderedRecursively(path));
-            } else if (isArchive(path) || isClassFile(path)) {
-                out.add(path.toAbsolutePath().normalize());
+            Path normalized = root.toAbsolutePath().normalize();
+            if (Files.isDirectory(normalized)) {
+                out.addAll(scanDirectoryOrderedRecursively(normalized));
+            } else if (isArchive(normalized) || isClassFile(normalized)) {
+                out.add(normalized);
             }
         }
         return out;
@@ -521,9 +489,6 @@ public final class ClasspathResolver {
         Set<Path> deps = new LinkedHashSet<>();
         if (isManifestEnabled()) {
             collectManifestClasspath(archive, deps);
-        }
-        if (isSiblingLibEnabled()) {
-            collectSiblingLibs(archive, deps);
         }
         if (includeNested) {
             collectNestedLibs(archive, deps);

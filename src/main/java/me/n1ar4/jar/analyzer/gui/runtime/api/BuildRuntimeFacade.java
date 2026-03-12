@@ -124,7 +124,6 @@ final class BuildRuntimeFacade implements BuildFacade {
         state.setBuildStatusText(tr("构建中...", "building..."));
         synchronized (ActiveProjectContext.mutationLock()) {
             buildWorkflow.ensureActiveProject(settings, inputResolution, workspaceSdkPath);
-            String previousExtra = buildWorkflow.pushBuildClasspathProperties(inputResolution.extraClasspath());
             try {
                 CoreRunner.BuildResult result = buildExecutor.run(
                         input,
@@ -153,8 +152,6 @@ final class BuildRuntimeFacade implements BuildFacade {
                 state.setBuildProgress(0);
                 logger.error("runtime build failed: {}", stackTrace(ex));
                 refreshBuildMetricsSafely(tr("构建异常: ", "build error: ") + safe(ex.getMessage()));
-            } finally {
-                buildWorkflow.restoreBuildClasspathProperties(previousExtra);
             }
         }
     }

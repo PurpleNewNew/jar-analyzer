@@ -32,7 +32,6 @@ import java.util.function.Consumer;
 
 public final class BytecodeMainlineCallGraphRunner {
     public static final String ENGINE = "bytecode-mainline";
-    public static final String MODE_SEMANTIC_V1 = "bytecode:semantic-v1";
     public static final String MODE_FAST_V1 = "bytecode:fast-v1";
     public static final String MODE_BALANCED_V1 = "bytecode:balanced-v1";
     public static final String MODE_PRECISION_V1 = "bytecode:precision-v1";
@@ -56,7 +55,7 @@ public final class BytecodeMainlineCallGraphRunner {
                 edges.methodCalls(),
                 edges.methodCallMeta()
         );
-        Settings resolved = settings == null ? Settings.semanticV1() : settings;
+        Settings resolved = settings == null ? Settings.balancedV1() : settings;
         InheritanceMap inheritanceMap = snapshot.types().inheritanceMap();
         BuildBytecodeWorkspace workspace = snapshot.bytecode().workspace();
         MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
@@ -324,11 +323,11 @@ public final class BytecodeMainlineCallGraphRunner {
 
     public record Settings(String modeMeta, boolean enableSelectivePta, boolean precisionMode) {
         public Settings {
-            modeMeta = modeMeta == null || modeMeta.isBlank() ? MODE_SEMANTIC_V1 : modeMeta;
+            modeMeta = modeMeta == null || modeMeta.isBlank() ? MODE_BALANCED_V1 : modeMeta;
         }
 
-        public static Settings semanticV1() {
-            return new Settings(MODE_SEMANTIC_V1, true, false);
+        public static Settings balancedV1() {
+            return new Settings(MODE_BALANCED_V1, true, false);
         }
 
         public String ptaBudgetProfile() {

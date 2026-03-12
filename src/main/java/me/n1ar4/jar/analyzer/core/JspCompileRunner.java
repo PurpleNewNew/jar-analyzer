@@ -39,7 +39,6 @@ import java.util.Set;
 
 public final class JspCompileRunner {
     private static final Logger logger = LogManager.getLogger();
-    private static final String EXTRA_CLASSPATH_PROP = "jar.analyzer.classpath.extra";
 
     private JspCompileRunner() {
     }
@@ -224,13 +223,6 @@ public final class JspCompileRunner {
                 } else {
                     addPath(entries, path);
                 }
-            }
-        }
-        String extra = System.getProperty(EXTRA_CLASSPATH_PROP);
-        if (extra != null && !extra.isBlank()) {
-            String[] parts = extra.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator));
-            for (String part : parts) {
-                addPath(entries, safePath(part));
             }
         }
         return entries.isEmpty() ? "" : String.join(java.io.File.pathSeparator, entries);

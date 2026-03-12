@@ -12,7 +12,11 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,34 +38,23 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RuntimeClassResolverTest {
-    private static final String INCLUDE_NESTED_PROP = "jar.analyzer.classpath.includeNestedLib";
-
     @TempDir
     Path tempDir;
 
-    private String includeNestedBackup;
-
     @BeforeEach
     void setUp() {
-        includeNestedBackup = System.getProperty(INCLUDE_NESTED_PROP);
         ProjectRuntimeContext.clear();
         DatabaseManager.clearAllData();
     }
 
     @AfterEach
     void cleanup() {
-        if (includeNestedBackup == null) {
-            System.clearProperty(INCLUDE_NESTED_PROP);
-        } else {
-            System.setProperty(INCLUDE_NESTED_PROP, includeNestedBackup);
-        }
         ProjectRuntimeContext.clear();
         DatabaseManager.clearAllData();
     }
 
     @Test
     void resolveShouldFollowWorkspaceNestedJarFlag() throws Exception {
-        System.setProperty(INCLUDE_NESTED_PROP, "true");
         String className = "audit/runtime/OnlyInNested";
         Path outerJar = createOuterJarWithNestedClass(tempDir.resolve("outer.jar"), className);
 
@@ -102,6 +95,41 @@ class RuntimeClassResolverTest {
         assertTrue(version3 > version2);
     }
 
+    @Test
+    void resolveShouldSeeProjectLibraryRootsWithoutGlobalClasspathProperty() throws Exception {
+        String className = "audit/runtime/ExternalOnly";
+        Path inputDir = Files.createDirectories(tempDir.resolve("input"));
+        Path libraryJar = createJarWithClass(tempDir.resolve("external-lib.jar"), className);
+        ProjectRuntimeContext.replaceProjectModel(ProjectModel.builder()
+                .buildMode(ProjectBuildMode.PROJECT)
+                .primaryInputPath(inputDir)
+                .addRoot(new ProjectRoot(
+                        ProjectRootKind.CONTENT_ROOT,
+                        ProjectOrigin.APP,
+                        inputDir,
+                        "",
+                        false,
+                        false,
+                        10
+                ))
+                .addRoot(new ProjectRoot(
+                        ProjectRootKind.LIBRARY,
+                        ProjectOrigin.LIBRARY,
+                        libraryJar,
+                        "",
+                        true,
+                        false,
+                        20
+                ))
+                .build());
+
+        RuntimeClassResolver.ResolvedClass resolved = RuntimeClassResolver.resolve(className);
+
+        assertNotNull(resolved);
+        assertTrue(Files.exists(resolved.getClassFile()));
+        assertTrue(resolved.getJarName().endsWith("external-lib.jar"));
+    }
+
     private static Path createOuterJarWithNestedClass(Path outerJar, String internalClassName) throws Exception {
         byte[] nestedJar = createNestedJar(internalClassName);
         try (OutputStream out = Files.newOutputStream(outerJar);
@@ -112,6 +140,17 @@ class RuntimeClassResolverTest {
             jar.closeEntry();
         }
         return outerJar;
+    }
+
+    private static Path createJarWithClass(Path jarPath, String internalClassName) throws Exception {
+        try (OutputStream out = Files.newOutputStream(jarPath);
+             JarOutputStream jar = new JarOutputStream(out)) {
+            JarEntry classEntry = new JarEntry(internalClassName + ".class");
+            jar.putNextEntry(classEntry);
+            jar.write(generateSimpleClass(internalClassName));
+            jar.closeEntry();
+        }
+        return jarPath;
     }
 
     private static byte[] createNestedJar(String internalClassName) throws Exception {

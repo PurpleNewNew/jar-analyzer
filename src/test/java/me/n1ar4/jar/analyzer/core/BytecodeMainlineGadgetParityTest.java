@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BytecodeMainlineGadgetParityTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty("jar.analyzer.callgraph.engine");
         System.clearProperty("jar.analyzer.callgraph.profile");
         GraphStore.invalidateCache();
         DatabaseManager.clearAllData();
@@ -89,7 +88,7 @@ class BytecodeMainlineGadgetParityTest {
     }
 
     private static GraphSnapshot buildBalancedSnapshot() {
-        System.setProperty("jar.analyzer.callgraph.engine", "bytecode-mainline+pta-refine");
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.gadgetFamilyTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, null);
@@ -97,7 +96,7 @@ class BytecodeMainlineGadgetParityTest {
     }
 
     private static GraphSnapshot buildBalancedYsoserialSnapshot() {
-        System.setProperty("jar.analyzer.callgraph.engine", "bytecode-mainline+pta-refine");
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.ysoserialPayloadTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, null);

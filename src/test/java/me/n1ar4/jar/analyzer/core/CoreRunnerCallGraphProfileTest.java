@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CoreRunnerCallGraphProfileTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty("jar.analyzer.callgraph.engine");
         System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
         GraphStore.invalidateCache();
         EngineContext.setEngine(null);
@@ -167,20 +166,6 @@ class CoreRunnerCallGraphProfileTest {
     @Test
     void invalidProfileShouldFallbackToBalancedBytecodeProfile() {
         System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "legacy-profile");
-        Path jar = FixtureJars.callbackTestJar();
-        ProjectRuntimeContext.updateResolveInnerJars(false);
-
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
-
-        assertNotNull(result);
-        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
-        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
-    }
-
-    @Test
-    void invalidEngineShouldFallbackToBalancedBytecodeProfile() {
-        System.setProperty("jar.analyzer.callgraph.engine", "legacy-engine");
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 

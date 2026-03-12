@@ -205,13 +205,6 @@ public final class ActiveProjectContext {
     }
 
     private static String resolveSessionId() {
-        String value = System.getProperty("jar.analyzer.temp.session");
-        if (value != null) {
-            String normalized = value.trim().toLowerCase(Locale.ROOT);
-            if (!normalized.isBlank()) {
-                return normalized;
-            }
-        }
         String random = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
         return random.length() <= 12 ? random : random.substring(0, 12);
     }

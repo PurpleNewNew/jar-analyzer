@@ -70,9 +70,6 @@ public class CoreRunner {
     private static final ThreadLocal<String> BUILD_STAGE = ThreadLocal.withInitial(() -> "idle");
     private static final ThreadLocal<String> LAST_BUILD_STAGE = new ThreadLocal<>();
 
-    private static final String ALL_COMMON_POLICY_PROP = "jar.analyzer.all-common.policy";
-    private static final String ALL_COMMON_POLICY_CONTINUE = "continue-no-callgraph";
-    private static final String CALL_GRAPH_ENGINE_PROP = "jar.analyzer.callgraph.engine";
     private static final String CALL_GRAPH_ENGINE_DISABLED = "disabled-no-target";
     private static final String CALLGRAPH_STAGE_KEY = "callgraph";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
@@ -203,7 +200,8 @@ public class CoreRunner {
                 jarPath,
                 runtimeArchiveSeed(runtimeHint),
                 true,
-                includeNested
+                includeNested,
+                ClasspathResolver.resolveProjectLibraryRoots(ProjectRuntimeContext.getProjectModel())
         ));
         mergeResolvedArchives(resolvedArchives, jdkResolution.archives());
         List<String> userArchives = resolvedArchives.isEmpty() ? List.of() : new ArrayList<>(resolvedArchives);
@@ -538,10 +536,7 @@ public class CoreRunner {
         markBuildStage("callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
-        CallGraphPlan callGraphPlan = CallGraphPlan.resolve(
-                System.getProperty(CALL_GRAPH_ENGINE_PROP),
-                System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP)
-        );
+        CallGraphPlan callGraphPlan = CallGraphPlan.resolve(System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP));
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
 
         String callGraphEngine = callGraphPlan.callGraphEngine();
@@ -554,15 +549,9 @@ public class CoreRunner {
         context.methodCallMeta.clear();
 
         if (scopeSummary.targetArchiveCount() <= 0) {
-            String policy = System.getProperty(ALL_COMMON_POLICY_PROP, ALL_COMMON_POLICY_CONTINUE);
-            if (policy != null && !policy.isBlank()
-                    && "fail".equals(policy.trim().toLowerCase(Locale.ROOT))) {
-                throw new IllegalStateException("no target archives found and all-common policy forbids continue");
-            }
             callGraphEngine = CALL_GRAPH_ENGINE_DISABLED;
             callGraphModeMeta = CALL_GRAPH_ENGINE_DISABLED;
-            logger.info("all archives are common/sdk, continue without call graph (policy={})",
-                    policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
+            logger.info("all archives are common/sdk, continue without call graph");
         } else {
             progress.accept(56);
             BuildFactSnapshot facts = BuildFactAssembler.from(context, workspace);

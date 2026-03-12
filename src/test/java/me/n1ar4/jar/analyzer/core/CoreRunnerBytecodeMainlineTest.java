@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CoreRunnerBytecodeMainlineTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty("jar.analyzer.callgraph.engine");
+        System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
         GraphStore.invalidateCache();
         EngineContext.setEngine(null);
         DatabaseManager.clearAllData();
@@ -34,21 +34,21 @@ class CoreRunnerBytecodeMainlineTest {
     }
 
     @Test
-    void callbackFixtureShouldBuildWithBytecodeMainlineSemanticKernel() {
-        System.setProperty("jar.analyzer.callgraph.engine", BytecodeMainlineCallGraphRunner.ENGINE);
+    void callbackFixtureShouldBuildWithBalancedBytecodeMainlineProfile() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
         assertNotNull(result);
-        assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, result.getCallGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
         assertTrue(result.getEdgeCount() > 0L);
 
         CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);
         Map<String, Object> details = metric.getDetails();
-        assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, details.get("engine"));
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, details.get("engine"));
         assertTrue(((Number) details.get("direct_edges")).intValue() > 0);
         assertTrue(((Number) details.get("declared_dispatch_edges")).intValue() > 0);
         assertTrue(((Number) details.get("typed_dispatch_edges")).intValue() > 0);
@@ -330,15 +330,15 @@ class CoreRunnerBytecodeMainlineTest {
     }
 
     @Test
-    void frameworkFixtureShouldMergeFrameworkSemanticEvidenceIntoBytecodeMainlineEdges() {
-        System.setProperty("jar.analyzer.callgraph.engine", BytecodeMainlineCallGraphRunner.ENGINE);
+    void frameworkFixtureShouldMergeFrameworkSemanticEvidenceIntoBalancedBytecodeEdges() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.frameworkStackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
         assertNotNull(result);
-        assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, result.getCallGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());
+        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
+        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
 
         CoreRunner.BuildStageMetric metric = result.getStageMetric("callgraph");
         assertNotNull(metric);

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CallGraphPlanTest {
     @Test
     void defaultPlanShouldUseBalancedBytecodePipeline() {
-        CallGraphPlan plan = CallGraphPlan.resolve("", "");
+        CallGraphPlan plan = CallGraphPlan.resolve("");
 
         assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
@@ -19,7 +19,7 @@ class CallGraphPlanTest {
 
     @Test
     void fastProfileShouldUseBytecodeMainlineWithoutPta() {
-        CallGraphPlan plan = CallGraphPlan.resolve("", CallGraphPlan.PROFILE_FAST);
+        CallGraphPlan plan = CallGraphPlan.resolve(CallGraphPlan.PROFILE_FAST);
 
         assertEquals(CallGraphPlan.PROFILE_FAST, plan.analysisProfile());
         assertEquals(CallGraphPlan.ENGINE_BYTECODE, plan.callGraphEngine());
@@ -29,7 +29,7 @@ class CallGraphPlanTest {
 
     @Test
     void balancedProfileShouldUsePtaRefinePipeline() {
-        CallGraphPlan plan = CallGraphPlan.resolve("", CallGraphPlan.PROFILE_BALANCED);
+        CallGraphPlan plan = CallGraphPlan.resolve(CallGraphPlan.PROFILE_BALANCED);
 
         assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
@@ -40,7 +40,7 @@ class CallGraphPlanTest {
 
     @Test
     void precisionProfileShouldUsePrecisionBudgetOnBytecodeMainline() {
-        CallGraphPlan plan = CallGraphPlan.resolve("", CallGraphPlan.PROFILE_PRECISION);
+        CallGraphPlan plan = CallGraphPlan.resolve(CallGraphPlan.PROFILE_PRECISION);
 
         assertEquals(CallGraphPlan.PROFILE_PRECISION, plan.analysisProfile());
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
@@ -52,30 +52,7 @@ class CallGraphPlanTest {
 
     @Test
     void unknownProfileShouldFallbackToBalancedBytecode() {
-        CallGraphPlan plan = CallGraphPlan.resolve("", "legacy-profile");
-
-        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
-        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
-        assertTrue(plan.selectivePta());
-    }
-
-    @Test
-    void explicitEngineShouldOverrideProfileSwitch() {
-        CallGraphPlan plan = CallGraphPlan.resolve(
-                CallGraphPlan.ENGINE_BYTECODE,
-                "legacy-profile"
-        );
-
-        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
-        assertEquals(CallGraphPlan.ENGINE_BYTECODE, plan.callGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, plan.callGraphModeMeta());
-        assertTrue(plan.selectivePta());
-    }
-
-    @Test
-    void unknownEngineShouldFallbackToBalancedBytecode() {
-        CallGraphPlan plan = CallGraphPlan.resolve("legacy-engine", "");
+        CallGraphPlan plan = CallGraphPlan.resolve("legacy-profile");
 
         assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());

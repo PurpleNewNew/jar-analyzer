@@ -10,6 +10,11 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
+import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
+import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -71,6 +76,44 @@ class ClasspathResolverTest {
         System.setProperty(SCAN_DEPTH_PROP, "2");
         ClasspathResolver.ClasspathGraph deepGraph = ClasspathResolver.resolveClasspathGraph(rootJar, false);
         assertTrue(deepGraph.getOrderedArchives().contains(leafJar));
+    }
+
+    @Test
+    void resolveInputArchivesShouldIncludeProjectLibraryRootsWithoutSystemProperty() throws Exception {
+        Path inputDir = Files.createDirectories(tempDir.resolve("input"));
+        Path libraryJar = createJar(tempDir.resolve("external-lib.jar"));
+        ProjectModel model = ProjectModel.builder()
+                .buildMode(ProjectBuildMode.PROJECT)
+                .primaryInputPath(inputDir)
+                .addRoot(new ProjectRoot(
+                        ProjectRootKind.CONTENT_ROOT,
+                        ProjectOrigin.APP,
+                        inputDir,
+                        "",
+                        false,
+                        false,
+                        10
+                ))
+                .addRoot(new ProjectRoot(
+                        ProjectRootKind.LIBRARY,
+                        ProjectOrigin.LIBRARY,
+                        libraryJar,
+                        "",
+                        true,
+                        false,
+                        20
+                ))
+                .build();
+
+        List<String> archives = ClasspathResolver.resolveInputArchives(
+                inputDir,
+                null,
+                true,
+                false,
+                ClasspathResolver.resolveProjectLibraryRoots(model)
+        );
+
+        assertTrue(archives.contains(libraryJar.toString()));
     }
 
     private Path writeClassFile(Path root, String relativePath) throws Exception {
