@@ -15,7 +15,7 @@ import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import org.junit.jupiter.api.AfterEach;

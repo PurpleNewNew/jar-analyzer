@@ -5,7 +5,7 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import org.apache.jasper.servlet.JspCServletContext;
 import org.apache.tomcat.JarScanner;
 import org.apache.tomcat.util.scan.StandardJarScanner;

@@ -11,8 +11,8 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.LocalVarEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Handle;

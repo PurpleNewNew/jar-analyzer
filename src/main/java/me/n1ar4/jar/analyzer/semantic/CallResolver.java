@@ -30,7 +30,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.TypeExpr;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.starter.Const;

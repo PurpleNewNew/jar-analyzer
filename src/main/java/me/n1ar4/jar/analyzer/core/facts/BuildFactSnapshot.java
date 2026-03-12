@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 
 import java.util.Collections;
 import java.util.List;

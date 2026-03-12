@@ -8,7 +8,7 @@ import me.n1ar4.jar.analyzer.core.scope.AnalysisScopeRules;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
-import me.n1ar4.jar.analyzer.entity.JarEntity;
+import me.n1ar4.jar.analyzer.core.facts.JarEntity;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

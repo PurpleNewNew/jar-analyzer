@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.entity.ConfigItem;
 import me.n1ar4.jar.analyzer.entity.ConfigUsageResult;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.engine.model.MethodView;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;

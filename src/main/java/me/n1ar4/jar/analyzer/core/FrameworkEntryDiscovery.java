@@ -11,7 +11,7 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.rules.FrameworkXmlSourceIndex;
 import me.n1ar4.jar.analyzer.rules.SourceRuleSupport;
 import me.n1ar4.log.LogManager;

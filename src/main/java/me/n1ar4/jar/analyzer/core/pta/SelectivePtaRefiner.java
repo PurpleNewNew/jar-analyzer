@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import me.n1ar4.jar.analyzer.rules.MethodSemanticFlags;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;

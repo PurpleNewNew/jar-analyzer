@@ -10,8 +10,8 @@
 
 package me.n1ar4.jar.analyzer.utils;
 
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;

@@ -10,7 +10,7 @@
 
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 
 public final class CallSiteKeyUtil {
     private static final int INSN_INDEX_POSITION = 10;

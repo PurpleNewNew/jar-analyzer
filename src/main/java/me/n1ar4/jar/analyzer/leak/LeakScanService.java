@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.leak;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
-import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.MemberEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
 import me.n1ar4.jar.analyzer.utils.StringUtil;

@@ -15,7 +15,7 @@ import me.n1ar4.jar.analyzer.core.WebEntryMethodSpec;
 import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;

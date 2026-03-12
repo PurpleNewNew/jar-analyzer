@@ -5,7 +5,7 @@ import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

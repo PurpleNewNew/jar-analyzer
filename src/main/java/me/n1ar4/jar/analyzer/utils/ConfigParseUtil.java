@@ -14,7 +14,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONArray;
 import me.n1ar4.jar.analyzer.entity.ConfigItem;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;

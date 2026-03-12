@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 

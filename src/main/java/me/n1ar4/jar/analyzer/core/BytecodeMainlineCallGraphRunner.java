@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.pta.SelectivePtaRefiner;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import org.objectweb.asm.Opcodes;
 
 import java.util.ArrayList;

@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.core.bytecode;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.jar.analyzer.utils.BytecodeCache;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;

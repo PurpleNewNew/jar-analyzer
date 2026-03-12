@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;

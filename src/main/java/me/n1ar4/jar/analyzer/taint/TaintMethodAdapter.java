@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.HierarchyService;
-import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.core.facts.MemberEntity;
 import me.n1ar4.jar.analyzer.taint.jvm.JVMRuntimeAdapter;
 import me.n1ar4.jar.analyzer.taint.summary.FlowPort;
 import me.n1ar4.jar.analyzer.taint.summary.SummaryCollector;

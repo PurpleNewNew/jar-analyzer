@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.core.bytecode;
 
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;

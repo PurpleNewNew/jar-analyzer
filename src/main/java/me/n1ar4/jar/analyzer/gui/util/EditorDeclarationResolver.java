@@ -19,7 +19,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.model.ClassView;
-import me.n1ar4.jar.analyzer.entity.MemberEntity;
+import me.n1ar4.jar.analyzer.core.facts.MemberEntity;
 import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;

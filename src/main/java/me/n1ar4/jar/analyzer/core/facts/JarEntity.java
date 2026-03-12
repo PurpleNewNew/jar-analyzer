@@ -8,7 +8,7 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.entity;
+package me.n1ar4.jar.analyzer.core.facts;
 
 public class JarEntity {
     private int jid;

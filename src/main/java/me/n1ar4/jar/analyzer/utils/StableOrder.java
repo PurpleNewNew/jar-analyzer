@@ -16,7 +16,7 @@ import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
 import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.engine.model.MethodView;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 

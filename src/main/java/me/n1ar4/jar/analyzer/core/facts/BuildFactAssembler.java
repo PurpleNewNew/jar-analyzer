@@ -15,7 +15,7 @@ import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
+import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
