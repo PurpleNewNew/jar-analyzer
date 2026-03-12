@@ -9,8 +9,8 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -127,7 +127,7 @@ public class TaintJobManager {
                 job.markFailed(new IllegalStateException("dfs job not finished"));
                 return;
             }
-            List<DFSResult> dfsResults = dfsJob.getResultsSnapshot(0, 0);
+            List<FlowPath> dfsResults = dfsJob.getResultsSnapshot(0, 0);
             if (!supportsTaintInput(dfsResults)) {
                 job.markFailed(new IllegalStateException("dfs_job_direction_not_supported"));
                 return;
@@ -230,11 +230,11 @@ public class TaintJobManager {
         );
     }
 
-    static boolean supportsTaintInput(List<DFSResult> dfsResults) {
+    static boolean supportsTaintInput(List<FlowPath> dfsResults) {
         if (dfsResults == null || dfsResults.isEmpty()) {
             return true;
         }
-        for (DFSResult dfs : dfsResults) {
+        for (FlowPath dfs : dfsResults) {
             if (!isForwardOrdered(dfs)) {
                 return false;
             }
@@ -276,7 +276,7 @@ public class TaintJobManager {
         return "";
     }
 
-    private static boolean isForwardOrdered(DFSResult dfs) {
+    private static boolean isForwardOrdered(FlowPath dfs) {
         if (dfs == null) {
             return true;
         }
@@ -294,7 +294,7 @@ public class TaintJobManager {
                 return false;
             }
         }
-        List<DFSEdge> edges = dfs.getEdges();
+        List<FlowPathEdge> edges = dfs.getEdges();
         if (matchesEdgeOrder(methods, edges, false)) {
             return true;
         }
@@ -305,13 +305,13 @@ public class TaintJobManager {
     }
 
     private static boolean matchesEdgeOrder(List<MethodReference.Handle> methods,
-                                            List<DFSEdge> edges,
+                                            List<FlowPathEdge> edges,
                                             boolean reverse) {
         if (methods == null || methods.size() < 2 || edges == null || edges.size() != methods.size() - 1) {
             return false;
         }
         for (int i = 0; i < edges.size(); i++) {
-            DFSEdge edge = edges.get(i);
+            FlowPathEdge edge = edges.get(i);
             MethodReference.Handle expectedFrom = reverse ? methods.get(i + 1) : methods.get(i);
             MethodReference.Handle expectedTo = reverse ? methods.get(i) : methods.get(i + 1);
             if (!sameHandle(edge == null ? null : edge.getFrom(), expectedFrom)

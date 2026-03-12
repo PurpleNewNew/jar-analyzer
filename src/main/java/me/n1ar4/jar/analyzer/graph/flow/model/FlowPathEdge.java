@@ -7,11 +7,11 @@
  *
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
-package me.n1ar4.jar.analyzer.dfs;
+package me.n1ar4.jar.analyzer.graph.flow.model;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 
-public class DFSEdge {
+public class FlowPathEdge {
     private MethodReference.Handle from;
     private MethodReference.Handle to;
     private String type;

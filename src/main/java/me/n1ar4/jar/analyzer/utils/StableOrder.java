@@ -11,12 +11,13 @@
 package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
 import me.n1ar4.jar.analyzer.entity.ClassResult;
 import me.n1ar4.jar.analyzer.entity.MethodCallResult;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 
 import java.util.Comparator;
@@ -82,8 +83,8 @@ public final class StableOrder {
                     .thenComparing(r -> n(r == null ? null : r.getEdgeConfidence()))
                     .thenComparing(r -> n(r == null ? null : r.getEdgeEvidence()));
 
-    public static final Comparator<DFSResult> DFS_RESULT =
-            Comparator.comparingInt((DFSResult r) -> r == null ? Integer.MAX_VALUE : safeSize(r.getMethodList()))
+    public static final Comparator<FlowPath> DFS_RESULT =
+            Comparator.comparingInt((FlowPath r) -> r == null ? Integer.MAX_VALUE : safeSize(r.getMethodList()))
                     .thenComparing(StableOrder::dfsPathKey);
 
     public static final Comparator<TaintResult> TAINT_RESULT =
@@ -92,7 +93,7 @@ public final class StableOrder {
                     .thenComparing(r -> r != null && r.isLowConfidence() ? 1 : 0)
                     .thenComparing(r -> n(r == null ? null : r.getTaintText()));
 
-    public static String dfsPathKey(DFSResult r) {
+    public static String dfsPathKey(FlowPath r) {
         if (r == null) {
             return "";
         }
@@ -104,10 +105,10 @@ public final class StableOrder {
         for (MethodReference.Handle h : list) {
             sb.append(handleKey(h)).append("->");
         }
-        List<me.n1ar4.jar.analyzer.dfs.DFSEdge> edges = r.getEdges();
+        List<FlowPathEdge> edges = r.getEdges();
         if (edges != null && !edges.isEmpty()) {
             sb.append("|edges:");
-            for (me.n1ar4.jar.analyzer.dfs.DFSEdge edge : edges) {
+            for (FlowPathEdge edge : edges) {
                 sb.append(edgeKey(edge)).append('|');
             }
         }
@@ -129,7 +130,7 @@ public final class StableOrder {
         return cls + "." + n(h.getName()) + n(h.getDesc());
     }
 
-    private static String edgeKey(me.n1ar4.jar.analyzer.dfs.DFSEdge edge) {
+    private static String edgeKey(FlowPathEdge edge) {
         if (edge == null) {
             return "";
         }

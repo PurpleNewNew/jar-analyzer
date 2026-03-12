@@ -6,8 +6,8 @@ package me.n1ar4.jar.analyzer.graph.flow;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
@@ -63,7 +63,7 @@ public final class GraphTaintEngine {
         return new TaintRun(analyzed.results(), stats);
     }
 
-    public TaintRun analyzeDfsResults(List<DFSResult> dfsResults,
+    public TaintRun analyzeDfsResults(List<FlowPath> dfsResults,
                                       Integer timeoutMs,
                                       Integer maxPaths,
                                       AtomicBoolean cancelFlag,
@@ -74,7 +74,7 @@ public final class GraphTaintEngine {
                 maxPaths,
                 cancelFlag,
                 sinkKindOverride,
-                inferMode(dfsResults, DFSResult.FROM_SOURCE_TO_SINK),
+                inferMode(dfsResults, FlowPath.FROM_SOURCE_TO_SINK),
                 ""
         );
         FlowStats stats = new FlowStats(
@@ -111,7 +111,7 @@ public final class GraphTaintEngine {
 
         PrunedBudget controller = new PrunedBudget(options, cancelFlag);
         int limit = options.resolvePathLimit();
-        List<DFSResult> out = new ArrayList<>();
+        List<FlowPath> out = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
 
         if (options.isSearchAllSources()) {
@@ -278,7 +278,7 @@ public final class GraphTaintEngine {
 
         GraphDfsEngine.DfsRun forwardRun = dfsEngine.run(snapshot, copyOptions(options, SearchDirection.FORWARD), cancelFlag);
         GraphDfsEngine.DfsRun backwardRun = dfsEngine.run(snapshot, copyOptions(options, SearchDirection.BACKWARD), cancelFlag);
-        List<DFSResult> merged = mergeDfsResults(forwardRun.results(), backwardRun.results(), options.resolvePathLimit());
+        List<FlowPath> merged = mergeDfsResults(forwardRun.results(), backwardRun.results(), options.resolvePathLimit());
         FlowStats stats = new FlowStats(
                 safeNodeCount(forwardRun) + safeNodeCount(backwardRun),
                 safeEdgeCount(forwardRun) + safeEdgeCount(backwardRun),
@@ -308,7 +308,7 @@ public final class GraphTaintEngine {
         return !isAnyDesc(options.getSourceDesc());
     }
 
-    private AnalysisResult analyzeInternal(List<DFSResult> dfsResults,
+    private AnalysisResult analyzeInternal(List<FlowPath> dfsResults,
                                            Integer timeoutMs,
                                            Integer maxPaths,
                                            AtomicBoolean cancelFlag,
@@ -317,7 +317,7 @@ public final class GraphTaintEngine {
                                            String searchBackend) {
         semantics.refreshRuleContext();
         long startNs = System.nanoTime();
-        List<DFSResult> ordered = dfsResults == null
+        List<FlowPath> ordered = dfsResults == null
                 ? Collections.emptyList()
                 : new ArrayList<>(dfsResults);
         ordered.sort(StableOrder.DFS_RESULT);
@@ -325,7 +325,7 @@ public final class GraphTaintEngine {
         List<TaintResult> out = new ArrayList<>();
         int processed = 0;
         String truncationReason = "";
-        for (DFSResult dfs : ordered) {
+        for (FlowPath dfs : ordered) {
             if (shouldCancel(cancelFlag)) {
                 truncationReason = "taint_canceled";
                 break;
@@ -352,7 +352,7 @@ public final class GraphTaintEngine {
         return new AnalysisResult(out, elapsedMs, FlowTruncation.none());
     }
 
-    private TaintResult evaluatePath(DFSResult dfs, String sinkKindOverride, String searchBackend) {
+    private TaintResult evaluatePath(FlowPath dfs, String sinkKindOverride, String searchBackend) {
         TaintResult result = new TaintResult();
         result.setDfsResult(dfs);
         if (dfs == null || dfs.getMethodList() == null || dfs.getMethodList().isEmpty()) {
@@ -363,7 +363,7 @@ public final class GraphTaintEngine {
         }
 
         List<MethodReference.Handle> methods = dfs.getMethodList();
-        List<DFSEdge> edges = dfs.getEdges();
+        List<FlowPathEdge> edges = dfs.getEdges();
         MethodReference.Handle sinkHandle = resolveSinkHandle(dfs);
         String sinkKind = safe(sinkKindOverride);
         if (sinkKind.isBlank()) {
@@ -391,7 +391,7 @@ public final class GraphTaintEngine {
         for (int i = 0; i + 1 < methods.size(); i++) {
             MethodReference.Handle from = methods.get(i);
             MethodReference.Handle to = methods.get(i + 1);
-            DFSEdge edge = (edges == null || i >= edges.size()) ? null : edges.get(i);
+            FlowPathEdge edge = (edges == null || i >= edges.size()) ? null : edges.get(i);
             GraphTaintSemantics.Transition transition = semantics.transition(from, to, state, edge, sinkKind, policy);
             if (transition == null || transition.state() == null) {
                 success = false;
@@ -484,7 +484,7 @@ public final class GraphTaintEngine {
     }
 
     private static boolean appendCandidates(GraphPrunedPathEngine.Run run,
-                                            List<DFSResult> out,
+                                            List<FlowPath> out,
                                             Set<String> seen,
                                             int limit,
                                             GraphPrunedPathEngine.Controller controller) {
@@ -492,7 +492,7 @@ public final class GraphTaintEngine {
             return false;
         }
         for (GraphPrunedPathEngine.Candidate candidate : run.candidates()) {
-            DFSResult dfs = candidate == null ? null : candidate.dfsResult();
+            FlowPath dfs = candidate == null ? null : candidate.dfsResult();
             if (dfs == null) {
                 continue;
             }
@@ -508,7 +508,7 @@ public final class GraphTaintEngine {
         return false;
     }
 
-    private SearchRun buildPrunedSearchRun(List<DFSResult> out, PrunedBudget controller, int mode) {
+    private SearchRun buildPrunedSearchRun(List<FlowPath> out, PrunedBudget controller, int mode) {
         FlowStats stats = new FlowStats(
                 controller.nodeCount(),
                 controller.edgeCount(),
@@ -526,19 +526,19 @@ public final class GraphTaintEngine {
         return node != null && node.getJarId() == jarId;
     }
 
-    private static int resolveSearchMode(FlowOptions options, List<DFSResult> results) {
+    private static int resolveSearchMode(FlowOptions options, List<FlowPath> results) {
         int inferred = inferMode(results, Integer.MIN_VALUE);
         if (inferred != Integer.MIN_VALUE) {
             return inferred;
         }
         SearchDirection direction = resolveSearchDirection(options);
         if (direction == SearchDirection.BACKWARD) {
-            return options != null && options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE;
+            return options != null && options.isSearchAllSources() ? FlowPath.FROM_SOURCE_TO_ALL : FlowPath.FROM_SINK_TO_SOURCE;
         }
         if (options != null && options.isFromSink()) {
-            return options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE;
+            return options.isSearchAllSources() ? FlowPath.FROM_SOURCE_TO_ALL : FlowPath.FROM_SINK_TO_SOURCE;
         }
-        return DFSResult.FROM_SOURCE_TO_SINK;
+        return FlowPath.FROM_SOURCE_TO_SINK;
     }
 
     private static SearchDirection resolveSearchDirection(FlowOptions options) {
@@ -569,22 +569,22 @@ public final class GraphTaintEngine {
                 .build();
     }
 
-    private static List<DFSResult> mergeDfsResults(List<DFSResult> first, List<DFSResult> second, int limit) {
+    private static List<FlowPath> mergeDfsResults(List<FlowPath> first, List<FlowPath> second, int limit) {
         LinkedHashSet<String> seen = new LinkedHashSet<>();
-        ArrayList<DFSResult> out = new ArrayList<>();
+        ArrayList<FlowPath> out = new ArrayList<>();
         appendMerged(out, seen, first, limit);
         appendMerged(out, seen, second, limit);
         return out;
     }
 
-    private static void appendMerged(List<DFSResult> out,
+    private static void appendMerged(List<FlowPath> out,
                                      Set<String> seen,
-                                     List<DFSResult> values,
+                                     List<FlowPath> values,
                                      int limit) {
         if (values == null || values.isEmpty() || out.size() >= limit) {
             return;
         }
-        for (DFSResult dfs : values) {
+        for (FlowPath dfs : values) {
             if (dfs == null) {
                 continue;
             }
@@ -631,7 +631,7 @@ public final class GraphTaintEngine {
         return semantics.toHandle(snapshot.getNode(sinkId));
     }
 
-    private static MethodReference.Handle resolveSinkHandle(DFSResult result) {
+    private static MethodReference.Handle resolveSinkHandle(FlowPath result) {
         if (result == null) {
             return null;
         }
@@ -647,18 +647,18 @@ public final class GraphTaintEngine {
                 || (cancelFlag != null && cancelFlag.get());
     }
 
-    private static int inferMode(List<DFSResult> dfsResults, int fallbackMode) {
+    private static int inferMode(List<FlowPath> dfsResults, int fallbackMode) {
         if (dfsResults == null || dfsResults.isEmpty()) {
             return fallbackMode;
         }
-        for (DFSResult dfs : dfsResults) {
+        for (FlowPath dfs : dfsResults) {
             if (dfs == null) {
                 continue;
             }
             int mode = dfs.getMode();
-            if (mode == DFSResult.FROM_SOURCE_TO_SINK
-                    || mode == DFSResult.FROM_SINK_TO_SOURCE
-                    || mode == DFSResult.FROM_SOURCE_TO_ALL) {
+            if (mode == FlowPath.FROM_SOURCE_TO_SINK
+                    || mode == FlowPath.FROM_SINK_TO_SOURCE
+                    || mode == FlowPath.FROM_SOURCE_TO_ALL) {
                 return mode;
             }
         }
@@ -666,7 +666,7 @@ public final class GraphTaintEngine {
     }
 
     private static TaintResult buildTruncatedMeta(String reason, int processed, long elapsedMs, int mode) {
-        DFSResult meta = new DFSResult();
+        FlowPath meta = new FlowPath();
         meta.setMethodList(new ArrayList<>());
         meta.setEdges(new ArrayList<>());
         meta.setDepth(0);
@@ -736,7 +736,7 @@ public final class GraphTaintEngine {
             if (taint == null || taint.getDfsResult() == null) {
                 continue;
             }
-            DFSResult dfs = taint.getDfsResult();
+            FlowPath dfs = taint.getDfsResult();
             if (dfs.getMethodList() != null && !dfs.getMethodList().isEmpty()) {
                 dfs.setTruncated(truncation.truncated());
                 dfs.setTruncateReason(truncation.reason());
@@ -792,7 +792,7 @@ public final class GraphTaintEngine {
         }
     }
 
-    private record SearchRun(List<DFSResult> results,
+    private record SearchRun(List<FlowPath> results,
                              FlowStats stats,
                              String backend,
                              int mode) {

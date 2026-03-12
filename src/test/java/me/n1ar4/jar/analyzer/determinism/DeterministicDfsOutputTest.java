@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.determinism;
 
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
@@ -74,7 +74,7 @@ public class DeterministicDfsOutputTest {
                 .sink(edge.calleeClassName(), edge.calleeMethodName(), edge.calleeMethodDesc())
                 .source(edge.callerClassName(), edge.callerMethodName(), edge.callerMethodDesc())
                 .build();
-        List<DFSResult> results = new GraphFlowService().runDfs(options, null).results();
+        List<FlowPath> results = new GraphFlowService().runDfs(options, null).results();
         return results.stream()
                 .map(StableOrder::dfsPathKey)
                 .collect(Collectors.toList());

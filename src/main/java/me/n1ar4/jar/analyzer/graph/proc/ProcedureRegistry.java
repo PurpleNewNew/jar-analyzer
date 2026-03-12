@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.graph.proc;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphGadgetEngine;
 import me.n1ar4.jar.analyzer.graph.flow.GraphPrunedPathEngine;
@@ -255,7 +255,7 @@ public final class ProcedureRegistry {
         for (TaintResult taintResult : taintResults) {
             checkBudget(budget);
             budget.onPath();
-            DFSResult dfs = taintResult.getDfsResult();
+            FlowPath dfs = taintResult.getDfsResult();
             Path mapped = mapTaintPathToGraph(dfs, snapshot, budget);
             unresolvedNodes += mapped.unresolvedCount;
             if (mapped.nodeIds.isEmpty()) {
@@ -1214,7 +1214,7 @@ public final class ProcedureRegistry {
         }
     }
 
-    private static Path mapTaintPathToGraph(DFSResult dfs, GraphSnapshot snapshot, QueryBudget budget) {
+    private static Path mapTaintPathToGraph(FlowPath dfs, GraphSnapshot snapshot, QueryBudget budget) {
         if (dfs == null || dfs.getMethodList() == null || dfs.getMethodList().isEmpty()) {
             return new Path(List.of(), List.of(), 0);
         }

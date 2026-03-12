@@ -10,11 +10,11 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class TaintCache {
-    public static ConcurrentLinkedQueue<DFSResult> dfsCache = new ConcurrentLinkedQueue<>();
+    public static ConcurrentLinkedQueue<FlowPath> dfsCache = new ConcurrentLinkedQueue<>();
     public static ConcurrentLinkedQueue<TaintResult> cache = new ConcurrentLinkedQueue<>();
 }

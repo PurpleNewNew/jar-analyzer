@@ -11,8 +11,8 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -119,7 +119,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         if (offset < 0) {
             offset = 0;
         }
-        List<DFSResult> items = job.getResultsSnapshot(offset, limit);
+        List<FlowPath> items = job.getResultsSnapshot(offset, limit);
         boolean compact = getBoolParam(session, "compact");
         Map<String, Object> result = new HashMap<>();
         result.put("jobId", jobId);
@@ -172,12 +172,12 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
         return ok(result);
     }
 
-    private List<Map<String, Object>> compactItems(List<DFSResult> items) {
+    private List<Map<String, Object>> compactItems(List<FlowPath> items) {
         List<Map<String, Object>> out = new ArrayList<>();
         if (items == null || items.isEmpty()) {
             return out;
         }
-        for (DFSResult r : items) {
+        for (FlowPath r : items) {
             if (r == null) {
                 continue;
             }
@@ -204,7 +204,7 @@ public class DfsJobHandler extends ApiBaseHandler implements HttpHandler {
             item.put("methods", methods);
             List<Map<String, Object>> edges = new ArrayList<>();
             if (r.getEdges() != null) {
-                for (DFSEdge e : r.getEdges()) {
+                for (FlowPathEdge e : r.getEdges()) {
                     if (e == null) {
                         continue;
                     }

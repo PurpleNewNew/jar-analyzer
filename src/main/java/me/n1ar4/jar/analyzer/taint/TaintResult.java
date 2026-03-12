@@ -10,10 +10,10 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 
 public class TaintResult {
-    private DFSResult dfsResult;
+    private FlowPath dfsResult;
     private String taintText;
     private boolean success;
     private boolean lowConfidence;
@@ -34,11 +34,11 @@ public class TaintResult {
         this.lowConfidence = lowConfidence;
     }
 
-    public DFSResult getDfsResult() {
+    public FlowPath getDfsResult() {
         return dfsResult;
     }
 
-    public void setDfsResult(DFSResult dfsResult) {
+    public void setDfsResult(FlowPath dfsResult) {
         this.dfsResult = dfsResult;
     }
 

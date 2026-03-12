@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
@@ -253,26 +253,26 @@ class DfsApiUtil {
                 projectKey,
                 () -> FLOW_SERVICE.runDfs(buildOptions(req), cancelFlag)
         );
-        List<DFSResult> patched = buildTruncatedMeta(req, out.stats(), out.results());
+        List<FlowPath> patched = buildTruncatedMeta(req, out.stats(), out.results());
         if (patched == null) {
             return out;
         }
         return new GraphFlowService.DfsOutcome(patched, out.stats());
     }
 
-    static List<DFSResult> buildTruncatedMeta(DfsRequest req, FlowStats stats, List<DFSResult> results) {
+    static List<FlowPath> buildTruncatedMeta(DfsRequest req, FlowStats stats, List<FlowPath> results) {
         FlowTruncation truncation = stats == null ? FlowTruncation.none() : stats.getTruncation();
         if ((results == null || results.isEmpty()) && truncation.truncated()) {
-            DFSResult meta = new DFSResult();
+            FlowPath meta = new FlowPath();
             meta.setMethodList(new ArrayList<>());
             meta.setEdges(new ArrayList<>());
             meta.setDepth(0);
             boolean fromSink = req == null || req.fromSink;
             boolean allSources = req != null && req.searchAllSources;
             if (fromSink) {
-                meta.setMode(allSources ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);
+                meta.setMode(allSources ? FlowPath.FROM_SOURCE_TO_ALL : FlowPath.FROM_SINK_TO_SOURCE);
             } else {
-                meta.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+                meta.setMode(FlowPath.FROM_SOURCE_TO_SINK);
             }
             meta.setTruncated(true);
             meta.setTruncateReason(truncation.reason());
@@ -281,7 +281,7 @@ class DfsApiUtil {
             meta.setEdgeCount(stats == null ? 0 : stats.getEdgeCount());
             meta.setPathCount(0);
             meta.setElapsedMs(stats == null ? 0L : stats.getElapsedMs());
-            List<DFSResult> out = new ArrayList<>();
+            List<FlowPath> out = new ArrayList<>();
             out.add(meta);
             return out;
         }

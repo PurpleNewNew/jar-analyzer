@@ -11,8 +11,8 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -87,8 +87,8 @@ class GraphTaintEngineTest {
 
     @Test
     void analyzeDfsResultsShouldPreserveOriginalModeWhenTruncated() {
-        DFSResult dfs = new DFSResult();
-        dfs.setMode(DFSResult.FROM_SINK_TO_SOURCE);
+        FlowPath dfs = new FlowPath();
+        dfs.setMode(FlowPath.FROM_SINK_TO_SOURCE);
         dfs.setMethodList(List.of(methodHandle("demo/Sink", "sink", "()V", 1)));
         dfs.setEdges(List.of());
 
@@ -98,22 +98,22 @@ class GraphTaintEngineTest {
 
         assertFalse(results.isEmpty());
         assertTrue(results.get(0).getDfsResult().isTruncated());
-        assertEquals(DFSResult.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
+        assertEquals(FlowPath.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
     }
 
     @Test
     void analyzeDfsResultsShouldNotMarkImpreciseSegmentsAsVerified() {
         MethodReference.Handle source = methodHandle("demo/Source", "entry", "()V", 1);
         MethodReference.Handle sink = methodHandle("demo/Sink", "sink", "()V", 1);
-        DFSEdge edge = new DFSEdge();
+        FlowPathEdge edge = new FlowPathEdge();
         edge.setFrom(source);
         edge.setTo(sink);
         edge.setType("reflection");
         edge.setConfidence("low");
         edge.setEvidence("unit");
 
-        DFSResult dfs = new DFSResult();
-        dfs.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+        FlowPath dfs = new FlowPath();
+        dfs.setMode(FlowPath.FROM_SOURCE_TO_SINK);
         dfs.setMethodList(List.of(source, sink));
         dfs.setEdges(List.of(edge));
 
@@ -162,7 +162,7 @@ class GraphTaintEngineTest {
 
         assertEquals(1, results.size());
         assertTrue(results.get(0).isSuccess());
-        assertEquals(DFSResult.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
+        assertEquals(FlowPath.FROM_SINK_TO_SOURCE, results.get(0).getDfsResult().getMode());
         assertTrue(results.get(0).getTaintText().contains("search backend: graph-pruned"));
         assertTrue(results.get(0).getTaintText().contains("taint path verified"));
         assertEquals(fixture.sourceClass(), results.get(0).getDfsResult().getSource().getClassReference().getName());
@@ -182,7 +182,7 @@ class GraphTaintEngineTest {
 
         assertEquals(1, results.size());
         assertTrue(results.get(0).isSuccess());
-        assertEquals(DFSResult.FROM_SOURCE_TO_ALL, results.get(0).getDfsResult().getMode());
+        assertEquals(FlowPath.FROM_SOURCE_TO_ALL, results.get(0).getDfsResult().getMode());
         assertTrue(results.get(0).getTaintText().contains("search backend: graph-pruned"));
         assertEquals(fixture.sourceClass(), results.get(0).getDfsResult().getSource().getClassReference().getName());
         assertEquals(5, results.get(0).getDfsResult().getMethodList().size());

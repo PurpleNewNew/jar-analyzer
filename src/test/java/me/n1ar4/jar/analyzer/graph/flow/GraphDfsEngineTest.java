@@ -12,7 +12,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -82,7 +82,7 @@ class GraphDfsEngineTest {
                     new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
             );
 
-            List<DFSResult> results = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> results = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .depth(4)
@@ -123,7 +123,7 @@ class GraphDfsEngineTest {
                 .sinkJarId(1)
                 .build();
 
-        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+        List<FlowPath> results = new GraphDfsEngine().run(snapshot, options, null).results();
 
         assertEquals(1, results.size());
         assertEquals(1, results.get(0).getSource().getJarId());
@@ -149,7 +149,7 @@ class GraphDfsEngineTest {
                 .sink("app/Sink", "sink", "()V")
                 .build();
 
-        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+        List<FlowPath> results = new GraphDfsEngine().run(snapshot, options, null).results();
 
         assertEquals(2, results.size());
         assertEquals(List.of("cs-1", "cs-2"),
@@ -183,11 +183,11 @@ class GraphDfsEngineTest {
                 .sink("app/Sink", "sink", "()V")
                 .build();
 
-        List<DFSResult> results = new GraphDfsEngine().run(snapshot, options, null).results();
+        List<FlowPath> results = new GraphDfsEngine().run(snapshot, options, null).results();
 
         assertEquals(1, results.size());
-        DFSResult result = results.get(0);
-        assertEquals(DFSResult.FROM_SINK_TO_SOURCE, result.getMode());
+        FlowPath result = results.get(0);
+        assertEquals(FlowPath.FROM_SINK_TO_SOURCE, result.getMode());
         assertEquals(List.of("app/Source", "app/Alpha", "app/Sink"),
                 result.getMethodList().stream()
                         .map(handle -> handle.getClassReference().getName())
@@ -230,7 +230,7 @@ class GraphDfsEngineTest {
                     new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
             );
 
-            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .depth(4)
@@ -243,7 +243,7 @@ class GraphDfsEngineTest {
                     StandardCharsets.UTF_8);
             ModelRegistry.reload();
 
-            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .depth(4)
@@ -292,7 +292,7 @@ class GraphDfsEngineTest {
                     new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
             );
 
-            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .onlyFromWeb(true)
@@ -306,7 +306,7 @@ class GraphDfsEngineTest {
                     StandardCharsets.UTF_8);
             ModelRegistry.reload();
 
-            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .onlyFromWeb(true)
@@ -357,7 +357,7 @@ class GraphDfsEngineTest {
                     new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
             );
 
-            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .depth(4)
@@ -368,7 +368,7 @@ class GraphDfsEngineTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             ModelRegistry.reload();
 
-            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .depth(4)
@@ -420,7 +420,7 @@ class GraphDfsEngineTest {
                     new GraphNode(3L, "method", 1, "app/Sink", "sink", "()V", "", -1, -1)
             );
 
-            List<DFSResult> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> before = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .onlyFromWeb(true)
@@ -432,7 +432,7 @@ class GraphDfsEngineTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             ModelRegistry.reload();
 
-            List<DFSResult> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
+            List<FlowPath> after = new GraphDfsEngine().run(snapshot, FlowOptions.builder()
                     .fromSink(true)
                     .searchAllSources(true)
                     .onlyFromWeb(true)
@@ -456,11 +456,11 @@ class GraphDfsEngineTest {
         incoming.computeIfAbsent(edge.getDstId(), ignore -> new ArrayList<>()).add(edge);
     }
 
-    private static boolean hasSource(List<DFSResult> results, String className, String methodName) {
+    private static boolean hasSource(List<FlowPath> results, String className, String methodName) {
         if (results == null || results.isEmpty()) {
             return false;
         }
-        for (DFSResult result : results) {
+        for (FlowPath result : results) {
             if (result == null || result.getSource() == null || result.getSource().getClassReference() == null) {
                 continue;
             }

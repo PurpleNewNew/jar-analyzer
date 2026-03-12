@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaOutputMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
@@ -78,7 +78,7 @@ class ToolingWindowContractTest {
                     "run",
                     "(Ljava/lang/String;)V"
             );
-            DFSResult dfs = new DFSResult();
+            FlowPath dfs = new FlowPath();
             dfs.setSource(handle);
             dfs.setSink(handle);
             dfs.setDepth(3);

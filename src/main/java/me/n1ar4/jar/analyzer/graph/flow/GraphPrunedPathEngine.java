@@ -6,8 +6,8 @@ package me.n1ar4.jar.analyzer.graph.flow;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -250,7 +250,7 @@ public final class GraphPrunedPathEngine {
             }
             if (current == request.sourceNodeId()) {
                 emitBackwardCandidate(snapshot, out, seen, backwardNodePath, backwardEdgePath,
-                        frame.lowConfidence, frame.proven, controller, DFSResult.FROM_SINK_TO_SOURCE);
+                        frame.lowConfidence, frame.proven, controller, FlowPath.FROM_SINK_TO_SOURCE);
                 backtrack(stack, backwardNodePath, backwardEdgePath, visited);
                 continue;
             }
@@ -337,7 +337,7 @@ public final class GraphPrunedPathEngine {
                         : (isSource || frame.expansions.isEmpty()) && emittedSources.add(current);
                 if (emit) {
                     emitBackwardCandidate(snapshot, out, seen, backwardNodePath, backwardEdgePath,
-                            frame.lowConfidence, frame.proven, controller, DFSResult.FROM_SOURCE_TO_ALL);
+                            frame.lowConfidence, frame.proven, controller, FlowPath.FROM_SOURCE_TO_ALL);
                     if (out.size() >= request.maxPaths()) {
                         break;
                     }
@@ -683,7 +683,7 @@ public final class GraphPrunedPathEngine {
                                              boolean lowConfidence,
                                              boolean proven,
                                              Controller controller) {
-        DFSResult dfs = toDfsResult(snapshot, nodePath, edgePath, DFSResult.FROM_SOURCE_TO_SINK);
+        FlowPath dfs = toDfsResult(snapshot, nodePath, edgePath, FlowPath.FROM_SOURCE_TO_SINK);
         if (dfs == null) {
             return;
         }
@@ -733,14 +733,14 @@ public final class GraphPrunedPathEngine {
         for (int i = backwardEdgePath.size() - 1; i >= 0; i--) {
             edgePath.add(backwardEdgePath.get(i));
         }
-        DFSResult dfs = toDfsResult(snapshot, nodePath, edgePath, mode);
+        FlowPath dfs = toDfsResult(snapshot, nodePath, edgePath, mode);
         if (dfs == null) {
             return null;
         }
         return new Candidate(nodePath, edgePath, dfs, lowConfidence, proven);
     }
 
-    private static DFSResult toDfsResult(GraphSnapshot snapshot,
+    private static FlowPath toDfsResult(GraphSnapshot snapshot,
                                          List<Long> nodePath,
                                          List<GraphEdge> edgePath,
                                          int mode) {
@@ -774,14 +774,14 @@ public final class GraphPrunedPathEngine {
         if (methods.isEmpty()) {
             return null;
         }
-        List<DFSEdge> dfsEdges = new ArrayList<>();
+        List<FlowPathEdge> dfsEdges = new ArrayList<>();
         for (GraphEdge edge : edgePath) {
             GraphNode src = snapshot.getNode(edge.getSrcId());
             GraphNode dst = snapshot.getNode(edge.getDstId());
             if (!GraphTraversalRules.isMethodNode(src) || !GraphTraversalRules.isMethodNode(dst)) {
                 continue;
             }
-            DFSEdge dfsEdge = new DFSEdge();
+            FlowPathEdge dfsEdge = new FlowPathEdge();
             dfsEdge.setFrom(new MethodReference.Handle(
                     new ClassReference.Handle(src.getClassName(), src.getJarId()),
                     src.getMethodName(),
@@ -800,7 +800,7 @@ public final class GraphPrunedPathEngine {
             dfsEdge.setCallIndex(edge.getCallIndex());
             dfsEdges.add(dfsEdge);
         }
-        DFSResult result = new DFSResult();
+        FlowPath result = new FlowPath();
         result.setMethodList(methods);
         result.setEdges(dfsEdges);
         result.setDepth(methods.size());
@@ -949,7 +949,7 @@ public final class GraphPrunedPathEngine {
 
     public record Candidate(List<Long> nodeIds,
                             List<GraphEdge> edges,
-                            DFSResult dfsResult,
+                            FlowPath dfsResult,
                             boolean lowConfidence,
                             boolean proven) {
         public Candidate {

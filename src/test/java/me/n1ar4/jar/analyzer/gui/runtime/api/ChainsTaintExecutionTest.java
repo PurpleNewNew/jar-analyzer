@@ -7,8 +7,8 @@ package me.n1ar4.jar.analyzer.gui.runtime.api;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
 import me.n1ar4.jar.analyzer.taint.TaintCache;
 import org.junit.jupiter.api.AfterEach;
@@ -38,13 +38,13 @@ class ChainsTaintExecutionTest {
                 "sink",
                 "()V"
         );
-        DFSEdge edge = new DFSEdge();
+        FlowPathEdge edge = new FlowPathEdge();
         edge.setFrom(source);
         edge.setTo(sink);
         edge.setType("direct");
 
-        DFSResult dfs = new DFSResult();
-        dfs.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+        FlowPath dfs = new FlowPath();
+        dfs.setMode(FlowPath.FROM_SOURCE_TO_SINK);
         dfs.setSource(source);
         dfs.setSink(sink);
         dfs.setMethodList(List.of(source, sink));

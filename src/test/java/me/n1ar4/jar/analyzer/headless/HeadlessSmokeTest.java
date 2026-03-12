@@ -13,7 +13,7 @@ package me.n1ar4.jar.analyzer.headless;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -70,7 +70,7 @@ public class HeadlessSmokeTest {
                     .source(edge.callerClassName, edge.callerMethodName, edge.callerMethodDesc)
                     .build();
             GraphFlowService flowService = new GraphFlowService();
-            List<DFSResult> results = flowService.runDfs(options, null).results();
+            List<FlowPath> results = flowService.runDfs(options, null).results();
             List<TaintResult> taint = flowService.analyzeDfsResults(
                     results, 15_000, 1, new AtomicBoolean(false), null).results();
             if (taint == null) {

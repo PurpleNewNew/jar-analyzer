@@ -4,7 +4,7 @@
 
 package me.n1ar4.jar.analyzer.graph.flow;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -33,7 +33,7 @@ public final class GraphFlowService {
         return new DfsOutcome(run.results(), run.stats());
     }
 
-    public TaintOutcome analyzeDfsResults(List<DFSResult> dfsResults,
+    public TaintOutcome analyzeDfsResults(List<FlowPath> dfsResults,
                                           Integer timeoutMs,
                                           Integer maxPaths,
                                           AtomicBoolean cancelFlag,
@@ -48,7 +48,7 @@ public final class GraphFlowService {
         return new TaintOutcome(run.results(), run.stats());
     }
 
-    public record DfsOutcome(List<DFSResult> results, FlowStats stats) {
+    public record DfsOutcome(List<FlowPath> results, FlowStats stats) {
         public DfsOutcome {
             results = results == null ? List.of() : results;
             stats = stats == null ? FlowStats.empty() : stats;

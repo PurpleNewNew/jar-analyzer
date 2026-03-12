@@ -10,7 +10,7 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
@@ -132,7 +132,7 @@ public class DfsJobManager {
                 job.markFailed(new IllegalStateException(staleReason));
                 return;
             }
-            List<DFSResult> results = outcome == null ? null : outcome.results();
+            List<FlowPath> results = outcome == null ? null : outcome.results();
             job.markDone(results, outcome == null ? null : outcome.stats());
         } catch (Exception ex) {
             InterruptUtil.restoreInterruptIfNeeded(ex);

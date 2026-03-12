@@ -7,7 +7,7 @@ import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
@@ -1918,7 +1918,7 @@ public final class RuntimeFacades {
                     ChainsSettingsDto cfg = STATE.chainsSettings;
                     STATE.chainsStatusText = tr("DFS 执行中...", "DFS running...");
                     DfsRunOutcome dfsOutcome = runDfsGraphOnly(cfg);
-                    List<DFSResult> resultList = dfsOutcome.results();
+                    List<FlowPath> resultList = dfsOutcome.results();
                     TaintCache.dfsCache.clear();
                     TaintCache.dfsCache.addAll(resultList);
                     TaintCache.cache.clear();
@@ -1948,7 +1948,7 @@ public final class RuntimeFacades {
                         return;
                     }
                     ChainsSettingsDto cfg = STATE.chainsSettings;
-                    List<DFSResult> snapshot = new ArrayList<>(TaintCache.dfsCache);
+                    List<FlowPath> snapshot = new ArrayList<>(TaintCache.dfsCache);
                     STATE.chainsStatusText = tr("污点分析执行中...", "taint running...");
                     TaintRunOutcome taintOutcome = runTaintGraphOnly(cfg, snapshot);
                     List<TaintResult> taintResult = taintOutcome.results();
@@ -1965,7 +1965,7 @@ public final class RuntimeFacades {
         private static DfsRunOutcome runDfsGraphOnly(ChainsSettingsDto cfg) {
             FlowOptions options = toFlowOptions(cfg);
             GraphFlowService.DfsOutcome outcome = GRAPH_FLOW_SERVICE.runDfs(options, null);
-            List<DFSResult> results = outcome == null ? List.of() : outcome.results();
+            List<FlowPath> results = outcome == null ? List.of() : outcome.results();
             FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
             logger.info("runtime dfs backend=graph paths={}", results.size());
             return new DfsRunOutcome(
@@ -1974,8 +1974,8 @@ public final class RuntimeFacades {
             );
         }
 
-        private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<DFSResult> dfsSnapshot) {
-            List<DFSResult> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
+        private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<FlowPath> dfsSnapshot) {
+            List<FlowPath> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
             GraphFlowService.TaintOutcome outcome = GRAPH_FLOW_SERVICE.analyzeDfsResults(
                     safeSnapshot,
                     resolveFlowTimeoutMs(cfg),
@@ -2046,7 +2046,7 @@ public final class RuntimeFacades {
             return status + tr("，截断原因: ", ", truncation reason: ") + reason;
         }
 
-        private record DfsRunOutcome(List<DFSResult> results, String statusText) {
+        private record DfsRunOutcome(List<FlowPath> results, String statusText) {
             private DfsRunOutcome {
                 results = results == null ? List.of() : results;
                 statusText = safe(statusText);
@@ -3465,7 +3465,7 @@ public final class RuntimeFacades {
                 return items;
             }
             int index = 1;
-            for (DFSResult result : TaintCache.dfsCache) {
+            for (FlowPath result : TaintCache.dfsCache) {
                 if (result == null) {
                     continue;
                 }
@@ -3503,7 +3503,7 @@ public final class RuntimeFacades {
                 if (result == null) {
                     continue;
                 }
-                DFSResult dfs = result.getDfsResult();
+                FlowPath dfs = result.getDfsResult();
                 items.add(new ChainsResultItemDto(
                         index,
                         formatHandle(dfs == null ? null : dfs.getSink()),

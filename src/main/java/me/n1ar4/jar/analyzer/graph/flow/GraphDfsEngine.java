@@ -7,8 +7,8 @@ package me.n1ar4.jar.analyzer.graph.flow;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -37,7 +37,7 @@ public final class GraphDfsEngine {
         FlowOptions effective = options == null ? FlowOptions.builder().build() : options;
         Budget budget = new Budget(effective, cancelFlag, startNs);
         DistanceCache distanceCache = new DistanceCache();
-        List<DFSResult> out = new ArrayList<>();
+        List<FlowPath> out = new ArrayList<>();
         Set<String> seenPath = new HashSet<>();
 
         if (effective.isFromSink()) {
@@ -58,7 +58,7 @@ public final class GraphDfsEngine {
     private void runPreciseFromSource(GraphSnapshot snapshot,
                                       FlowOptions options,
                                       Budget budget,
-                                      List<DFSResult> out,
+                                      List<FlowPath> out,
                                       Set<String> seenPath,
                                       DistanceCache distanceCache) {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
@@ -93,7 +93,7 @@ public final class GraphDfsEngine {
     private void runPreciseFromSink(GraphSnapshot snapshot,
                                     FlowOptions options,
                                     Budget budget,
-                                    List<DFSResult> out,
+                                    List<FlowPath> out,
                                     Set<String> seenPath,
                                     DistanceCache distanceCache) {
         List<Long> sourceIds = resolveMethodNodeIds(snapshot,
@@ -128,7 +128,7 @@ public final class GraphDfsEngine {
     private void runFindAllSources(GraphSnapshot snapshot,
                                    FlowOptions options,
                                    Budget budget,
-                                   List<DFSResult> out,
+                                   List<FlowPath> out,
                                    Set<String> seenPath) {
         List<Long> sinkIds = resolveMethodNodeIds(snapshot,
                 options.getSinkClass(),
@@ -155,7 +155,7 @@ public final class GraphDfsEngine {
                                  long to,
                                  FlowOptions options,
                                  Budget budget,
-                                 List<DFSResult> out,
+                                 List<FlowPath> out,
                                  Set<String> seenPath,
                                  DistanceCache distanceCache) {
         Map<Long, Integer> toTarget = boundedBackwardDistance(
@@ -193,7 +193,7 @@ public final class GraphDfsEngine {
             }
 
             if (current == to) {
-                DFSResult result = toDfsResult(snapshot, nodePath, edgePath, options);
+                FlowPath result = toDfsResult(snapshot, nodePath, edgePath, options);
                 if (result != null) {
                     String key = StableOrder.dfsPathKey(result);
                     if (seenPath.add(key)) {
@@ -236,7 +236,7 @@ public final class GraphDfsEngine {
                                           long sinkId,
                                           FlowOptions options,
                                           Budget budget,
-                                          List<DFSResult> out,
+                                          List<FlowPath> out,
                                           Set<String> seenPath,
                                           Set<Long> sourceNodeIds) {
         List<Long> nodePath = new ArrayList<>();
@@ -265,7 +265,7 @@ public final class GraphDfsEngine {
                             && emittedSources.add(current);
                 }
                 if (emit) {
-                    DFSResult result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
+                    FlowPath result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
                     if (result != null) {
                         String key = StableOrder.dfsPathKey(result);
                         if (seenPath.add(key)) {
@@ -312,7 +312,7 @@ public final class GraphDfsEngine {
                                            long sourceId,
                                            FlowOptions options,
                                            Budget budget,
-                                           List<DFSResult> out,
+                                           List<FlowPath> out,
                                            Set<String> seenPath,
                                            DistanceCache distanceCache) {
         Map<Long, Integer> fromSource = boundedForwardDistance(
@@ -361,7 +361,7 @@ public final class GraphDfsEngine {
             }
 
             if (current == sourceId) {
-                DFSResult result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
+                FlowPath result = toSourceDfsResult(snapshot, nodePath, edgePath, options);
                 if (result != null) {
                     String key = StableOrder.dfsPathKey(result);
                     if (seenPath.add(key)) {
@@ -685,7 +685,7 @@ public final class GraphDfsEngine {
                 options.getTraversalMode().includesAlias());
     }
 
-    private DFSResult toDfsResult(GraphSnapshot snapshot,
+    private FlowPath toDfsResult(GraphSnapshot snapshot,
                                   List<Long> nodePath,
                                   List<GraphEdge> edgePath,
                                   FlowOptions options) {
@@ -706,21 +706,21 @@ public final class GraphDfsEngine {
         if (handles.isEmpty()) {
             return null;
         }
-        DFSResult result = new DFSResult();
+        FlowPath result = new FlowPath();
         result.setMethodList(handles);
         result.setEdges(toDfsEdges(snapshot, edgePath));
         result.setDepth(handles.size());
         result.setSource(handles.get(0));
         result.setSink(handles.get(handles.size() - 1));
         if (options.isFromSink()) {
-            result.setMode(options.isSearchAllSources() ? DFSResult.FROM_SOURCE_TO_ALL : DFSResult.FROM_SINK_TO_SOURCE);
+            result.setMode(options.isSearchAllSources() ? FlowPath.FROM_SOURCE_TO_ALL : FlowPath.FROM_SINK_TO_SOURCE);
         } else {
-            result.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+            result.setMode(FlowPath.FROM_SOURCE_TO_SINK);
         }
         return result;
     }
 
-    private DFSResult toSourceDfsResult(GraphSnapshot snapshot,
+    private FlowPath toSourceDfsResult(GraphSnapshot snapshot,
                                         List<Long> backwardNodePath,
                                         List<GraphEdge> backwardEdgePath,
                                         FlowOptions options) {
@@ -738,11 +738,11 @@ public final class GraphDfsEngine {
         return toDfsResult(snapshot, nodePath, edgePath, options);
     }
 
-    private List<DFSEdge> toDfsEdges(GraphSnapshot snapshot, List<GraphEdge> edgePath) {
+    private List<FlowPathEdge> toDfsEdges(GraphSnapshot snapshot, List<GraphEdge> edgePath) {
         if (edgePath == null || edgePath.isEmpty()) {
             return List.of();
         }
-        List<DFSEdge> edges = new ArrayList<>(edgePath.size());
+        List<FlowPathEdge> edges = new ArrayList<>(edgePath.size());
         for (GraphEdge edge : edgePath) {
             GraphNode src = snapshot.getNode(edge.getSrcId());
             GraphNode dst = snapshot.getNode(edge.getDstId());
@@ -751,7 +751,7 @@ public final class GraphDfsEngine {
             if (from == null || to == null) {
                 continue;
             }
-            DFSEdge d = new DFSEdge();
+            FlowPathEdge d = new FlowPathEdge();
             d.setFrom(from);
             d.setTo(to);
             d.setType(relTypeToLegacyType(edge.getRelType()));
@@ -901,12 +901,12 @@ public final class GraphDfsEngine {
         );
     }
 
-    private static void applyStats(List<DFSResult> results, FlowStats stats) {
+    private static void applyStats(List<FlowPath> results, FlowStats stats) {
         if (results == null || results.isEmpty() || stats == null) {
             return;
         }
         FlowTruncation truncation = stats.getTruncation();
-        for (DFSResult result : results) {
+        for (FlowPath result : results) {
             if (result == null) {
                 continue;
             }
@@ -933,7 +933,7 @@ public final class GraphDfsEngine {
         return value == null ? "" : value.trim();
     }
 
-    public record DfsRun(List<DFSResult> results, FlowStats stats) {
+    public record DfsRun(List<FlowPath> results, FlowStats stats) {
         public DfsRun {
             results = results == null ? List.of() : results;
             stats = stats == null ? FlowStats.empty() : stats;

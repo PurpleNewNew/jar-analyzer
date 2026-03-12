@@ -4,7 +4,7 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -23,7 +23,7 @@ class JobCountSemanticsTest {
         req.fromSink = true;
         req.searchAllSources = true;
         FlowStats stats = new FlowStats(12, 34, 0, 56L, FlowTruncation.of("timeout", "increase timeout"));
-        List<DFSResult> results = DfsApiUtil.buildTruncatedMeta(req, stats, List.of());
+        List<FlowPath> results = DfsApiUtil.buildTruncatedMeta(req, stats, List.of());
 
         DfsJob job = new DfsJob("dfs-job", req, "demo", 1L);
         job.markDone(results, stats);
@@ -34,10 +34,10 @@ class JobCountSemanticsTest {
 
     @Test
     void taintJobShouldIgnoreSyntheticMetaRowsInTotalCount() {
-        DFSResult meta = new DFSResult();
+        FlowPath meta = new FlowPath();
         meta.setMethodList(new ArrayList<>());
         meta.setEdges(new ArrayList<>());
-        meta.setMode(DFSResult.FROM_SOURCE_TO_SINK);
+        meta.setMode(FlowPath.FROM_SOURCE_TO_SINK);
         meta.setTruncated(true);
 
         TaintResult result = new TaintResult();

@@ -8,8 +8,8 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -44,14 +44,14 @@ class TaintJobManagerGateTest {
 
     @Test
     void supportsTaintInputShouldAcceptForwardOrderedSinkModeResults() {
-        DFSResult dfs = forwardResult(DFSResult.FROM_SINK_TO_SOURCE);
+        FlowPath dfs = forwardResult(FlowPath.FROM_SINK_TO_SOURCE);
 
         assertTrue(TaintJobManager.supportsTaintInput(List.of(dfs)));
     }
 
     @Test
     void supportsTaintInputShouldRejectReverseOrderedResults() {
-        DFSResult dfs = reverseResult();
+        FlowPath dfs = reverseResult();
 
         assertFalse(TaintJobManager.supportsTaintInput(List.of(dfs)));
     }
@@ -72,7 +72,7 @@ class TaintJobManagerGateTest {
         request.sinkDesc = "()V";
 
         DfsJob dfsJob = new DfsJob("dfs-job", request, projectA, 7L);
-        dfsJob.markDone(List.of(forwardResult(DFSResult.FROM_SINK_TO_SOURCE)), FlowStats.empty());
+        dfsJob.markDone(List.of(forwardResult(FlowPath.FROM_SINK_TO_SOURCE)), FlowStats.empty());
         storeDfsJob(dfsJob);
 
         ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
@@ -120,7 +120,7 @@ class TaintJobManagerGateTest {
         DatabaseManager.restoreProjectRuntime(projectKey, snapshotFor(2L));
 
         DfsJob dfsJob = new DfsJob("dfs-job", request, projectKey, 1L);
-        dfsJob.markDone(List.of(forwardResult(DFSResult.FROM_SINK_TO_SOURCE)), FlowStats.empty());
+        dfsJob.markDone(List.of(forwardResult(FlowPath.FROM_SINK_TO_SOURCE)), FlowStats.empty());
         storeDfsJob(dfsJob);
 
         ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
@@ -172,15 +172,15 @@ class TaintJobManagerGateTest {
         );
     }
 
-    private static DFSResult forwardResult(int mode) {
+    private static FlowPath forwardResult(int mode) {
         MethodReference.Handle source = handle("demo/Source", "entry", "()V");
         MethodReference.Handle sink = handle("demo/Sink", "sink", "()V");
-        DFSEdge edge = new DFSEdge();
+        FlowPathEdge edge = new FlowPathEdge();
         edge.setFrom(source);
         edge.setTo(sink);
         edge.setType("direct");
 
-        DFSResult dfs = new DFSResult();
+        FlowPath dfs = new FlowPath();
         dfs.setMode(mode);
         dfs.setMethodList(List.of(source, sink));
         dfs.setEdges(List.of(edge));
@@ -189,16 +189,16 @@ class TaintJobManagerGateTest {
         return dfs;
     }
 
-    private static DFSResult reverseResult() {
+    private static FlowPath reverseResult() {
         MethodReference.Handle source = handle("demo/Source", "entry", "()V");
         MethodReference.Handle sink = handle("demo/Sink", "sink", "()V");
-        DFSEdge edge = new DFSEdge();
+        FlowPathEdge edge = new FlowPathEdge();
         edge.setFrom(sink);
         edge.setTo(source);
         edge.setType("direct");
 
-        DFSResult dfs = new DFSResult();
-        dfs.setMode(DFSResult.FROM_SINK_TO_SOURCE);
+        FlowPath dfs = new FlowPath();
+        dfs.setMode(FlowPath.FROM_SINK_TO_SOURCE);
         dfs.setMethodList(List.of(sink, source));
         dfs.setEdges(List.of(edge));
         dfs.setSource(source);

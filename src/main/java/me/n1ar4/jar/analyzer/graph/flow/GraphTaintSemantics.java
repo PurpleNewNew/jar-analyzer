@@ -6,8 +6,8 @@ package me.n1ar4.jar.analyzer.graph.flow;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.dfs.DFSEdge;
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
@@ -73,7 +73,7 @@ final class GraphTaintSemantics {
     Transition transition(MethodReference.Handle from,
                           MethodReference.Handle to,
                           PortState state,
-                          DFSEdge edge,
+                          FlowPathEdge edge,
                           String sinkKind,
                           PruningPolicy.Resolved policy) {
         String relType = edge == null ? "" : edge.getType();
@@ -95,7 +95,7 @@ final class GraphTaintSemantics {
     Transition reverseTransition(MethodReference.Handle from,
                                  MethodReference.Handle to,
                                  PortState state,
-                                 DFSEdge edge,
+                                 FlowPathEdge edge,
                                  String sinkKind,
                                  PruningPolicy.Resolved policy) {
         String relType = edge == null ? "" : edge.getType();
@@ -125,8 +125,8 @@ final class GraphTaintSemantics {
     PruningPolicy.Resolved resolvePolicy(String sinkKind,
                                          ModelRegistry.SinkDescriptor sinkDescriptor,
                                          int dfsMode) {
-        boolean fromSink = dfsMode == DFSResult.FROM_SINK_TO_SOURCE || dfsMode == DFSResult.FROM_SOURCE_TO_ALL;
-        boolean searchAllSources = dfsMode == DFSResult.FROM_SOURCE_TO_ALL;
+        boolean fromSink = dfsMode == FlowPath.FROM_SINK_TO_SOURCE || dfsMode == FlowPath.FROM_SOURCE_TO_ALL;
+        boolean searchAllSources = dfsMode == FlowPath.FROM_SOURCE_TO_ALL;
         return resolvePolicy(sinkKind, sinkDescriptor, fromSink, searchAllSources);
     }
 

@@ -8,19 +8,23 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.dfs;
+package me.n1ar4.jar.analyzer.graph.flow.model;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 
 import java.util.List;
 
-public class DFSResult {
+public class FlowPath {
+    public static final int FROM_SOURCE_TO_SINK = FlowPathMode.FROM_SOURCE_TO_SINK.code();
+    public static final int FROM_SINK_TO_SOURCE = FlowPathMode.FROM_SINK_TO_SOURCE.code();
+    public static final int FROM_SOURCE_TO_ALL = FlowPathMode.FROM_SOURCE_TO_ALL.code();
+
     private List<MethodReference.Handle> methodList;
-    private List<DFSEdge> edges;
+    private List<FlowPathEdge> edges;
     private int depth;
     private MethodReference.Handle source;
     private MethodReference.Handle sink;
-    private int mode;
+    private int mode = FROM_SOURCE_TO_SINK;
     private boolean truncated;
     private String truncateReason;
     private String recommend;
@@ -28,10 +32,6 @@ public class DFSResult {
     private int edgeCount;
     private int pathCount;
     private long elapsedMs;
-
-    public static final int FROM_SOURCE_TO_SINK = 1;
-    public static final int FROM_SINK_TO_SOURCE = 2;
-    public static final int FROM_SOURCE_TO_ALL = 3;
 
     public List<MethodReference.Handle> getMethodList() {
         return methodList;
@@ -41,11 +41,11 @@ public class DFSResult {
         this.methodList = methodList;
     }
 
-    public List<DFSEdge> getEdges() {
+    public List<FlowPathEdge> getEdges() {
         return edges;
     }
 
-    public void setEdges(List<DFSEdge> edges) {
+    public void setEdges(List<FlowPathEdge> edges) {
         this.edges = edges;
     }
 
@@ -78,7 +78,11 @@ public class DFSResult {
     }
 
     public void setMode(int mode) {
-        this.mode = mode;
+        this.mode = FlowPathMode.fromCode(mode).code();
+    }
+
+    public FlowPathMode modeEnum() {
+        return FlowPathMode.fromCode(mode);
     }
 
     public boolean isTruncated() {
@@ -139,7 +143,7 @@ public class DFSResult {
 
     @Override
     public String toString() {
-        return "DFSResult{" +
+        return "FlowPath{" +
                 "methodList=" + methodList +
                 ", edges=" + edges +
                 ", depth=" + depth +

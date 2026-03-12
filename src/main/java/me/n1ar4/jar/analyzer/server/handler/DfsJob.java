@@ -9,7 +9,7 @@
  */
 package me.n1ar4.jar.analyzer.server.handler;
 
-import me.n1ar4.jar.analyzer.dfs.DFSResult;
+import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ public class DfsJob {
     private volatile String error;
     private final AtomicBoolean canceled = new AtomicBoolean(false);
     private volatile Future<?> future;
-    private volatile List<DFSResult> results;
+    private volatile List<FlowPath> results;
 
     private volatile boolean truncated;
     private volatile String truncateReason;
@@ -80,7 +80,7 @@ public class DfsJob {
         this.updatedAt = this.startedAt;
     }
 
-    void markDone(List<DFSResult> results, FlowStats stats) {
+    void markDone(List<FlowPath> results, FlowStats stats) {
         this.results = results == null ? Collections.emptyList() : results;
         updateStats(stats);
         this.finishedAt = System.currentTimeMillis();
@@ -146,8 +146,8 @@ public class DfsJob {
         return pathCount;
     }
 
-    List<DFSResult> getResultsSnapshot(int offset, int limit) {
-        List<DFSResult> base = results == null ? Collections.emptyList() : results;
+    List<FlowPath> getResultsSnapshot(int offset, int limit) {
+        List<FlowPath> base = results == null ? Collections.emptyList() : results;
         int size = base.size();
         if (size == 0) {
             return Collections.emptyList();
