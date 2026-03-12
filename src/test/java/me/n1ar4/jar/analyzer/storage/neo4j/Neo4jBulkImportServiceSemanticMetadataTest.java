@@ -106,7 +106,8 @@ class Neo4jBulkImportServiceSemanticMetadataTest {
                         Map.of()
                 ),
                 () -> snapshot,
-                Map.of()
+                Map.of(),
+                null
         );
 
         GraphSnapshot graph = new Neo4jGraphSnapshotLoader().load(projectKey);

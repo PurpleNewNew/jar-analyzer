@@ -121,11 +121,7 @@ public final class ProjectMetadataSnapshotStore {
 
     public boolean isUnavailable(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        Path marker = resolveUnavailableFile(normalized);
-        if (!Files.exists(marker)) {
-            return false;
-        }
-        return true;
+        return Files.exists(resolveUnavailableFile(normalized));
     }
 
     public void clearUnavailable(String projectKey) {
@@ -249,9 +245,18 @@ public final class ProjectMetadataSnapshotStore {
             }
             Path target = safeResolve(assetRoot, relativeTarget);
             Files.createDirectories(target.getParent());
-            Files.copy(source, target,
-                    StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.COPY_ATTRIBUTES);
+            Files.deleteIfExists(target);
+            try {
+                Files.createLink(target, source);
+            } catch (Exception ex) {
+                logger.debug("materialize runtime asset via hard link fail: {} -> {} ({})",
+                        source,
+                        target,
+                        ex.toString());
+                Files.copy(source, target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.COPY_ATTRIBUTES);
+            }
             Path persisted = safeResolve(persistedRoot, relativeTarget);
             return persisted.toAbsolutePath().normalize().toString();
         } catch (Exception ex) {

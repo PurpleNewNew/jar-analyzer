@@ -147,7 +147,8 @@ class Neo4jBulkImportServiceAliasEdgeTest {
                             Map.of()
                     ),
                     () -> snapshot,
-                    Map.of()
+                    Map.of(),
+                    null
             );
 
             var database = Neo4jProjectStore.getInstance().database(projectKey);

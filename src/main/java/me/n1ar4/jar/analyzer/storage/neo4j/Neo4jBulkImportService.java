@@ -31,12 +31,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.neo4j.cli.ExecutionContext;
 import org.neo4j.configuration.GraphDatabaseSettings;
-import org.neo4j.dbms.api.DatabaseManagementService;
-import org.neo4j.dbms.api.DatabaseManagementServiceBuilder;
-import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.Transaction;
 import org.neo4j.importer.ImportCommand;
 import org.neo4j.io.fs.DefaultFileSystemAbstraction;
 import picocli.CommandLine;
@@ -62,6 +58,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -73,34 +71,16 @@ public final class Neo4jBulkImportService {
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
+    private static final String BUILD_META_KEY = "build_meta";
+    private static final ExecutorService CLEANUP_EXECUTOR = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform()
+                    .name("neo4j-bulk-cleanup-0")
+                    .daemon(true)
+                    .factory()
+    );
 
     public interface StageObserver {
         void onStage(String stageKey, long durationMs, Map<String, Object> details);
-    }
-
-    public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
-                                                     long buildSeq,
-                                                     boolean quickMode,
-                                                     String callGraphMode,
-                                                     Set<MethodReference> methods,
-                                                     Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
-                                                     Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-                                                     GraphPayloadData graphPayloadData,
-                                                     Supplier<ProjectRuntimeSnapshot> runtimeSnapshotSupplier,
-                                                     Map<String, Object> buildMeta) {
-        return replaceFromAnalysis(
-                projectKey,
-                buildSeq,
-                quickMode,
-                callGraphMode,
-                methods,
-                methodCalls,
-                methodCallMeta,
-                graphPayloadData,
-                runtimeSnapshotSupplier,
-                buildMeta,
-                null
-        );
     }
 
     public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
@@ -126,13 +106,25 @@ public final class Neo4jBulkImportService {
         long startNs = System.nanoTime();
         CsvBuildResult csvResult = null;
         Path backupHome = null;
+        Path cleanupBuildArtifacts = null;
         ProjectRuntimeSnapshot runtimeSnapshot = null;
         try {
             Files.createDirectories(stagingDir);
             Path nodeFile = stagingDir.resolve("nodes.csv");
             Path relFile = stagingDir.resolve("rels.csv");
             long csvStartNs = System.nanoTime();
-            csvResult = writeCsvPayload(nodeFile, relFile, methods, methodCalls, methodCallMeta, graphPayloadData);
+            csvResult = writeCsvPayload(
+                    nodeFile,
+                    relFile,
+                    buildSeq,
+                    quickMode,
+                    callGraphMode,
+                    methods,
+                    methodCalls,
+                    methodCallMeta,
+                    graphPayloadData,
+                    buildMeta
+            );
             notifyStage(stageObserver, "neo4j_csv_payload", csvStartNs, detailMap(
                     "class_nodes", csvResult.classNodes(),
                     "method_nodes", csvResult.methodNodes(),
@@ -166,18 +158,10 @@ public final class Neo4jBulkImportService {
 
             try {
                 long buildMetaStartNs = System.nanoTime();
-                writeBuildMeta(
-                        stagingHome,
-                        buildSeq,
-                        quickMode,
-                        callGraphMode,
-                        csvResult.totalNodes(),
-                        csvResult.edgeCount(),
-                        buildMeta
-                );
                 notifyStage(stageObserver, "neo4j_write_build_meta", buildMetaStartNs, detailMap(
                         "nodes", csvResult.totalNodes(),
-                        "edges", csvResult.edgeCount()
+                        "edges", csvResult.edgeCount(),
+                        "strategy", "csv_import"
                 ));
                 runtimeSnapshot = requireRuntimeSnapshot(runtimeSnapshotSupplier);
                 long persistSnapshotStartNs = System.nanoTime();
@@ -194,6 +178,7 @@ public final class Neo4jBulkImportService {
                         heapUsage());
                 long swapStartNs = System.nanoTime();
                 backupHome = replaceProjectHome(projectHome, stagingHome, buildSeq);
+                cleanupBuildArtifacts = resolvePromotedBuildArtifacts(projectHome, stagingDir);
                 notifyStage(stageObserver, "neo4j_swap_home", swapStartNs, detailMap(
                         "backup_created", backupHome != null
                 ));
@@ -227,11 +212,12 @@ public final class Neo4jBulkImportService {
             if (importLockHeld) {
                 PROJECT_STORE.endProjectImport(normalized);
             }
-            deleteRecursively(backupHome);
             if (!keepStaging && buildSucceeded) {
-                deleteRecursively(projectHome.resolve("import-staging"));
+                scheduleCleanup("neo4j backup home", backupHome);
+                scheduleCleanup("neo4j import staging", cleanupBuildArtifacts);
             } else {
-                Path keptPath = buildSucceeded ? projectHome.resolve("import-staging") : stagingDir;
+                deleteRecursively(backupHome);
+                Path keptPath = buildSucceeded ? cleanupBuildArtifacts : stagingDir;
                 logger.info("keep neo4j bulk staging files: {}", keptPath);
             }
             if (!buildSucceeded && !keepStaging) {
@@ -250,12 +236,12 @@ public final class Neo4jBulkImportService {
         try {
             PROJECT_STORE.write(normalized, 30_000L, tx -> {
                 Node meta;
-                try (var it = tx.findNodes(Label.label("JAMeta"), "key", "build_meta")) {
+                try (var it = tx.findNodes(Label.label("JAMeta"), "key", BUILD_META_KEY)) {
                     if (it.hasNext()) {
                         meta = it.next();
                     } else {
                         meta = tx.createNode(Label.label("JAMeta"));
-                        meta.setProperty("key", "build_meta");
+                        meta.setProperty("key", BUILD_META_KEY);
                         meta.setProperty("build_seq", buildSeq);
                     }
                 }
@@ -271,10 +257,14 @@ public final class Neo4jBulkImportService {
     private CsvBuildResult writeCsvPayload(
             Path nodeFile,
             Path relFile,
+            long buildSeq,
+            boolean quickMode,
+            String callGraphMode,
             Set<MethodReference> methods,
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
             Map<MethodCallKey, MethodCallMeta> methodCallMeta,
-            GraphPayloadData graphPayloadData) throws IOException {
+            GraphPayloadData graphPayloadData,
+            Map<String, Object> buildMeta) throws IOException {
         Map<MethodKey, Long> methodNodeByKey = new LinkedHashMap<>();
         Map<MethodLooseKey, Long> methodNodeByLooseKey = new LinkedHashMap<>();
         Set<MethodLooseKey> ambiguousMethodLooseKeys = new HashSet<>();
@@ -307,6 +297,19 @@ public final class Neo4jBulkImportService {
                         "method_semantic_flags:int",
                         "is_interface:boolean",
                         "is_abstract:boolean",
+                        "key",
+                        "build_seq:long",
+                        "quick_mode:boolean",
+                        "call_graph_mode",
+                        "node_count:int",
+                        "edge_count:long",
+                        "updated_at:long",
+                        "call_graph_engine",
+                        "analysis_profile",
+                        "target_jar_count:int",
+                        "library_jar_count:int",
+                        "sdk_entry_count:int",
+                        "explicit_entry_method_count:int",
                         ":LABEL"
                 )
                 .setRecordSeparator('\n')
@@ -366,6 +369,19 @@ public final class Neo4jBulkImportService {
                         0,
                         classReference != null && classReference.isInterface(),
                         isAbstractClass(classReference),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
                         classLabels()
                 );
                 classNodeByKey.put(key, nodeId);
@@ -466,6 +482,19 @@ public final class Neo4jBulkImportService {
                         methodSemanticFlags,
                         false,
                         false,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
                         methodLabels()
                 );
                 methodNodeByKey.put(key, nodeId);
@@ -632,6 +661,43 @@ public final class Neo4jBulkImportService {
                     }
                 }
             }
+            BuildMetaCsvRow buildMetaRow = BuildMetaCsvRow.from(
+                    buildSeq,
+                    quickMode,
+                    callGraphMode,
+                    classNodeCount + methodNodeCount,
+                    edgeCount,
+                    buildMeta
+            );
+            nodePrinter.printRecord(
+                    nextNodeId,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    BUILD_META_KEY,
+                    buildMetaRow.buildSeq(),
+                    buildMetaRow.quickMode(),
+                    buildMetaRow.callGraphMode(),
+                    buildMetaRow.nodeCount(),
+                    buildMetaRow.edgeCount(),
+                    buildMetaRow.updatedAt(),
+                    buildMetaRow.callGraphEngine(),
+                    buildMetaRow.analysisProfile(),
+                    buildMetaRow.targetJarCount(),
+                    buildMetaRow.libraryJarCount(),
+                    buildMetaRow.sdkEntryCount(),
+                    buildMetaRow.explicitEntryMethodCount(),
+                    "JAMeta"
+            );
             nodePrinter.flush();
             relPrinter.flush();
         }
@@ -763,46 +829,6 @@ public final class Neo4jBulkImportService {
         }
     }
 
-    private static void writeBuildMeta(Path projectHome,
-                                       long buildSeq,
-                                       boolean quickMode,
-                                       String callGraphMode,
-                                       int nodeCount,
-                                       long edgeCount,
-                                       Map<String, Object> extraMeta) {
-        if (projectHome == null) {
-            throw new IllegalStateException("neo4j_project_home_missing");
-        }
-        DatabaseManagementService managementService = null;
-        try {
-            managementService = new DatabaseManagementServiceBuilder(projectHome).build();
-            GraphDatabaseService database = managementService.database(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
-            try (Transaction tx = database.beginTx()) {
-                tx.execute("MATCH (m:JAMeta {key:'build_meta'}) DETACH DELETE m");
-                Node meta = tx.createNode(Label.label("JAMeta"));
-                meta.setProperty("key", "build_meta");
-                meta.setProperty("build_seq", buildSeq);
-                meta.setProperty("quick_mode", quickMode);
-                meta.setProperty("call_graph_mode", safe(callGraphMode));
-                meta.setProperty("node_count", nodeCount);
-                meta.setProperty("edge_count", edgeCount);
-                meta.setProperty("updated_at", System.currentTimeMillis());
-                applyExtraBuildMeta(meta, extraMeta);
-                tx.commit();
-            }
-        } catch (Exception ex) {
-            throw new IllegalStateException("neo4j_build_meta_write_failed", ex);
-        } finally {
-            if (managementService != null) {
-                try {
-                    managementService.shutdown();
-                } catch (Exception ex) {
-                    logger.debug("shutdown staging neo4j metadata writer fail: {}", ex.toString());
-                }
-            }
-        }
-    }
-
     private static Path resolveStagingHome(Path projectHome, long buildSeq) {
         if (projectHome == null) {
             throw new IllegalStateException("neo4j_project_home_missing");
@@ -853,6 +879,55 @@ public final class Neo4jBulkImportService {
                         rollbackEx);
             }
             throw new IllegalStateException("neo4j_project_swap_failed", ex);
+        }
+    }
+
+    private static Path resolvePromotedBuildArtifacts(Path projectHome, Path stagingDir) {
+        if (projectHome == null || stagingDir == null) {
+            return null;
+        }
+        try {
+            Path relative = stagingDir.getFileName();
+            if (relative == null) {
+                return projectHome.resolve("import-staging");
+            }
+            return projectHome.resolve("import-staging").resolve(relative.toString());
+        } catch (Exception ex) {
+            logger.debug("resolve promoted import staging path fail: {}", ex.toString());
+            return projectHome.resolve("import-staging");
+        }
+    }
+
+    private static void scheduleCleanup(String label, Path path) {
+        if (path == null) {
+            return;
+        }
+        CLEANUP_EXECUTOR.execute(() -> {
+            try {
+                deleteRecursively(path);
+                deleteIfEmpty(path.getParent());
+            } catch (Exception ex) {
+                logger.debug("{} cleanup fail: {} ({})", label, path, ex.toString());
+            }
+        });
+    }
+
+    private static void deleteIfEmpty(Path path) {
+        if (path == null || !Files.isDirectory(path)) {
+            return;
+        }
+        try (var children = Files.list(path)) {
+            if (children.findAny().isPresent()) {
+                return;
+            }
+        } catch (Exception ex) {
+            logger.debug("check empty directory fail: {} ({})", path, ex.toString());
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (Exception ex) {
+            logger.debug("delete empty directory fail: {} ({})", path, ex.toString());
         }
     }
 
@@ -938,6 +1013,62 @@ public final class Neo4jBulkImportService {
 
     private static String classLabels() {
         return "JANode;Class";
+    }
+
+    private record BuildMetaCsvRow(long buildSeq,
+                                   boolean quickMode,
+                                   String callGraphMode,
+                                   int nodeCount,
+                                   long edgeCount,
+                                   long updatedAt,
+                                   String callGraphEngine,
+                                   String analysisProfile,
+                                   int targetJarCount,
+                                   int libraryJarCount,
+                                   int sdkEntryCount,
+                                   int explicitEntryMethodCount) {
+        private static BuildMetaCsvRow from(long buildSeq,
+                                            boolean quickMode,
+                                            String callGraphMode,
+                                            int nodeCount,
+                                            long edgeCount,
+                                            Map<String, Object> extraMeta) {
+            long now = System.currentTimeMillis();
+            return new BuildMetaCsvRow(
+                    Math.max(0L, buildSeq),
+                    quickMode,
+                    safe(callGraphMode),
+                    Math.max(0, nodeCount),
+                    Math.max(0L, edgeCount),
+                    now,
+                    stringValue(extraMeta, "call_graph_engine"),
+                    stringValue(extraMeta, "analysis_profile"),
+                    Math.max(0, intValue(extraMeta, "target_jar_count")),
+                    Math.max(0, intValue(extraMeta, "library_jar_count")),
+                    Math.max(0, intValue(extraMeta, "sdk_entry_count")),
+                    Math.max(0, intValue(extraMeta, "explicit_entry_method_count"))
+            );
+        }
+
+        private static String stringValue(Map<String, Object> values, String key) {
+            Object normalized = normalizeMetaValue(values == null ? null : values.get(key));
+            return normalized == null ? "" : safe(String.valueOf(normalized));
+        }
+
+        private static int intValue(Map<String, Object> values, String key) {
+            Object normalized = normalizeMetaValue(values == null ? null : values.get(key));
+            if (normalized instanceof Number number) {
+                return number.intValue();
+            }
+            if (normalized instanceof String string && !string.isBlank()) {
+                try {
+                    return Integer.parseInt(string.trim());
+                } catch (Exception ignored) {
+                    return 0;
+                }
+            }
+            return 0;
+        }
     }
 
     private static SourceMarkerIndex buildSourceMarkerIndex(GraphPayloadData graphPayloadData) {
