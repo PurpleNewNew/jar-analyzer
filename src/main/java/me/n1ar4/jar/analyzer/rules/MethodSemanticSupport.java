@@ -134,6 +134,7 @@ public final class MethodSemanticSupport {
         }
         BiFunction<String, Integer, ClassReference> resolver =
                 (className, jarId) -> resolveClassReference(className, jarId, classIndex, classByName);
+        Map<ClassReference.Handle, OwnerSemanticFacts> ownerSemanticFacts = new HashMap<>();
         MyBatisMapperXmlIndex.Result myBatisIndex = MyBatisMapperXmlIndex.fromResources(resources);
         Set<String> springMappings = collectSpringMappingSignatures(controllers);
         Set<String> servletCallbacks = collectWebCallbackSignatures(servlets, WebEntryMethods.SERVLET_ENTRY_METHODS);
@@ -156,6 +157,7 @@ public final class MethodSemanticSupport {
                 continue;
             }
             ClassReference ownerClass = resolveClassReference(className, method.getJarId(), classIndex, classByName);
+            OwnerSemanticFacts ownerFacts = resolveOwnerSemanticFacts(ownerClass, resolver, ownerSemanticFacts);
             int flags = 0;
             int sourceFlags = explicitFlags.getOrDefault(method.getHandle(), 0);
             if (sourceFlags != 0) {
@@ -178,22 +180,21 @@ public final class MethodSemanticSupport {
                 flags |= MethodSemanticFlags.ENTRY | MethodSemanticFlags.WEB_ENTRY | MethodSemanticFlags.JSP_ENDPOINT;
             }
             if (ownerClass != null) {
-                if (isRpcServiceClass(ownerClass) && isRemoteServiceMethod(method)) {
+                if (ownerFacts.rpcService() && isRemoteServiceMethod(method)) {
                     flags |= MethodSemanticFlags.ENTRY | MethodSemanticFlags.RPC_ENTRY;
                 }
-                if (STRUTS_ENTRY_METHODS.contains(methodName)
-                        && matchesHierarchy(ownerClass, resolver, STRUTS_ENTRY_TYPES)) {
+                if (STRUTS_ENTRY_METHODS.contains(methodName) && ownerFacts.strutsAction()) {
                     flags |= MethodSemanticFlags.ENTRY | MethodSemanticFlags.WEB_ENTRY | MethodSemanticFlags.STRUTS_ACTION;
                 }
                 if (NETTY_HANDLER_METHODS.contains(methodName)
-                        && (matchesHierarchy(ownerClass, resolver, NETTY_HANDLER_TYPES)
-                        || ("decode".equals(methodName) && matchesHierarchy(ownerClass, resolver, NETTY_DECODER_TYPES)))) {
+                        && (ownerFacts.nettyHandler()
+                        || ("decode".equals(methodName) && ownerFacts.nettyDecoder()))) {
                     flags |= MethodSemanticFlags.ENTRY | MethodSemanticFlags.WEB_ENTRY | MethodSemanticFlags.NETTY_HANDLER;
                 }
-                if (matchesHierarchy(ownerClass, resolver, SERIALIZABLE_TYPES)) {
+                if (ownerFacts.serializableOwner()) {
                     flags |= MethodSemanticFlags.SERIALIZABLE_OWNER;
                 }
-                if (isCollectionContainer(ownerClass, resolver)) {
+                if (ownerFacts.collectionContainer()) {
                     flags |= MethodSemanticFlags.COLLECTION_CONTAINER;
                 }
                 if (isDeserializationCallback(methodName, methodDesc)) {
@@ -201,27 +202,27 @@ public final class MethodSemanticSupport {
                 }
                 if ("validateObject".equals(methodName)
                         && "()V".equals(methodDesc)
-                        && matchesHierarchy(ownerClass, resolver, OBJECT_INPUT_VALIDATION_TYPES)) {
+                        && ownerFacts.objectInputValidation()) {
                     flags |= MethodSemanticFlags.DESERIALIZATION_CALLBACK;
                 }
                 if ("invoke".equals(methodName)
                         && "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;".equals(methodDesc)
-                        && matchesHierarchy(ownerClass, resolver, INVOCATION_HANDLER_TYPES)) {
+                        && ownerFacts.invocationHandler()) {
                     flags |= MethodSemanticFlags.INVOCATION_HANDLER;
                 }
                 if ("compare".equals(methodName)
                         && "(Ljava/lang/Object;Ljava/lang/Object;)I".equals(methodDesc)
-                        && matchesHierarchy(ownerClass, resolver, COMPARATOR_TYPES)) {
+                        && ownerFacts.comparator()) {
                     flags |= MethodSemanticFlags.COMPARATOR_CALLBACK;
                 }
                 if ("transform".equals(methodName)
                         && "(Ljava/lang/Object;)Ljava/lang/Object;".equals(methodDesc)
-                        && matchesHierarchy(ownerClass, resolver, TRANSFORMER_TYPES)) {
+                        && ownerFacts.transformer()) {
                     flags |= MethodSemanticFlags.TRANSFORMER_CALLBACK;
                 }
                 if ("compareTo".equals(methodName)
                         && "(Ljava/lang/Object;)I".equals(methodDesc)
-                        && matchesHierarchy(ownerClass, resolver, COMPARABLE_TYPES)) {
+                        && ownerFacts.comparable()) {
                     flags |= MethodSemanticFlags.COMPARABLE_CALLBACK;
                 }
             }
@@ -313,6 +314,36 @@ public final class MethodSemanticSupport {
             return direct;
         }
         return classByName.get(normalized);
+    }
+
+    private static OwnerSemanticFacts resolveOwnerSemanticFacts(ClassReference ownerClass,
+                                                                BiFunction<String, Integer, ClassReference> classResolver,
+                                                                Map<ClassReference.Handle, OwnerSemanticFacts> ownerSemanticFacts) {
+        if (ownerClass == null) {
+            return OwnerSemanticFacts.EMPTY;
+        }
+        ClassReference.Handle handle = ownerClass.getHandle();
+        if (handle == null) {
+            return deriveOwnerSemanticFacts(ownerClass, classResolver);
+        }
+        return ownerSemanticFacts.computeIfAbsent(handle, ignored -> deriveOwnerSemanticFacts(ownerClass, classResolver));
+    }
+
+    private static OwnerSemanticFacts deriveOwnerSemanticFacts(ClassReference ownerClass,
+                                                               BiFunction<String, Integer, ClassReference> classResolver) {
+        return new OwnerSemanticFacts(
+                isRpcServiceClass(ownerClass),
+                matchesHierarchy(ownerClass, classResolver, STRUTS_ENTRY_TYPES),
+                matchesHierarchy(ownerClass, classResolver, NETTY_HANDLER_TYPES),
+                matchesHierarchy(ownerClass, classResolver, NETTY_DECODER_TYPES),
+                matchesHierarchy(ownerClass, classResolver, SERIALIZABLE_TYPES),
+                isCollectionContainer(ownerClass, classResolver),
+                matchesHierarchy(ownerClass, classResolver, OBJECT_INPUT_VALIDATION_TYPES),
+                matchesHierarchy(ownerClass, classResolver, INVOCATION_HANDLER_TYPES),
+                matchesHierarchy(ownerClass, classResolver, COMPARATOR_TYPES),
+                matchesHierarchy(ownerClass, classResolver, TRANSFORMER_TYPES),
+                matchesHierarchy(ownerClass, classResolver, COMPARABLE_TYPES)
+        );
     }
 
     private static boolean matchesHierarchy(ClassReference ownerClass,
@@ -415,6 +446,32 @@ public final class MethodSemanticSupport {
         int access = method.getAccess();
         return (access & Opcodes.ACC_PUBLIC) != 0
                 && (access & Opcodes.ACC_STATIC) == 0;
+    }
+
+    private record OwnerSemanticFacts(boolean rpcService,
+                                      boolean strutsAction,
+                                      boolean nettyHandler,
+                                      boolean nettyDecoder,
+                                      boolean serializableOwner,
+                                      boolean collectionContainer,
+                                      boolean objectInputValidation,
+                                      boolean invocationHandler,
+                                      boolean comparator,
+                                      boolean transformer,
+                                      boolean comparable) {
+        private static final OwnerSemanticFacts EMPTY = new OwnerSemanticFacts(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
     }
 
     private static boolean isJspServiceEntry(String methodName, String methodDesc) {
