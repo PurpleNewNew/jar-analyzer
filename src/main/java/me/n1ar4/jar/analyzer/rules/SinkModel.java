@@ -8,7 +8,7 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.chains;
+package me.n1ar4.jar.analyzer.rules;
 
 import java.util.List;
 

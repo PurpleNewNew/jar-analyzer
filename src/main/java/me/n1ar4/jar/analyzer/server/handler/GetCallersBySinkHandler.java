@@ -12,11 +12,12 @@ package me.n1ar4.jar.analyzer.server.handler;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.chains.ChainsBuilder;
-import me.n1ar4.jar.analyzer.chains.SinkModel;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.MethodResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.rules.SinkModel;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -42,7 +43,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                     || StringUtil.isNull(sink.getMethodName())) {
                 continue;
             }
-            List<MethodResult> resolvedSinks = resolveSinkMethods(engine, sink);
+            List<MethodReference> resolvedSinks = resolveSinkMethods(engine, sink);
             if (resolvedSinks.isEmpty()) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("sink", buildSinkPayload(sink, null));
@@ -51,11 +52,11 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                 items.add(item);
                 continue;
             }
-            for (MethodResult resolvedSink : resolvedSinks) {
+            for (MethodReference resolvedSink : resolvedSinks) {
                 ArrayList<MethodResult> callers = engine.getCallers(
-                        resolvedSink.getClassName(),
-                        resolvedSink.getMethodName(),
-                        resolvedSink.getMethodDesc(),
+                        resolvedClassName(resolvedSink),
+                        safe(resolvedSink.getName()),
+                        safe(resolvedSink.getDesc()),
                         resolvedSink.getJarId()
                 );
                 callers = new ArrayList<>(filterMethods(callers, includeJdk));
@@ -74,12 +75,12 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
         return ok(items, meta);
     }
 
-    private List<MethodResult> resolveSinkMethods(CoreEngine engine, SinkModel sink) {
+    private List<MethodReference> resolveSinkMethods(CoreEngine engine, SinkModel sink) {
         if (engine == null || sink == null) {
             return Collections.emptyList();
         }
         String methodDesc = normalizeDescForQuery(sink.getMethodDesc());
-        ArrayList<MethodResult> matches = engine.getMethod(
+        ArrayList<MethodReference> matches = engine.getMethodReferences(
                 sink.getClassName(),
                 sink.getMethodName(),
                 methodDesc
@@ -87,24 +88,24 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
         if (matches == null || matches.isEmpty()) {
             return Collections.emptyList();
         }
-        LinkedHashMap<String, MethodResult> dedup = new LinkedHashMap<>();
-        for (MethodResult match : matches) {
+        LinkedHashMap<String, MethodReference> dedup = new LinkedHashMap<>();
+        for (MethodReference match : matches) {
             if (match == null) {
                 continue;
             }
-            String key = safe(match.getClassName()) + "#" + safe(match.getMethodName()) + "#"
-                    + safe(match.getMethodDesc()) + "#" + match.getJarId();
+            String key = resolvedClassName(match) + "#" + safe(match.getName()) + "#"
+                    + safe(match.getDesc()) + "#" + match.getJarId();
             dedup.putIfAbsent(key, match);
         }
         return dedup.isEmpty() ? Collections.emptyList() : new ArrayList<>(dedup.values());
     }
 
-    private Map<String, Object> buildSinkPayload(SinkModel sink, MethodResult resolvedSink) {
+    private Map<String, Object> buildSinkPayload(SinkModel sink, MethodReference resolvedSink) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("boxName", sink == null ? null : sink.getBoxName());
-        payload.put("className", resolvedSink == null ? safe(sink == null ? null : sink.getClassName()) : safe(resolvedSink.getClassName()));
-        payload.put("methodName", resolvedSink == null ? safe(sink == null ? null : sink.getMethodName()) : safe(resolvedSink.getMethodName()));
-        payload.put("methodDesc", resolvedSink == null ? safe(sink == null ? null : sink.getMethodDesc()) : safe(resolvedSink.getMethodDesc()));
+        payload.put("className", resolvedSink == null ? safe(sink == null ? null : sink.getClassName()) : resolvedClassName(resolvedSink));
+        payload.put("methodName", resolvedSink == null ? safe(sink == null ? null : sink.getMethodName()) : safe(resolvedSink.getName()));
+        payload.put("methodDesc", resolvedSink == null ? safe(sink == null ? null : sink.getMethodDesc()) : safe(resolvedSink.getDesc()));
         payload.put("category", sink == null ? null : sink.getCategory());
         payload.put("severity", sink == null ? null : sink.getSeverity());
         payload.put("ruleTier", sink == null ? null : sink.getRuleTier());
@@ -142,7 +143,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                 if (key.isEmpty()) {
                     continue;
                 }
-                SinkModel model = ChainsBuilder.getSinkByName(key);
+                SinkModel model = SinkRuleRegistry.findSinkByName(key);
                 if (model != null) {
                     sinks.add(model);
                 }
@@ -176,7 +177,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
             }
             String name = asString(item.get("sinkName"));
             if (!StringUtil.isNull(name)) {
-                SinkModel model = ChainsBuilder.getSinkByName(name);
+                SinkModel model = SinkRuleRegistry.findSinkByName(name);
                 if (model != null) {
                     sinks.add(model);
                     continue;
@@ -234,5 +235,12 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
 
     private String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String resolvedClassName(MethodReference reference) {
+        if (reference == null || reference.getClassReference() == null) {
+            return "";
+        }
+        return safe(reference.getClassReference().getName());
     }
 }

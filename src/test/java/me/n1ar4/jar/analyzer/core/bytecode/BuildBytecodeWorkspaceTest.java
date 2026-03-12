@@ -4,6 +4,8 @@ import me.n1ar4.jar.analyzer.core.BytecodeSymbolRunner;
 import me.n1ar4.jar.analyzer.core.ClassAnalysisRunner;
 import me.n1ar4.jar.analyzer.core.DiscoveryRunner;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
+import me.n1ar4.jar.analyzer.analyze.spring.SpringMapping;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -24,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -97,8 +100,8 @@ class BuildBytecodeWorkspaceTest {
     }
 
     @Test
-    void workspaceRunnersShouldMatchSequentialAndParallelResults() {
-        Path jar = FixtureJars.callbackTestJar();
+    void workspaceRunnersShouldRemainDeterministicAcrossRepeatedRuns() {
+        Path jar = FixtureJars.springbootTestJar();
         List<ClassFileEntity> classFiles = CoreUtil.getAllClassesFromJars(
                 List.of(jar.toString()),
                 new HashMap<>(Map.of(jar.toString(), 1)),
@@ -107,31 +110,27 @@ class BuildBytecodeWorkspaceTest {
         );
         BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(new HashSet<>(classFiles));
 
-        DiscoverySnapshot sequentialDiscovery = withProperty("jar.analyzer.discovery.threads", "1",
-                () -> runDiscovery(workspace));
-        DiscoverySnapshot parallelDiscovery = withProperty("jar.analyzer.discovery.threads", "2",
-                () -> runDiscovery(workspace));
-        assertEquals(sequentialDiscovery.classHandles, parallelDiscovery.classHandles);
-        assertEquals(sequentialDiscovery.methodHandles, parallelDiscovery.methodHandles);
-        assertEquals(sequentialDiscovery.stringAnnoMap, parallelDiscovery.stringAnnoMap);
+        DiscoverySnapshot firstDiscovery = runDiscovery(workspace);
+        DiscoverySnapshot secondDiscovery = runDiscovery(workspace);
+        assertEquals(firstDiscovery.classHandles, secondDiscovery.classHandles);
+        assertEquals(firstDiscovery.methodHandles, secondDiscovery.methodHandles);
+        assertEquals(firstDiscovery.stringAnnoMap, secondDiscovery.stringAnnoMap);
 
-        ClassAnalysisSnapshot sequentialAnalysis = withProperty("jar.analyzer.class.analysis.threads", "1",
-                () -> runClassAnalysis(workspace, sequentialDiscovery.classMap, sequentialDiscovery.methodMap));
-        ClassAnalysisSnapshot parallelAnalysis = withProperty("jar.analyzer.class.analysis.threads", "2",
-                () -> runClassAnalysis(workspace, sequentialDiscovery.classMap, sequentialDiscovery.methodMap));
-        assertEquals(sequentialAnalysis.strings, parallelAnalysis.strings);
-        assertEquals(sequentialAnalysis.controllers, parallelAnalysis.controllers);
-        assertEquals(sequentialAnalysis.interceptors, parallelAnalysis.interceptors);
-        assertEquals(sequentialAnalysis.servlets, parallelAnalysis.servlets);
-        assertEquals(sequentialAnalysis.filters, parallelAnalysis.filters);
-        assertEquals(sequentialAnalysis.listeners, parallelAnalysis.listeners);
+        ClassAnalysisSnapshot firstAnalysis =
+                runClassAnalysis(workspace, firstDiscovery.classMap, firstDiscovery.methodMap);
+        ClassAnalysisSnapshot secondAnalysis =
+                runClassAnalysis(workspace, firstDiscovery.classMap, firstDiscovery.methodMap);
+        assertEquals(firstAnalysis.strings, secondAnalysis.strings);
+        assertEquals(firstAnalysis.controllers, secondAnalysis.controllers);
+        assertEquals(firstAnalysis.interceptors, secondAnalysis.interceptors);
+        assertEquals(firstAnalysis.servlets, secondAnalysis.servlets);
+        assertEquals(firstAnalysis.filters, secondAnalysis.filters);
+        assertEquals(firstAnalysis.listeners, secondAnalysis.listeners);
 
-        SymbolSnapshot sequentialSymbol = withProperty("jar.analyzer.symbol.threads", "1",
-                () -> runSymbol(workspace));
-        SymbolSnapshot parallelSymbol = withProperty("jar.analyzer.symbol.threads", "2",
-                () -> runSymbol(workspace));
-        assertEquals(sequentialSymbol.callSites, parallelSymbol.callSites);
-        assertEquals(sequentialSymbol.localVars, parallelSymbol.localVars);
+        SymbolSnapshot firstSymbol = runSymbol(workspace);
+        SymbolSnapshot secondSymbol = runSymbol(workspace);
+        assertEquals(firstSymbol.callSites, secondSymbol.callSites);
+        assertEquals(firstSymbol.localVars, secondSymbol.localVars);
     }
 
     @Test
@@ -214,7 +213,7 @@ class BuildBytecodeWorkspaceTest {
         );
         return new ClassAnalysisSnapshot(
                 normalizeStringMap(strMap),
-                new TreeSet<>(controllers.stream().map(Object::toString).toList()),
+                normalizeControllers(controllers),
                 new TreeSet<>(interceptors),
                 new TreeSet<>(servlets),
                 new TreeSet<>(filters),
@@ -250,24 +249,38 @@ class BuildBytecodeWorkspaceTest {
         return out;
     }
 
-    private static <T> T withProperty(String key, String value, java.util.concurrent.Callable<T> action) {
-        String previous = System.getProperty(key);
-        try {
-            if (value == null) {
-                System.clearProperty(key);
-            } else {
-                System.setProperty(key, value);
-            }
-            return action.call();
-        } catch (Exception ex) {
-            throw new IllegalStateException(ex);
-        } finally {
-            if (previous == null) {
-                System.clearProperty(key);
-            } else {
-                System.setProperty(key, previous);
-            }
+    private static TreeSet<String> normalizeControllers(List<SpringController> controllers) {
+        TreeSet<String> out = new TreeSet<>();
+        if (controllers == null) {
+            return out;
         }
+        for (SpringController controller : controllers) {
+            if (controller == null) {
+                continue;
+            }
+            String mappings = controller.getMappings() == null
+                    ? ""
+                    : controller.getMappings().stream()
+                    .map(BuildBytecodeWorkspaceTest::normalizeMapping)
+                    .sorted()
+                    .collect(Collectors.joining(","));
+            String className = controller.getClassName() == null ? "" : controller.getClassName().toString();
+            out.add(className + "|" + controller.isRest() + "|" + safe(controller.getBasePath()) + "|" + mappings);
+        }
+        return out;
+    }
+
+    private static String normalizeMapping(SpringMapping mapping) {
+        if (mapping == null) {
+            return "";
+        }
+        String method = mapping.getMethodName() == null ? "" : mapping.getMethodName().toString();
+        return method + "|" + mapping.isRest() + "|" + safe(mapping.getPath()) + "|"
+                + safe(mapping.getPathRestful());
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private static boolean containsVirtualInvoke(org.objectweb.asm.tree.MethodNode methodNode) {

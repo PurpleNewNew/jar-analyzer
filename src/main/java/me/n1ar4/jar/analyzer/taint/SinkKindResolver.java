@@ -15,19 +15,9 @@ import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 /**
  * Resolve sink kind for taint verification.
  *
- * <p>Priority: override > rule registry > heuristic.</p>
+ * <p>Priority: per-thread override > rule registry > heuristic.</p>
  */
 public final class SinkKindResolver {
-    /**
-     * Optional override. Example: -Djar.analyzer.taint.sinkKind=sql
-     */
-    public static final String SINK_KIND_PROP = "jar.analyzer.taint.sinkKind";
-
-    /**
-     * Disable heuristics. Example: -Djar.analyzer.taint.sinkKindHeuristic=false
-     */
-    private static final String HEURISTIC_ENABLE_PROP = "jar.analyzer.taint.sinkKindHeuristic";
-
     /**
      * Per-thread override, mainly for API/Job executions (must be cleared after use).
      */
@@ -82,31 +72,15 @@ public final class SinkKindResolver {
                 return new Result(normalized, Origin.OVERRIDE);
             }
         }
-        String override = System.getProperty(SINK_KIND_PROP);
-        String normalized = normalizeKind(override);
-        if (normalized != null) {
-            return new Result(normalized, Origin.OVERRIDE);
-        }
         String ruleKind = ModelRegistry.resolveSinkKind(sink);
         if (ruleKind != null && !ruleKind.isBlank()) {
             return new Result(ruleKind, Origin.RULES);
-        }
-        if (!isHeuristicEnabled()) {
-            return new Result(null, Origin.UNKNOWN);
         }
         String guessed = guessBySignature(sink);
         if (guessed != null) {
             return new Result(guessed, Origin.HEURISTIC);
         }
         return new Result(null, Origin.UNKNOWN);
-    }
-
-    private static boolean isHeuristicEnabled() {
-        String raw = System.getProperty(HEURISTIC_ENABLE_PROP);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return !"false".equalsIgnoreCase(raw.trim());
     }
 
     private static String normalizeKind(String raw) {

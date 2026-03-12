@@ -65,9 +65,6 @@ import java.util.function.Supplier;
 
 public final class Neo4jBulkImportService {
     private static final Logger logger = LogManager.getLogger();
-    private static final String KEEP_STAGING_PROP = "jar.analyzer.neo4j.bulk.keepStaging";
-    private static final String MAX_OFF_HEAP_PROP = "jar.analyzer.neo4j.bulk.maxOffHeapMemory";
-    private static final String THREADS_PROP = "jar.analyzer.neo4j.bulk.threads";
     private static final int IMPORT_LOG_TAIL_BYTES = 8192;
     private static final int IMPORT_ERR_SUMMARY_LIMIT = 480;
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
@@ -99,7 +96,7 @@ public final class Neo4jBulkImportService {
         Path stagingDir = stagingHome
                 .resolve("import-staging")
                 .resolve("build-" + buildSeq + "-" + System.nanoTime());
-        boolean keepStaging = keepStagingFiles();
+        boolean keepStaging = false;
         boolean buildSucceeded = false;
         boolean importLockHeld = false;
         long startNs = System.nanoTime();
@@ -701,14 +698,6 @@ public final class Neo4jBulkImportService {
         args.add("--nodes=" + nodeFile.toAbsolutePath().normalize());
         args.add("--relationships=" + relFile.toAbsolutePath().normalize());
         args.add("--report-file=" + reportFile.toAbsolutePath().normalize());
-        String maxOffHeap = safe(System.getProperty(MAX_OFF_HEAP_PROP));
-        if (!maxOffHeap.isBlank()) {
-            args.add("--max-off-heap-memory=" + maxOffHeap);
-        }
-        Integer threads = parsePositiveInt(System.getProperty(THREADS_PROP));
-        if (threads != null) {
-            args.add("--threads=" + threads);
-        }
         args.add(GraphDatabaseSettings.DEFAULT_DATABASE_NAME);
 
         int exitCode;
@@ -1432,27 +1421,6 @@ public final class Neo4jBulkImportService {
             return "RELATED";
         }
         return normalized;
-    }
-
-    private static boolean keepStagingFiles() {
-        String raw = safe(System.getProperty(KEEP_STAGING_PROP)).toLowerCase(Locale.ROOT);
-        return "1".equals(raw) || "true".equals(raw) || "yes".equals(raw) || "on".equals(raw);
-    }
-
-    private static Integer parsePositiveInt(String raw) {
-        String value = safe(raw);
-        if (value.isBlank()) {
-            return null;
-        }
-        try {
-            int number = Integer.parseInt(value);
-            if (number > 0) {
-                return number;
-            }
-        } catch (Exception ignored) {
-            logger.debug("parse positive int property fail: {} ({})", raw, ignored.toString());
-        }
-        return null;
     }
 
     private static void deleteRecursively(Path root) {

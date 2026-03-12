@@ -12,9 +12,11 @@ package me.n1ar4.jar.analyzer.storage.neo4j;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,5 +63,16 @@ class ProjectGraphStoreFacadeTest {
             facade.endProjectImport(projectKey);
             facade.deleteProjectStore(projectKey);
         }
+    }
+
+    @Test
+    void deleteProjectStoreShouldRemoveProjectHome() {
+        String projectKey = "facade-delete-" + Long.toHexString(System.nanoTime());
+        Path home = facade.resolveProjectHome(projectKey);
+        assertDoesNotThrow(() -> facade.database(projectKey));
+
+        facade.deleteProjectStore(projectKey);
+
+        assertFalse(Files.exists(home));
     }
 }

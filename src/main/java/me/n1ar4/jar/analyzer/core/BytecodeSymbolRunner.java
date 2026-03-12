@@ -50,7 +50,6 @@ import java.util.concurrent.TimeUnit;
 
 public final class BytecodeSymbolRunner {
     private static final Logger logger = LogManager.getLogger();
-    private static final String THREADS_PROP = "jar.analyzer.symbol.threads";
 
     private BytecodeSymbolRunner() {
     }
@@ -451,17 +450,6 @@ public final class BytecodeSymbolRunner {
     }
 
     private static int resolveThreads(int classCount) {
-        String raw = System.getProperty(THREADS_PROP);
-        if (raw != null && !raw.trim().isEmpty()) {
-            try {
-                int val = Integer.parseInt(raw.trim());
-                if (val > 0) {
-                    return Math.min(val, Math.max(1, classCount));
-                }
-            } catch (NumberFormatException ex) {
-                logger.debug("invalid threads: {}", raw);
-            }
-        }
         int cpu = Runtime.getRuntime().availableProcessors();
         if (cpu <= 1 || classCount < 200) {
             return 1;

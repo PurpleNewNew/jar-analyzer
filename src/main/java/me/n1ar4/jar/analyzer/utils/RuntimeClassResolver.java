@@ -140,11 +140,7 @@ public final class RuntimeClassResolver {
     }
 
     private static String buildRootKey() {
-        String runtimeKey = safeGetRuntimeStateKey();
-        String includeManifest = System.getProperty("jar.analyzer.classpath.includeManifest", "");
-        String scanDepth = System.getProperty("jar.analyzer.classpath.scanDepth", "");
-        String conflict = System.getProperty(ClasspathResolver.CONFLICT_PROP, "");
-        return runtimeKey + "|" + includeManifest + "|" + scanDepth + "|" + conflict;
+        return safeGetRuntimeStateKey();
     }
 
     private static ResolvedClass resolveFromRuntimeArchives(String className) {
@@ -506,13 +502,6 @@ public final class RuntimeClassResolver {
         }
         boolean includeNested = safeResolveInnerJars();
         List<Path> libraryRoots = ClasspathResolver.resolveProjectLibraryRoots(ProjectRuntimeContext.getProjectModel());
-        ClasspathResolver.ConflictStrategy strategy = ClasspathResolver.resolveConflictStrategy();
-        if (strategy == ClasspathResolver.ConflictStrategy.FIRST) {
-            List<Path> resolved = ClasspathResolver.resolveUserArchives(rootPath, libraryRoots, includeNested);
-            cachedUserArchives = resolved.isEmpty() ? Collections.emptyList() : new ArrayList<>(resolved);
-            cachedGraph = null;
-            return cachedUserArchives;
-        }
         ClasspathResolver.ClasspathGraph graph = cachedGraph;
         if (graph == null) {
             graph = ClasspathResolver.resolveClasspathGraph(Paths.get(rootPath), libraryRoots, includeNested);

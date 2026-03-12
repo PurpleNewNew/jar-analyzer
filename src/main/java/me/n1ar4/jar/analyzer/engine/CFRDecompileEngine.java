@@ -48,14 +48,13 @@ public class CFRDecompileEngine {
             "// (powered by CFR decompiler)\n" +
             "//\n";
     private static final Object CACHE_LOCK = new Object();
+    private static final int CACHE_CAPACITY = 2000;
     private static final AtomicLong LAST_RUNTIME_STATE_VERSION =
             new AtomicLong(ProjectRuntimeContext.stateVersion());
-    private static volatile int cacheCapacity = DecompileCacheConfig.resolveCapacity();
-    private static volatile int lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
     private static volatile BuildScopedLru<String, String> codeCache =
-            new BuildScopedLru<>(cacheCapacity, ProjectRuntimeContext::stateVersion);
+            new BuildScopedLru<>(CACHE_CAPACITY, ProjectRuntimeContext::stateVersion);
     private static volatile BuildScopedLru<String, List<CfrLineMapping>> lineMappingCache =
-            new BuildScopedLru<>(lineMappingCapacity, ProjectRuntimeContext::stateVersion);
+            new BuildScopedLru<>(CACHE_CAPACITY, ProjectRuntimeContext::stateVersion);
     private static final JarAnalyzerClassFileSource CLASS_SOURCE = new JarAnalyzerClassFileSource();
 
     /**
@@ -355,32 +354,6 @@ public class CFRDecompileEngine {
         }
     }
 
-
-    public static int getCacheCapacity() {
-        return cacheCapacity;
-    }
-
-    public static void setCacheCapacity(int capacity) {
-        int normalized = DecompileCacheConfig.normalize(capacity, cacheCapacity);
-        if (normalized == cacheCapacity) {
-            return;
-        }
-        cacheCapacity = normalized;
-        lineMappingCapacity = resolveLineMappingCapacity(cacheCapacity);
-        synchronized (CACHE_LOCK) {
-            resetCaches();
-            LAST_RUNTIME_STATE_VERSION.set(ProjectRuntimeContext.stateVersion());
-        }
-    }
-
-    public static void setCacheCapacity(String capacity) {
-        Integer parsed = DecompileCacheConfig.parseOptional(capacity);
-        if (parsed == null) {
-            return;
-        }
-        setCacheCapacity(parsed);
-    }
-
     private static void ensureFreshCaches() {
         long version = ProjectRuntimeContext.stateVersion();
         if (version == LAST_RUNTIME_STATE_VERSION.get()) {
@@ -397,26 +370,13 @@ public class CFRDecompileEngine {
     }
 
     private static void resetCaches() {
-        codeCache = new BuildScopedLru<>(cacheCapacity, ProjectRuntimeContext::stateVersion);
-        lineMappingCache = new BuildScopedLru<>(lineMappingCapacity, ProjectRuntimeContext::stateVersion);
+        codeCache = new BuildScopedLru<>(CACHE_CAPACITY, ProjectRuntimeContext::stateVersion);
+        lineMappingCache = new BuildScopedLru<>(CACHE_CAPACITY, ProjectRuntimeContext::stateVersion);
     }
 
     private static String buildCacheKey(String classFilePath, ProjectRuntimeState runtimeState) {
         String runtimeKey = runtimeState == null ? "" : runtimeState.cacheKey();
         return "cfr-" + runtimeKey + "|" + classFilePath;
-    }
-
-    private static int resolveLineMappingCapacity(int defaultCapacity) {
-        String raw = System.getProperty("jar.analyzer.decompile.linemap.cache.max");
-        if (raw == null || raw.trim().isEmpty()) {
-            return defaultCapacity;
-        }
-        try {
-            return DecompileCacheConfig.normalize(Integer.parseInt(raw.trim()), defaultCapacity);
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid int property jar.analyzer.decompile.linemap.cache.max={}", raw);
-            return defaultCapacity;
-        }
     }
 
     private static int countLines(String text) {

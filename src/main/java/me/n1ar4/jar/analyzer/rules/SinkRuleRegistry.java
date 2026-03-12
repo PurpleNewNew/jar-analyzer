@@ -10,8 +10,8 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import com.alibaba.fastjson2.JSON;
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.rules.sink.SinkRule;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -53,6 +53,63 @@ public final class SinkRuleRegistry {
 
     public static List<SinkModel> getSinkModels() {
         return currentSnapshot().sinkModels;
+    }
+
+    public static SinkModel findSinkByName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String key = name.trim();
+        if (key.isEmpty()) {
+            return null;
+        }
+        String simpleKey = stripParams(key);
+        for (SinkModel sink : currentSnapshot().sinkModels) {
+            if (sink == null) {
+                continue;
+            }
+            String boxName = sink.getBoxName();
+            if (boxName != null && boxName.equals(key)) {
+                return sink;
+            }
+            if (boxName != null && boxName.equalsIgnoreCase(key)) {
+                return sink;
+            }
+            String simpleName = buildSimpleName(sink);
+            if (simpleName != null && simpleName.equalsIgnoreCase(simpleKey)) {
+                return sink;
+            }
+        }
+        return null;
+    }
+
+    public static SinkModel findSinkByHandle(MethodReference.Handle sink) {
+        if (sink == null || sink.getClassReference() == null) {
+            return null;
+        }
+        String className = normalizeClassName(sink.getClassReference().getName());
+        String methodName = safe(sink.getName());
+        String methodDesc = safe(sink.getDesc());
+        if (isBlank(className) || isBlank(methodName)) {
+            return null;
+        }
+        for (SinkModel model : currentSnapshot().sinkModels) {
+            if (model == null) {
+                continue;
+            }
+            if (!className.equals(normalizeClassName(model.getClassName()))) {
+                continue;
+            }
+            if (!methodName.equals(safe(model.getMethodName()))) {
+                continue;
+            }
+            String desc = normalizeSinkDesc(model.getMethodDesc());
+            if (!"*".equals(desc) && !desc.equals(methodDesc)) {
+                continue;
+            }
+            return model;
+        }
+        return null;
     }
 
     public static long getVersion() {
@@ -368,6 +425,40 @@ public final class SinkRuleRegistry {
             return null;
         }
         return v.replace('.', '/');
+    }
+
+    private static String normalizeSinkDesc(String desc) {
+        String value = safe(desc);
+        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
+            return "*";
+        }
+        return value;
+    }
+
+    private static String stripParams(String name) {
+        int idx = name.indexOf('(');
+        if (idx > 0) {
+            return name.substring(0, idx);
+        }
+        return name;
+    }
+
+    private static String buildSimpleName(SinkModel sink) {
+        if (sink == null) {
+            return null;
+        }
+        String className = sink.getClassName();
+        String methodName = sink.getMethodName();
+        if (className == null || methodName == null) {
+            return null;
+        }
+        String simple = className;
+        int idx = simple.lastIndexOf('/');
+        if (idx >= 0 && idx < simple.length() - 1) {
+            simple = simple.substring(idx + 1);
+        }
+        simple = simple.replace('$', '.');
+        return simple + "." + methodName;
     }
 
     private static boolean isBlank(String value) {

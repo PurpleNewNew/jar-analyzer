@@ -464,6 +464,9 @@ public class ProjectContextModelTest {
 
             assertEquals(malformed, Files.readString(registry, StandardCharsets.UTF_8));
             assertTrue(service.list().stream().anyMatch(entry -> entry.projectKey().equals(created.projectKey())));
+            ProjectRegistrySnapshot snapshot = service.snapshot();
+            assertEquals("unavailable", snapshot.registryState());
+            assertTrue(snapshot.registryMessage().contains(".jar-analyzer-projects.json"));
         } finally {
             if (backup == null) {
                 Files.deleteIfExists(registry);
@@ -472,6 +475,27 @@ public class ProjectContextModelTest {
             }
             invokeLoad(service);
             Neo4jProjectStore.getInstance().deleteProjectStore(created.projectKey());
+        }
+    }
+
+    @Test
+    public void loadShouldReportMissingRegistryFileSeparatelyFromCorruptRegistry() throws Exception {
+        Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
+        byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
+        ProjectRegistryService service = ProjectRegistryService.getInstance();
+        try {
+            Files.deleteIfExists(registry);
+            invokeLoad(service);
+
+            ProjectRegistrySnapshot snapshot = service.snapshot();
+            assertEquals("missing", snapshot.registryState());
+            assertTrue(snapshot.registryMessage().contains(".jar-analyzer-projects.json"));
+            assertTrue(snapshot.projects().isEmpty());
+        } finally {
+            if (backup != null) {
+                Files.write(registry, backup);
+            }
+            invokeLoad(service);
         }
     }
 

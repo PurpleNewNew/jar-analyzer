@@ -3,7 +3,6 @@ package me.n1ar4.jar.analyzer.gui.runtime.api;
 import me.n1ar4.jar.analyzer.config.ConfigEngine;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
@@ -170,7 +169,6 @@ final class BuildWorkflowSupport {
         cfg.setTotalEdge(String.valueOf(result.getEdgeCount()));
         cfg.setDbSize(result.getDbSizeLabel());
         cfg.setLang(language == GlobalOptions.ENGLISH ? "en" : "zh");
-        cfg.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
         ConfigEngine.saveConfig(cfg);
     }
 

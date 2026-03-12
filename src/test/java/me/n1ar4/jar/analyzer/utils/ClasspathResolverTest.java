@@ -15,7 +15,6 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,19 +30,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClasspathResolverTest {
-    private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
-
     @TempDir
     Path tempDir;
 
-    @AfterEach
-    void cleanup() {
-        System.clearProperty(SCAN_DEPTH_PROP);
-    }
-
     @Test
-    void resolveUserArchivesShouldRecurseDirectoryInputRegardlessOfScanDepth() throws Exception {
-        System.setProperty(SCAN_DEPTH_PROP, "1");
+    void resolveUserArchivesShouldRecurseDirectoryInput() throws Exception {
         Path inputDir = tempDir.resolve("input");
         Path deepClass = writeClassFile(inputDir, "a/b/c/d/e/f/g/h/Deep.class");
 
@@ -53,8 +44,7 @@ class ClasspathResolverTest {
     }
 
     @Test
-    void resolveClasspathGraphShouldRecurseDirectoryInputRegardlessOfScanDepth() throws Exception {
-        System.setProperty(SCAN_DEPTH_PROP, "1");
+    void resolveClasspathGraphShouldRecurseDirectoryInput() throws Exception {
         Path inputDir = tempDir.resolve("input");
         Path deepClass = writeClassFile(inputDir, "a/b/c/d/e/f/g/h/Deep.class");
 
@@ -64,18 +54,21 @@ class ClasspathResolverTest {
     }
 
     @Test
-    void resolveClasspathGraphShouldKeepDependencyDepthLimit() throws Exception {
-        Path rootJar = createJar(tempDir.resolve("root.jar"), "mid.jar");
-        createJar(tempDir.resolve("mid.jar"), "leaf.jar");
+    void resolveClasspathGraphShouldKeepDefaultDependencyDepthLimit() throws Exception {
+        Path rootJar = createJar(tempDir.resolve("root.jar"), "mid-1.jar");
+        Path mid1 = createJar(tempDir.resolve("mid-1.jar"), "mid-2.jar");
+        createJar(tempDir.resolve("mid-2.jar"), "mid-3.jar");
+        createJar(tempDir.resolve("mid-3.jar"), "mid-4.jar");
+        createJar(tempDir.resolve("mid-4.jar"), "mid-5.jar");
+        createJar(tempDir.resolve("mid-5.jar"), "mid-6.jar");
+        Path mid6 = createJar(tempDir.resolve("mid-6.jar"), "leaf.jar");
         Path leafJar = createJar(tempDir.resolve("leaf.jar"));
 
-        System.setProperty(SCAN_DEPTH_PROP, "1");
-        ClasspathResolver.ClasspathGraph shallowGraph = ClasspathResolver.resolveClasspathGraph(rootJar, false);
-        assertFalse(shallowGraph.getOrderedArchives().contains(leafJar));
+        ClasspathResolver.ClasspathGraph graph = ClasspathResolver.resolveClasspathGraph(rootJar, false);
 
-        System.setProperty(SCAN_DEPTH_PROP, "2");
-        ClasspathResolver.ClasspathGraph deepGraph = ClasspathResolver.resolveClasspathGraph(rootJar, false);
-        assertTrue(deepGraph.getOrderedArchives().contains(leafJar));
+        assertTrue(graph.getOrderedArchives().contains(mid1));
+        assertTrue(graph.getOrderedArchives().contains(mid6));
+        assertFalse(graph.getOrderedArchives().contains(leafJar));
     }
 
     @Test

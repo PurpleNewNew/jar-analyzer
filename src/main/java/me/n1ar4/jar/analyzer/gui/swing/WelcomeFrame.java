@@ -69,6 +69,7 @@ public final class WelcomeFrame extends JFrame {
 
     private final DefaultListModel<ProjectRegistryEntry> projectListModel = new DefaultListModel<>();
     private final JList<ProjectRegistryEntry> projectList = new JList<>(projectListModel);
+    private final JLabel registryStatusLabel = new JLabel();
 
     public WelcomeFrame() {
         super(tr("欢迎访问 Jar Analyzer", "Welcome to Jar Analyzer"));
@@ -261,6 +262,11 @@ public final class WelcomeFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
         panel.setOpaque(false);
 
+        registryStatusLabel.setVisible(false);
+        registryStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        registryStatusLabel.setForeground(new Color(0xB06A00));
+        panel.add(registryStatusLabel, BorderLayout.NORTH);
+
         projectList.setCellRenderer(new ProjectListCellRenderer());
         projectList.setFixedCellHeight(54);
         projectList.addMouseListener(new MouseAdapter() {
@@ -407,6 +413,7 @@ public final class WelcomeFrame extends JFrame {
     private void refreshProjectList() {
         projectListModel.clear();
         ProjectRegistrySnapshot snapshot = ProjectRegistryService.getInstance().snapshot();
+        updateRegistryStatus(snapshot);
         List<ProjectRegistryEntry> entries = snapshot.projects();
         if (entries != null) {
             entries.stream()
@@ -414,6 +421,31 @@ public final class WelcomeFrame extends JFrame {
                     .sorted(Comparator.comparingLong(ProjectRegistryEntry::updatedAt).reversed())
                     .forEach(projectListModel::addElement);
         }
+    }
+
+    private void updateRegistryStatus(ProjectRegistrySnapshot snapshot) {
+        String state = snapshot == null ? "" : safe(snapshot.registryState()).toLowerCase(Locale.ROOT);
+        if ("unavailable".equals(state)) {
+            registryStatusLabel.setForeground(new Color(0xB06A00));
+            registryStatusLabel.setText(tr(
+                    "项目注册表不可读，历史项目列表可能暂时不完整；修复 .jar-analyzer-projects.json 后重新打开即可恢复。",
+                    "Project registry is unreadable. Persisted project list may be incomplete until .jar-analyzer-projects.json is repaired."
+            ));
+            registryStatusLabel.setVisible(true);
+            return;
+        }
+        boolean empty = snapshot == null || snapshot.projects() == null || snapshot.projects().isEmpty();
+        if ("missing".equals(state) && empty) {
+            registryStatusLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+            registryStatusLabel.setText(tr(
+                    "当前还没有正式项目注册表文件。",
+                    "No persisted project registry file exists yet."
+            ));
+            registryStatusLabel.setVisible(true);
+            return;
+        }
+        registryStatusLabel.setText("");
+        registryStatusLabel.setVisible(false);
     }
 
     private static void syncBuildSettings(ProjectRegistryEntry entry, boolean clearInputIfEmpty) {

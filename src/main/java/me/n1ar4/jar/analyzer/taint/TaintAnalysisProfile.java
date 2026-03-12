@@ -36,10 +36,6 @@ public final class TaintAnalysisProfile {
         ARRAY
     }
 
-    private static final String PROP_PROFILE = "jar.analyzer.taint.profile";
-    private static final String PROP_ADDITIONAL = "jar.analyzer.taint.additional";
-    private static final TaintAnalysisProfile CURRENT = resolve();
-
     private final Level level;
     private final EnumSet<AdditionalStep> additionalSteps;
 
@@ -51,7 +47,7 @@ public final class TaintAnalysisProfile {
     }
 
     public static TaintAnalysisProfile current() {
-        return CURRENT;
+        return resolve();
     }
 
     public Level getLevel() {
@@ -75,34 +71,13 @@ public final class TaintAnalysisProfile {
     }
 
     private static TaintAnalysisProfile resolve() {
-        Level level = resolveLevel(System.getProperty(PROP_PROFILE));
-        EnumSet<AdditionalStep> steps = resolveAdditionalSteps(level, System.getProperty(PROP_ADDITIONAL));
+        Level level = Level.BALANCED;
+        EnumSet<AdditionalStep> steps = resolveAdditionalSteps(level);
         return new TaintAnalysisProfile(level, steps);
     }
 
-    private static Level resolveLevel(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return Level.BALANCED;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        if ("fast".equals(normalized)) {
-            return Level.FAST;
-        }
-        if ("strict".equals(normalized)) {
-            return Level.STRICT;
-        }
-        if ("balanced".equals(normalized) || "default".equals(normalized)) {
-            return Level.BALANCED;
-        }
-        return Level.BALANCED;
-    }
-
-    private static EnumSet<AdditionalStep> resolveAdditionalSteps(Level level, String override) {
+    private static EnumSet<AdditionalStep> resolveAdditionalSteps(Level level) {
         EnumSet<AdditionalStep> steps = EnumSet.noneOf(AdditionalStep.class);
-        if (override != null && !override.trim().isEmpty()) {
-            applyAdditionalTokens(steps, override);
-            return steps;
-        }
         if (level == Level.FAST || level == Level.STRICT) {
             return steps;
         }
@@ -114,13 +89,6 @@ public final class TaintAnalysisProfile {
             addStepToken(steps, token);
         }
         return steps;
-    }
-
-    private static void applyAdditionalTokens(EnumSet<AdditionalStep> steps, String raw) {
-        String[] parts = raw.split(",");
-        for (String part : parts) {
-            addStepToken(steps, part);
-        }
     }
 
     private static void addStepToken(EnumSet<AdditionalStep> steps, String token) {

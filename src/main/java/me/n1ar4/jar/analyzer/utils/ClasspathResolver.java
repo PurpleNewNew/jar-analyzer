@@ -30,7 +30,6 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.Attributes;
@@ -41,18 +40,11 @@ import java.util.zip.ZipFile;
 
 public final class ClasspathResolver {
     private static final Logger logger = LogManager.getLogger();
-    private static final String INCLUDE_MANIFEST_PROP = "jar.analyzer.classpath.includeManifest";
-    private static final String SCAN_DEPTH_PROP = "jar.analyzer.classpath.scanDepth";
-    static final String CONFLICT_PROP = "jar.analyzer.classpath.conflict";
+    private static final int MAX_DEPENDENCY_DEPTH = 6;
     private static final String NESTED_CACHE_DIR = "classpath-nested";
     private static final Map<String, Path> NESTED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ClasspathResolver() {
-    }
-
-    public enum ConflictStrategy {
-        FIRST,
-        NEAREST
     }
 
     private enum SourceKind {
@@ -65,18 +57,6 @@ public final class ClasspathResolver {
         SourceKind(int rank) {
             this.rank = rank;
         }
-    }
-
-    public static ConflictStrategy resolveConflictStrategy() {
-        String raw = System.getProperty(CONFLICT_PROP);
-        if (StringUtil.isBlank(raw)) {
-            return ConflictStrategy.NEAREST;
-        }
-        String val = raw.strip().toLowerCase(Locale.ROOT);
-        if ("first".equals(val)) {
-            return ConflictStrategy.FIRST;
-        }
-        return ConflictStrategy.NEAREST;
     }
 
     public static List<String> resolveInputArchives(Path inputPath,
@@ -138,7 +118,6 @@ public final class ClasspathResolver {
         Map<Path, GraphNode> nodes = new LinkedHashMap<>();
         Deque<GraphNode> queue = new ArrayDeque<>();
         int order = 0;
-        int maxDepth = resolveScanDepth();
         List<Path> roots = resolveRootArchives(inputPath);
         for (Path root : roots) {
             if (root == null) {
@@ -162,7 +141,7 @@ public final class ClasspathResolver {
             if (current == null) {
                 continue;
             }
-            if (current.depth >= maxDepth) {
+            if (current.depth >= MAX_DEPENDENCY_DEPTH) {
                 continue;
             }
             if (!isArchive(current.path)) {
@@ -215,9 +194,7 @@ public final class ClasspathResolver {
         if (isArchive(normalized) || isClassFile(normalized)) {
             result.add(normalized);
             if (extended && isArchive(normalized)) {
-                if (isManifestEnabled()) {
-                    collectManifestClasspath(normalized, result);
-                }
+                collectManifestClasspath(normalized, result);
                 if (includeNested) {
                     collectNestedLibs(normalized, result);
                 }
@@ -418,34 +395,6 @@ public final class ClasspathResolver {
         return name.endsWith(".class");
     }
 
-    private static boolean isManifestEnabled() {
-        String raw = System.getProperty(INCLUDE_MANIFEST_PROP);
-        if (StringUtil.isBlank(raw)) {
-            return true;
-        }
-        return Boolean.parseBoolean(raw.strip());
-    }
-
-    private static int resolveScanDepth() {
-        String raw = System.getProperty(SCAN_DEPTH_PROP);
-        if (StringUtil.isBlank(raw)) {
-            return 6;
-        }
-        try {
-            int val = Integer.parseInt(raw.strip());
-            if (val < 1) {
-                return 1;
-            }
-            if (val > 12) {
-                return 12;
-            }
-            return val;
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid classpath scan depth: {}", raw);
-            return 6;
-        }
-    }
-
     private static List<Path> resolveRootArchives(Path inputPath) {
         if (inputPath == null) {
             return Collections.emptyList();
@@ -487,29 +436,11 @@ public final class ClasspathResolver {
             return Collections.emptySet();
         }
         Set<Path> deps = new LinkedHashSet<>();
-        if (isManifestEnabled()) {
-            collectManifestClasspath(archive, deps);
-        }
+        collectManifestClasspath(archive, deps);
         if (includeNested) {
             collectNestedLibs(archive, deps);
         }
         return deps;
-    }
-
-    private static List<Path> scanDirectoryOrdered(Path root, int depth) {
-        if (root == null || !Files.isDirectory(root)) {
-            return Collections.emptyList();
-        }
-        try (java.util.stream.Stream<Path> stream = Files.walk(root, Math.max(1, depth))) {
-            return stream.filter(Files::isRegularFile)
-                    .filter(p -> isArchive(p) || isClassFile(p))
-                    .map(p -> p.toAbsolutePath().normalize())
-                    .sorted(Comparator.comparing(Path::toString))
-                    .collect(java.util.stream.Collectors.toList());
-        } catch (Exception ex) {
-            logger.debug("scan classpath dir failed: {}", ex.toString());
-            return Collections.emptyList();
-        }
     }
 
     private static List<Path> scanDirectoryOrderedRecursively(Path root) {

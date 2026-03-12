@@ -791,7 +791,6 @@ class ApiHandlerRegressionTest {
         config.setDbPath(Neo4jProjectStore.getInstance().resolveProjectHome(projectKey).toString());
         config.setTempPath(Const.tempDir);
         config.setLang("en");
-        config.setDecompileCacheSize("16");
         EngineContext.setEngine(new me.n1ar4.jar.analyzer.engine.CoreEngine(config));
         return projectKey;
     }

@@ -10,6 +10,7 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
 import me.n1ar4.jar.analyzer.taint.TaintSemanticSummary;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -95,6 +96,45 @@ class TaintSemanticSummaryReloadTest {
             assertFalse(secondGate.isKnown());
         } finally {
             DatabaseManager.clearAllData();
+            restore(MODEL_PROP, oldModelProp);
+            restore(SOURCE_PROP, oldSourceProp);
+            restore(SINK_PROP, oldSinkProp);
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+        }
+    }
+
+    @Test
+    void shouldRefreshAdditionalStepHintsWhenRulesReload() throws Exception {
+        Path model = tempDir.resolve("model.json");
+        Path source = tempDir.resolve("source.json");
+        Path sink = tempDir.resolve("sink.json");
+
+        String oldModelProp = System.getProperty(MODEL_PROP);
+        String oldSourceProp = System.getProperty(SOURCE_PROP);
+        String oldSinkProp = System.getProperty(SINK_PROP);
+        try {
+            Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
+            Files.writeString(source,
+                    "{\"sourceAnnotations\":[],\"sourceModel\":[]}",
+                    StandardCharsets.UTF_8);
+            Files.writeString(sink, "{\"name\":\"reload-test\",\"levels\":{}}", StandardCharsets.UTF_8);
+
+            System.setProperty(MODEL_PROP, model.toString());
+            System.setProperty(SOURCE_PROP, source.toString());
+            System.setProperty(SINK_PROP, sink.toString());
+
+            SinkRuleRegistry.reload();
+            ModelRegistry.reload();
+            assertFalse(TaintAnalysisProfile.current().isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.CONTAINER));
+
+            Files.writeString(model,
+                    "{\"summaryModel\":[],\"additionalStepHints\":[\"container\"]}",
+                    StandardCharsets.UTF_8);
+            ModelRegistry.reload();
+
+            assertTrue(TaintAnalysisProfile.current().isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.CONTAINER));
+        } finally {
             restore(MODEL_PROP, oldModelProp);
             restore(SOURCE_PROP, oldSourceProp);
             restore(SINK_PROP, oldSinkProp);

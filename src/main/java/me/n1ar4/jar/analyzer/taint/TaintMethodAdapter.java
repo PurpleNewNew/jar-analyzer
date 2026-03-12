@@ -232,7 +232,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         } else {
             if (paramsNum == Sanitizer.THIS_PARAM) {
-                logger.info("静态方法跳过 this 污点源");
+                logger.info("skip this taint source on static method");
             } else {
                 // 静态方法参数可能包含 long/double (2 slots)
                 Type[] args = Type.getArgumentTypes(this.desc);
@@ -250,9 +250,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
         }
         applyParamTypeHints();
-        logger.info("污点分析进行中 {} - {} - {}", this.owner, this.name, this.desc);
-        text.append(String.format("污点分析进行中 %s - %s - %s", this.owner, this.name, this.desc));
-        text.append("\n");
+        appendText(String.format("taint analysis start %s - %s - %s", this.owner, this.name, this.desc));
     }
 
     @Override
@@ -279,7 +277,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 }
                 if (fieldAsSource) {
                     markers.add(TaintMarkers.TAINT);
-                    markLowConfidence("字段作为污点源");
+                    markLowConfidence("field taint source heuristic");
                 }
                 if (!markers.isEmpty()) {
                     applyFieldTypeHints(markers, owner, name, desc, resolveJarId(owner));
@@ -645,7 +643,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                 stack.set(topIndex, new HashSet<>(taintSet));
             }
             if (weakReturn) {
-                markLowConfidence("返回值启发式");
+                markLowConfidence("return heuristic");
             }
         }
         if (fieldReturnMarkers != null && !fieldReturnMarkers.isEmpty()) {
@@ -655,7 +653,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         if (returnAsSource) {
             if (returnType.getSort() != Type.VOID) {
-                markLowConfidence("返回值启发式");
+                markLowConfidence("return heuristic");
                 for (int j = 0; j < retSize; j++) {
                     int topIndex = stack.size() - retSize + j;
                     Set<String> taintSet = new HashSet<>();
@@ -821,11 +819,8 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             }
             if (containsHardTaint(targetParam)) {
                 String paramLabel = formatParamLabel(ruleIndex);
-                logger.info("污点参数 命中 Sanitizer - {} - {} - {} - 参数: {}",
-                        owner, name, desc, paramLabel);
-                text.append(String.format("污点参数 命中 Sanitizer - %s - %s - %s - 参数: %s",
+                appendText(String.format("tainted param matched sanitizer - %s - %s - %s - param: %s",
                         owner, name, desc, paramLabel));
-                text.append("\n");
                 return true;
             }
         }
@@ -1172,7 +1167,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             Set<String> last = resolveLastParamSet(stack, argCount, false, argumentTypes);
             if (last != null && hasAnyTaintMarker(last)) {
                 receiver.add(TaintMarkers.TAINT);
-                markLowConfidence("StringBuilder 追加污染");
+                markLowConfidence("string builder append taint");
             }
         }
     }
@@ -1242,10 +1237,10 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
             if (key != null && hasAnyTaintMarker(key)) {
                 receiver.add(CONTAINER_KEY);
                 applyContainerTypeHint(receiver, KEY_TYPE_PREFIX, resolveValueTypeHint(key));
-                markLowConfidence("Map 键污染");
+                markLowConfidence("map key taint");
             }
             if (val != null && hasAnyTaintMarker(val)) {
-                markContainerValue(receiver, CONTAINER_VALUE, "Map 值污染");
+                markContainerValue(receiver, CONTAINER_VALUE, "map value taint");
                 applyContainerTypeHint(receiver, VALUE_TYPE_PREFIX, resolveValueTypeHint(val));
             }
             return;
@@ -1257,7 +1252,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
                     receiver.add(CONTAINER_KEY);
                 }
                 if (src.contains(CONTAINER_VALUE) || src.contains(TaintMarkers.TAINT)) {
-                    markContainerValue(receiver, CONTAINER_VALUE, "Map 复制污染");
+                    markContainerValue(receiver, CONTAINER_VALUE, "map copy taint");
                 }
                 copyTypeMarkersByPrefix(src, receiver, KEY_TYPE_PREFIX);
                 copyTypeMarkersByPrefix(src, receiver, VALUE_TYPE_PREFIX);
@@ -1320,7 +1315,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (isCollectionWrite(name)) {
             Set<String> elem = resolveLastParamSet(stack, argCount, false, argumentTypes);
             if (elem != null && hasAnyTaintMarker(elem)) {
-                markContainerValue(receiver, CONTAINER_ELEMENT, "集合写入污染");
+                markContainerValue(receiver, CONTAINER_ELEMENT, "collection write taint");
                 applyContainerTypeHint(receiver, ELEM_TYPE_PREFIX, resolveValueTypeHint(elem));
             }
             if ("addAll".equals(name) && elem != null) {
@@ -1921,7 +1916,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         if (usedContainer && !merged.isEmpty() && !merged.contains(TaintMarkers.TAINT)) {
             addContainerDerivedTaint(merged);
-            markLowConfidence("容器别名传播");
+            markLowConfidence("container alias propagation");
         }
         return merged;
     }
@@ -3027,7 +3022,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (!allowlistMatch(argConst, rule.getAllowlist())) {
             return;
         }
-        applyGuardEffect(rule, receiver, GUARD_PATH_ALLOWED, "路径前缀允许");
+        applyGuardEffect(rule, receiver, GUARD_PATH_ALLOWED, "path prefix allow");
     }
 
     private void applyPathTraversalGuard(TaintGuardRule rule, List<Set<String>> stack,
@@ -3051,7 +3046,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         } else if (!"..".equals(argConst)) {
             return;
         }
-        applyGuardEffect(rule, receiver, GUARD_PATH_TRAVERSAL_SAFE, "路径穿越检查");
+        applyGuardEffect(rule, receiver, GUARD_PATH_TRAVERSAL_SAFE, "path traversal checked");
     }
 
     private void applyHostAllowlistGuard(TaintGuardRule rule, List<Set<String>> stack,
@@ -3067,7 +3062,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (!allowlistMatch(argConst, rule.getAllowlist())) {
             return;
         }
-        applyGuardEffect(rule, receiver, GUARD_HOST_ALLOWED, "Host allowlist 命中");
+        applyGuardEffect(rule, receiver, GUARD_HOST_ALLOWED, "host allowlist matched");
     }
 
     private void applyGuardEffect(TaintGuardRule rule, Set<String> target,
@@ -3666,7 +3661,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         }
         int paramCount = Type.getArgumentTypes(desc).length;
         if (paramCount == nextParamCount) {
-            markLowConfidence("next desc弱匹配");
+            markLowConfidence("next desc weak match");
             return true;
         }
         return false;
@@ -3693,7 +3688,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         if (summaryMode && summaryCollector != null) {
             summaryCollector.onLowConfidence(paramsNum, reason);
         }
-        String msg = "低置信: " + reason;
+        String msg = "low confidence: " + reason;
         logger.info(msg);
         text.append(msg).append("\n");
     }

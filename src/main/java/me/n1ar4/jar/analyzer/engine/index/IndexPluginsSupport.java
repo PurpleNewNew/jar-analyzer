@@ -49,12 +49,6 @@ public class IndexPluginsSupport {
             .setWorkQueue(new LinkedBlockingQueue<>())
             .build();
 
-    private static boolean useActive = false;
-
-    public static void setUseActive(boolean useActive) {
-        IndexPluginsSupport.useActive = useActive;
-    }
-
     static {
         Path curPath = Paths.get(CurrentPath);
         Path indexPath = curPath.resolve(Const.indexDir);
@@ -102,9 +96,6 @@ public class IndexPluginsSupport {
 
 
     public static boolean addIndex(File file) {
-        if (useActive) {
-            return true;
-        }
         Map<String, String> codeMap = new HashMap<>();
         String code = getCode(file);
         if (StrUtil.isNotBlank(code)) {

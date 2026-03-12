@@ -9,7 +9,6 @@
  */
 package me.n1ar4.jar.analyzer.rules;
 
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Type;

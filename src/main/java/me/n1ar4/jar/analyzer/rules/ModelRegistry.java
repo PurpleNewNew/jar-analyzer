@@ -10,7 +10,6 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import com.alibaba.fastjson2.JSON;
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.SanitizerRule;
@@ -383,14 +382,6 @@ public final class ModelRegistry {
         return safe(className).replace('.', '/');
     }
 
-    private static String normalizeSinkDesc(String desc) {
-        String value = safe(desc);
-        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
-            return "*";
-        }
-        return value;
-    }
-
     private static String normalizeSinkKind(String raw) {
         String value = safe(raw).toLowerCase();
         if (value.isBlank()) {
@@ -427,32 +418,7 @@ public final class ModelRegistry {
     }
 
     private static SinkModel findSinkModel(MethodReference.Handle sink) {
-        if (sink == null || sink.getClassReference() == null) {
-            return null;
-        }
-        String className = normalizeClassName(sink.getClassReference().getName());
-        String methodName = safe(sink.getName());
-        String methodDesc = safe(sink.getDesc());
-        if (className.isBlank() || methodName.isBlank()) {
-            return null;
-        }
-        for (SinkModel model : getSinkModels()) {
-            if (model == null) {
-                continue;
-            }
-            if (!className.equals(normalizeClassName(model.getClassName()))) {
-                continue;
-            }
-            if (!methodName.equals(safe(model.getMethodName()))) {
-                continue;
-            }
-            String desc = normalizeSinkDesc(model.getMethodDesc());
-            if (!"*".equals(desc) && !desc.equals(methodDesc)) {
-                continue;
-            }
-            return model;
-        }
-        return null;
+        return SinkRuleRegistry.findSinkByHandle(sink);
     }
 
     private static SinkDescriptor resolveDynamicSinkDescriptor(MethodReference.Handle sink) {

@@ -34,18 +34,14 @@ import java.util.Set;
  */
 public final class HierarchyService {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CACHE_MAX_PROP = "jar.analyzer.hierarchy.cache.max";
-    private static final int DEFAULT_CACHE_MAX = 8192;
-    private static final int MIN_CACHE_MAX = 256;
-    private static final int MAX_CACHE_MAX = 65536;
-    private static volatile int cacheMax = resolveCacheMax();
+    private static final int CACHE_MAX = 8192;
 
     private static final Object CACHE_LOCK = new Object();
     private static final LinkedHashMap<String, Set<String>> SUPER_CACHE =
             new LinkedHashMap<String, Set<String>>(256, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, Set<String>> eldest) {
-                    return size() > cacheMax;
+                    return size() > CACHE_MAX;
                 }
             };
 
@@ -131,21 +127,6 @@ public final class HierarchyService {
         }
         out.remove(root);
         return out;
-    }
-
-    private static int resolveCacheMax() {
-        String raw = System.getProperty(CACHE_MAX_PROP);
-        if (raw != null && !raw.trim().isEmpty()) {
-            try {
-                int val = Integer.parseInt(raw.trim());
-                if (val > 0) {
-                    return Math.max(MIN_CACHE_MAX, Math.min(MAX_CACHE_MAX, val));
-                }
-            } catch (NumberFormatException ex) {
-                logger.debug("invalid hierarchy cache max: {}", raw);
-            }
-        }
-        return DEFAULT_CACHE_MAX;
     }
 
     private static String cacheKey(String className) {

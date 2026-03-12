@@ -17,12 +17,16 @@ import java.util.List;
 public record ProjectRegistrySnapshot(
         List<ProjectRegistryEntry> projects,
         String activeProjectKey,
-        String activeProjectAlias
+        String activeProjectAlias,
+        String registryState,
+        String registryMessage
 ) {
     public ProjectRegistrySnapshot {
         projects = projects == null ? List.of() : Collections.unmodifiableList(new ArrayList<>(projects));
         activeProjectKey = safe(activeProjectKey);
         activeProjectAlias = safe(activeProjectAlias);
+        registryState = safe(registryState);
+        registryMessage = safe(registryMessage);
     }
 
     private static String safe(String value) {

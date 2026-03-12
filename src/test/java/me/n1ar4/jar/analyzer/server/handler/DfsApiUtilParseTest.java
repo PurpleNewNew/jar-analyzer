@@ -1,6 +1,8 @@
 package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.rules.SinkModel;
+import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -18,6 +20,28 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DfsApiUtilParseTest {
+    @Test
+    void parseShouldResolveSinkNameDirectlyFromRuleRegistry() {
+        SinkModel sink = SinkRuleRegistry.getSinkModels().stream()
+                .filter(model -> model != null && model.getBoxName() != null && !model.getBoxName().isBlank())
+                .findFirst()
+                .orElseThrow();
+
+        DfsApiUtil.ParseResult result = DfsApiUtil.parse(session(Map.ofEntries(
+                Map.entry("mode", "sink"),
+                Map.entry("sinkName", sink.getBoxName()),
+                Map.entry("sourceClass", "demo/Source"),
+                Map.entry("sourceMethod", "entry"),
+                Map.entry("sourceDesc", "()V")
+        )));
+
+        assertNull(result.getError());
+        assertNotNull(result.getRequest());
+        assertEquals(sink.getClassName(), result.getRequest().sinkClass);
+        assertEquals(sink.getMethodName(), result.getRequest().sinkMethod);
+        assertEquals("*".equals(sink.getMethodDesc()) ? "*" : sink.getMethodDesc(), result.getRequest().sinkDesc);
+    }
+
     @Test
     void parseShouldHonorDocumentedTraversalParamsOnly() {
         DfsApiUtil.ParseResult result = DfsApiUtil.parse(session(Map.ofEntries(

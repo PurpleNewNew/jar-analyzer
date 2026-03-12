@@ -152,6 +152,19 @@ class QueryApiHandlersTest {
     }
 
     @Test
+    void projectsEndpointShouldExposeRegistryState() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        prepareReadyProject();
+
+        JSONObject json = JSON.parseObject(api.get("/api/projects", Map.of()));
+
+        assertEquals(true, json.getBoolean("ok"));
+        JSONObject data = json.getJSONObject("data");
+        assertTrue(data.containsKey("registryState"));
+        assertTrue(data.containsKey("registryMessage"));
+    }
+
+    @Test
     void cypherShouldRejectRemovedQueryBudgetOptions() {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();

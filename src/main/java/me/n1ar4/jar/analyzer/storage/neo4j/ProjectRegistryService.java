@@ -48,11 +48,16 @@ public final class ProjectRegistryService {
     private static final Path REGISTRY_FILE = Paths.get(".jar-analyzer-projects.json");
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final ProjectRegistryService INSTANCE = new ProjectRegistryService();
+    private static final String REGISTRY_STATE_OK = "ok";
+    private static final String REGISTRY_STATE_MISSING = "missing";
+    private static final String REGISTRY_STATE_UNAVAILABLE = "unavailable";
 
     private final Object lock = new Object();
 
     private String activeProjectKey = ActiveProjectContext.temporaryProjectKey();
     private final List<ProjectRegistryEntry> entries = new ArrayList<>();
+    private String registryState = REGISTRY_STATE_MISSING;
+    private String registryMessage = "";
 
     private String tempInputPath = "";
     private String tempRuntimePath = "";
@@ -72,7 +77,7 @@ public final class ProjectRegistryService {
             List<ProjectRegistryEntry> out = new ArrayList<>(entries);
             out.sort(Comparator.comparing(ProjectRegistryEntry::alias, String.CASE_INSENSITIVE_ORDER));
             String alias = resolveAlias(activeProjectKey);
-            return new ProjectRegistrySnapshot(out, activeProjectKey, alias);
+            return new ProjectRegistrySnapshot(out, activeProjectKey, alias, registryState, registryMessage);
         }
     }
 
@@ -570,6 +575,10 @@ public final class ProjectRegistryService {
         String loadedActiveProjectKey = "";
         boolean fileExists = Files.exists(REGISTRY_FILE);
         boolean parsed = !fileExists;
+        String nextRegistryState = fileExists ? REGISTRY_STATE_OK : REGISTRY_STATE_MISSING;
+        String nextRegistryMessage = fileExists
+                ? ""
+                : "project registry file not found: " + REGISTRY_FILE.toAbsolutePath().normalize();
         if (fileExists) {
             try {
                 String raw = Files.readString(REGISTRY_FILE);
@@ -605,13 +614,20 @@ public final class ProjectRegistryService {
                 }
                 parsed = true;
             } catch (Exception ex) {
-                logger.warn("load project registry fail: {}", ex.toString());
+                nextRegistryState = REGISTRY_STATE_UNAVAILABLE;
+                nextRegistryMessage = "project registry file is unreadable; persisted projects may be temporarily hidden: "
+                        + REGISTRY_FILE.toAbsolutePath().normalize();
+                logger.error("load project registry fail: path={} err={} - persisted projects may be temporarily hidden",
+                        REGISTRY_FILE.toAbsolutePath().normalize(),
+                        ex.toString(),
+                        ex);
             }
         }
         boolean preserveCurrent = fileExists && !parsed;
         String restoreProjectKey = ActiveProjectContext.temporaryProjectKey();
         String restoreAlias = ActiveProjectContext.temporaryProjectAlias();
         synchronized (lock) {
+            setRegistryStatusLocked(nextRegistryState, nextRegistryMessage);
             if (preserveCurrent) {
                 ActiveProjectContext.setActiveProject(activeProjectKey, resolveAlias(activeProjectKey));
             } else {
@@ -680,10 +696,16 @@ public final class ProjectRegistryService {
             } catch (Exception ex) {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
+            setRegistryStatusLocked(REGISTRY_STATE_OK, "");
         } catch (Exception ex) {
             logger.error("save project registry fail: {}", ex.toString(), ex);
             throw new IllegalStateException("project_registry_persist_failed", ex);
         }
+    }
+
+    private void setRegistryStatusLocked(String state, String message) {
+        registryState = normalizeRegistryState(state);
+        registryMessage = safe(message);
     }
 
     private static void ensureNoBuildInProgress() {
@@ -832,7 +854,6 @@ public final class ProjectRegistryService {
                     .toString());
             cfg.setTempPath(Const.tempDir);
             cfg.setLang("en");
-            cfg.setDecompileCacheSize(String.valueOf(CFRDecompileEngine.getCacheCapacity()));
             return new CoreEngine(cfg);
         } catch (Exception ex) {
             logger.debug("init project core engine fail: key={} err={}", safe(projectKey), ex.toString());
@@ -1201,6 +1222,16 @@ public final class ProjectRegistryService {
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String normalizeRegistryState(String state) {
+        String value = safe(state).toLowerCase();
+        if (REGISTRY_STATE_OK.equals(value)
+                || REGISTRY_STATE_MISSING.equals(value)
+                || REGISTRY_STATE_UNAVAILABLE.equals(value)) {
+            return value;
+        }
+        return REGISTRY_STATE_OK;
     }
 
     private record ActiveSelection(String projectKey, String alias) {

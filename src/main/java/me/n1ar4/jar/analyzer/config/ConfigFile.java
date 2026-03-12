@@ -21,7 +21,6 @@ public class ConfigFile {
     private String totalEdge;
     private String lang;
     private String theme;
-    private String decompileCacheSize;
     private boolean stripeShowNames;
     private int stripeWidth = 40;
     private String apiBind = "0.0.0.0";
@@ -134,14 +133,6 @@ public class ConfigFile {
 
     public void setTheme(String theme) {
         this.theme = theme;
-    }
-
-    public String getDecompileCacheSize() {
-        return decompileCacheSize;
-    }
-
-    public void setDecompileCacheSize(String decompileCacheSize) {
-        this.decompileCacheSize = decompileCacheSize;
     }
 
     public boolean isStripeShowNames() {
@@ -394,7 +385,6 @@ public class ConfigFile {
                 ", totalEdge='" + totalEdge + '\'' +
                 ", lang='" + lang + '\'' +
                 ", theme='" + theme + '\'' +
-                ", decompileCacheSize='" + decompileCacheSize + '\'' +
                 ", stripeShowNames=" + stripeShowNames +
                 ", stripeWidth=" + stripeWidth +
                 ", apiBind='" + apiBind + '\'' +

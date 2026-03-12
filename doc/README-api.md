@@ -277,6 +277,9 @@
 
 - `GET /api/projects`
   返回 PERSISTENT 项目列表 + 当前 active project（可能是 TEMP）。
+  额外字段：
+  - `registryState`：`ok|missing|unavailable`
+  - `registryMessage`：当注册表损坏/不可读时给出恢复提示，用于区分“历史项目暂时不可见”和“当前确实没有正式项目”
 - `GET /api/projects/active`
   返回当前 active project 详情（包含 `type` 字段：`TEMP|PERSISTENT`）。
 - `POST /api/projects/register`

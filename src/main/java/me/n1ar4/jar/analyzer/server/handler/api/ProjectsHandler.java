@@ -70,6 +70,8 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         out.put("projects", snapshot.projects());
         out.put("activeProjectKey", snapshot.activeProjectKey());
         out.put("activeProjectAlias", snapshot.activeProjectAlias());
+        out.put("registryState", snapshot.registryState());
+        out.put("registryMessage", snapshot.registryMessage());
         return ok(out);
     }
 

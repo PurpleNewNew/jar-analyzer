@@ -10,7 +10,6 @@
 package me.n1ar4.jar.analyzer.rules;
 
 import com.alibaba.fastjson2.annotation.JSONField;
-import me.n1ar4.jar.analyzer.chains.SinkModel;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.TaintModel;
 import me.n1ar4.jar.analyzer.taint.TaintGuardRule;

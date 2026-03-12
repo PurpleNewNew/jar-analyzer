@@ -19,6 +19,7 @@ import org.neo4j.dbms.api.DatabaseManagementService;
 import org.neo4j.dbms.api.DatabaseManagementServiceBuilder;
 import org.neo4j.graphdb.GraphDatabaseService;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,6 +35,8 @@ public final class Neo4jProjectStore {
     private static final Neo4jProjectStore INSTANCE = new Neo4jProjectStore();
     private static final String TEMP_DB_DIR = "neo4j-temp";
     private static final String PROJECT_DB_DIR = "neo4j-projects";
+    private static final int DELETE_RETRY_COUNT = 5;
+    private static final long DELETE_RETRY_DELAY_MS = 200L;
 
     private final Map<String, StoreRuntime> runtimes = new ConcurrentHashMap<>();
     private final Object initLock = new Object();
@@ -151,11 +154,31 @@ public final class Neo4jProjectStore {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         closeProject(normalized);
         Path home = resolveProjectHome(normalized);
-        try {
-            deleteRecursively(home);
-        } catch (Exception ex) {
-            logger.warn("delete neo4j project store fail: key={} err={}", normalized, ex.toString());
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= DELETE_RETRY_COUNT; attempt++) {
+            try {
+                deleteRecursively(home);
+                return;
+            } catch (Exception ex) {
+                lastFailure = ex;
+                logger.debug("delete neo4j project store retry: key={} attempt={} err={}",
+                        normalized, attempt, ex.toString());
+            }
+            if (attempt >= DELETE_RETRY_COUNT) {
+                break;
+            }
+            try {
+                Thread.sleep(DELETE_RETRY_DELAY_MS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                IllegalStateException failure = new IllegalStateException("graph_store_delete_fail", ex);
+                if (lastFailure != null) {
+                    failure.addSuppressed(lastFailure);
+                }
+                throw failure;
+            }
         }
+        throw new IllegalStateException("graph_store_delete_fail", lastFailure);
     }
 
     public void shutdownAll() {
@@ -193,15 +216,23 @@ public final class Neo4jProjectStore {
         if (root == null || !Files.exists(root)) {
             return;
         }
+        IOException firstFailure = null;
         try (var walk = Files.walk(root)) {
-            walk.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (Exception ignored) {
-                            // best effort
-                        }
-                    });
+            for (Path path : walk.sorted((a, b) -> b.getNameCount() - a.getNameCount()).toList()) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ex) {
+                    if (firstFailure == null) {
+                        firstFailure = ex;
+                    }
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+        if (Files.exists(root)) {
+            throw new IOException("neo4j project store still exists: " + root);
         }
     }
 

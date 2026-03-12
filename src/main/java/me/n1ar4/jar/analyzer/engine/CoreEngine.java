@@ -374,6 +374,14 @@ public class CoreEngine {
     }
 
     public ArrayList<MethodResult> getMethod(String className, String methodName, String methodDesc) {
+        ArrayList<MethodResult> out = new ArrayList<>();
+        for (MethodReference ref : getMethodReferences(className, methodName, methodDesc)) {
+            out.add(toMethodResult(ref));
+        }
+        return out;
+    }
+
+    public ArrayList<MethodReference> getMethodReferences(String className, String methodName, String methodDesc) {
         String cls = normalizeClassName(className);
         String method = safe(methodName).trim();
         String desc = safe(methodDesc).trim();
@@ -385,7 +393,7 @@ public class CoreEngine {
             source = DatabaseManager.getMethodReferences();
         }
 
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodReference> out = new ArrayList<>();
         for (MethodReference ref : source) {
             if (ref == null || ref.getClassReference() == null) {
                 continue;
@@ -399,9 +407,13 @@ public class CoreEngine {
             if (!desc.isEmpty() && !desc.equals(ref.getDesc())) {
                 continue;
             }
-            out.add(toMethodResult(ref));
+            out.add(ref);
         }
-        out.sort(METHOD_RESULT_COMPARATOR);
+        out.sort(Comparator.comparing((MethodReference ref) ->
+                        safe(ref.getClassReference() == null ? null : ref.getClassReference().getName()))
+                .thenComparing(ref -> safe(ref.getName()))
+                .thenComparing(ref -> safe(ref.getDesc()))
+                .thenComparingInt(ref -> normalizeJarId(ref.getJarId())));
         return out;
     }
 
@@ -1616,7 +1628,6 @@ public class CoreEngine {
                                                 Integer jarId) {
         String cls = normalizeClassName(className);
         int j = normalizeJarId(jarId);
-        MethodReference fallback = null;
         for (MethodReference ref : DatabaseManager.getMethodReferencesByClass(cls)) {
             if (ref == null || ref.getClassReference() == null) {
                 continue;
@@ -1630,11 +1641,8 @@ public class CoreEngine {
             if (normalizeJarId(ref.getJarId()) == j) {
                 return ref;
             }
-            if (fallback == null) {
-                fallback = ref;
-            }
         }
-        return fallback;
+        return null;
     }
 
     private ClassResult toClassResult(ClassReference row) {
