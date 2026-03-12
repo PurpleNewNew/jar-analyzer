@@ -1,5 +1,4 @@
 export const CHANNEL_QUERY_EXECUTE = 'ja.query.execute'
-export const CHANNEL_QUERY_CAPABILITIES = 'ja.query.capabilities'
 export const CHANNEL_SCRIPT_LIST = 'ja.script.list'
 export const CHANNEL_SCRIPT_SAVE = 'ja.script.save'
 export const CHANNEL_SCRIPT_DELETE = 'ja.script.delete'
@@ -79,18 +78,6 @@ export interface QueryUiOptions {
 
 export const DEFAULT_QUERY_OPTIONS: QueryUiOptions = {
   maxRows: 500
-}
-
-export function normalizeCapabilities(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== 'object') {
-    return null
-  }
-  const object = raw as Record<string, unknown>
-  const nested = object.capabilities
-  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-    return nested as Record<string, unknown>
-  }
-  return object
 }
 
 export function clampInt(value: unknown, min: number, max: number, fallback: number): number {

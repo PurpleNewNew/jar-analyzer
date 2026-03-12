@@ -13,7 +13,6 @@ import {
   type GraphFilter
 } from './inspector'
 import {
-  CHANNEL_QUERY_CAPABILITIES,
   CHANNEL_QUERY_EXECUTE,
   CHANNEL_SCRIPT_DELETE,
   CHANNEL_SCRIPT_LIST,
@@ -22,7 +21,6 @@ import {
   CHANNEL_UI_FULLSCREEN,
   clampInt,
   DEFAULT_QUERY_OPTIONS,
-  normalizeCapabilities,
   type GraphEdgePayload,
   type GraphFramePayload,
   type GraphNodePayload,
@@ -107,7 +105,6 @@ const state = {
   frames: [] as FrameState[],
   selectedFrameId: '',
   scripts: [] as ScriptItem[],
-  capabilities: null as Record<string, unknown> | null,
   queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions,
   traversalMode: 'call-only' as TraversalMode
 }
@@ -124,10 +121,7 @@ if (!app) {
 app.innerHTML = `
   <div class="workbench" id="workbench-root" data-theme="default">
     <header class="wb-header">
-      <div class="wb-title-wrap">
-        <div class="wb-title" id="title"></div>
-        <div class="wb-meta" id="runtime-meta"></div>
-      </div>
+      <div class="wb-title" id="title"></div>
       <div class="wb-actions">
         <button class="wb-btn" id="btn-save" title="Save Script">☆</button>
         <button class="wb-btn" id="btn-refresh" title="Refresh Scripts">↻</button>
@@ -137,20 +131,18 @@ app.innerHTML = `
     <section class="command-bar">
       <div class="prompt">$</div>
       <div class="editor-wrap"><div id="editor"></div></div>
-      <div class="traversal-mode-toggle">
-        <span id="traversal-mode-label">Traversal</span>
+      <div class="command-controls">
         <div class="traversal-mode-segment">
           <button class="traversal-mode-btn active" id="mode-call-only" type="button">CALL</button>
           <button class="traversal-mode-btn" id="mode-call-alias" type="button">CALL + ALIAS</button>
         </div>
-      </div>
-      <div class="query-opts">
-        <label class="opt-item">
-          <span id="opt-rows-label">Rows</span>
+        <div class="query-opts">
+          <label class="opt-item">
           <input id="opt-max-rows" type="number" min="1" max="10000" step="1" />
-        </label>
+          </label>
+        </div>
+        <button class="wb-btn primary" id="btn-run">Run</button>
       </div>
-      <button class="wb-btn primary" id="btn-run">Run</button>
     </section>
     <section class="main-grid">
       <aside class="scripts-pane">
@@ -167,10 +159,8 @@ app.innerHTML = `
 
 const root = getRequired<HTMLElement>('workbench-root')
 const titleEl = getRequired<HTMLElement>('title')
-const runtimeMetaEl = getRequired<HTMLElement>('runtime-meta')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
-const traversalModeLabelEl = getRequired<HTMLElement>('traversal-mode-label')
 const framesEl = getRequired<HTMLElement>('frames')
 const scriptListEl = getRequired<HTMLElement>('script-list')
 const runButton = getRequired<HTMLButtonElement>('btn-run')
@@ -178,7 +168,6 @@ const refreshButton = getRequired<HTMLButtonElement>('btn-refresh')
 const saveButton = getRequired<HTMLButtonElement>('btn-save')
 const fullscreenButton = getRequired<HTMLButtonElement>('btn-fullscreen')
 const editorHost = getRequired<HTMLElement>('editor')
-const rowsLabelEl = getRequired<HTMLElement>('opt-rows-label')
 const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
 const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
 const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
@@ -337,11 +326,6 @@ async function bootstrap(): Promise<void> {
   if (uiContext) {
     applyUiContext(uiContext)
   }
-  const rawCapabilities = await safeBridgeCall<unknown>(CHANNEL_QUERY_CAPABILITIES, {})
-  const capabilities = normalizeCapabilities(rawCapabilities)
-  if (capabilities) {
-    state.capabilities = capabilities
-  }
   await refreshScripts()
   renderAll()
 }
@@ -359,10 +343,8 @@ function applyUiContext(ctx: UiContext): void {
 
 function refreshHeaderLabels(): void {
   titleEl.textContent = 'Graph Console'
-  runtimeMetaEl.textContent = buildRuntimeMeta()
   scriptsTitleEl.textContent = tr('模板与脚本', 'Templates & Scripts')
   scriptsCountEl.textContent = buildScriptsCountText(state.scripts.length, tr)
-  traversalModeLabelEl.textContent = tr('遍历', 'Traversal')
   runButton.textContent = tr('运行', 'Run')
   refreshButton.textContent = tr('刷新', 'Refresh')
   saveButton.textContent = tr('收藏', 'Save')
@@ -370,29 +352,15 @@ function refreshHeaderLabels(): void {
     ? tr('退出全屏', 'Exit Fullscreen')
     : tr('全屏', 'Fullscreen')
   fullscreenButton.title = state.fullscreen ? tr('退出全屏', 'Exit Fullscreen') : tr('全屏', 'Fullscreen')
-  rowsLabelEl.textContent = tr('行数', 'Rows')
   maxRowsInput.title = tr('最大返回行数', 'Max result rows')
+  maxRowsInput.setAttribute('aria-label', tr('最大返回行数', 'Max result rows'))
   modeCallOnlyButton.textContent = 'CALL'
   modeCallAliasButton.textContent = 'CALL + ALIAS'
+  modeCallOnlyButton.title = tr('仅遍历 CALL 边', 'Traverse CALL edges only')
+  modeCallAliasButton.title = tr('遍历 CALL 与 ALIAS 边', 'Traverse CALL and ALIAS edges')
   modeCallOnlyButton.classList.toggle('active', state.traversalMode === 'call-only')
   modeCallAliasButton.classList.toggle('active', state.traversalMode === 'call+alias')
   syncQueryOptionControls()
-}
-
-function buildRuntimeMeta(): string {
-  const parts: string[] = []
-  const capabilities = state.capabilities
-  if (capabilities) {
-    const engine = capabilities.engine
-    if (typeof engine === 'string' && engine.trim()) {
-      parts.push(engine.trim())
-    }
-    if (capabilities.readOnly === true) {
-      parts.push(tr('只读', 'read-only'))
-    }
-  }
-  parts.push(`${tr('遍历', 'traversal')}: ${state.traversalMode === 'call+alias' ? 'CALL + ALIAS' : 'CALL'}`)
-  return parts.join(' · ')
 }
 
 function normalizeTraversalMode(value: unknown): TraversalMode {
