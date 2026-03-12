@@ -4,6 +4,7 @@
 
 package me.n1ar4.jar.analyzer.core;
 
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,8 @@ class BytecodeSymbolRunnerInvokeDynamicTest {
         entity.setJarId(1);
         entity.setJarName("demo.jar");
 
-        BytecodeSymbolRunner.Result result = BytecodeSymbolRunner.start(Set.of(entity));
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(Set.of(entity));
+        BytecodeSymbolRunner.Result result = BytecodeSymbolRunner.start(workspace);
         List<CallSiteEntity> sites = result.getCallSites().stream()
                 .filter(site -> "build".equals(site.getCallerMethodName()))
                 .filter(site -> site.getOpCode() != null && site.getOpCode() == Opcodes.INVOKEDYNAMIC)

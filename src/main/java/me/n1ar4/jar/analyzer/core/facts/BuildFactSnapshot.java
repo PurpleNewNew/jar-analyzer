@@ -10,35 +10,27 @@
 
 package me.n1ar4.jar.analyzer.core.facts;
 
-import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
-import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public record BuildFactSnapshot(ArchiveFacts archives,
-                                TypeFacts types,
+public record BuildFactSnapshot(TypeFacts types,
                                 MethodFacts methods,
                                 SymbolFacts symbols,
-                                ResourceFacts resources,
                                 SemanticFacts semantics,
                                 BytecodeFacts bytecode,
                                 ConstraintFacts constraints) {
     public BuildFactSnapshot {
-        archives = archives == null ? ArchiveFacts.empty() : archives;
         types = types == null ? TypeFacts.empty() : types;
         methods = methods == null ? MethodFacts.empty() : methods;
         symbols = symbols == null ? SymbolFacts.empty() : symbols;
-        resources = resources == null ? ResourceFacts.empty() : resources;
         semantics = semantics == null ? SemanticFacts.empty() : semantics;
         bytecode = bytecode == null ? BytecodeFacts.empty() : bytecode;
         constraints = constraints == null ? ConstraintFacts.empty() : constraints;
@@ -46,51 +38,24 @@ public record BuildFactSnapshot(ArchiveFacts archives,
 
     public static BuildFactSnapshot empty() {
         return new BuildFactSnapshot(
-                ArchiveFacts.empty(),
                 TypeFacts.empty(),
                 MethodFacts.empty(),
                 SymbolFacts.empty(),
-                ResourceFacts.empty(),
                 SemanticFacts.empty(),
                 BytecodeFacts.empty(),
                 ConstraintFacts.empty()
         );
     }
 
-    public record ArchiveFacts(List<String> allArchives,
-                               int targetArchiveCount,
-                               int libraryArchiveCount,
-                               int sdkEntryCount,
-                               Map<Integer, ProjectOrigin> jarOriginsById,
-                               boolean projectMode) {
-        public ArchiveFacts {
-            allArchives = allArchives == null ? List.of() : List.copyOf(allArchives);
-            jarOriginsById = jarOriginsById == null || jarOriginsById.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(jarOriginsById);
-            targetArchiveCount = Math.max(0, targetArchiveCount);
-            libraryArchiveCount = Math.max(0, libraryArchiveCount);
-            sdkEntryCount = Math.max(0, sdkEntryCount);
-        }
-
-        public static ArchiveFacts empty() {
-            return new ArchiveFacts(List.of(), 0, 0, 0, Map.of(), false);
-        }
-    }
-
     public record TypeFacts(Map<ClassReference.Handle, ClassReference> classesByHandle,
                             InheritanceMap inheritanceMap,
                             Set<ClassReference.Handle> instantiatedClasses) {
         public TypeFacts {
-            classesByHandle = classesByHandle == null || classesByHandle.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(classesByHandle);
+            classesByHandle = immutableMapView(classesByHandle);
             inheritanceMap = inheritanceMap == null
                     ? InheritanceMap.fromClasses(Map.of())
                     : inheritanceMap;
-            instantiatedClasses = instantiatedClasses == null || instantiatedClasses.isEmpty()
-                    ? Set.of()
-                    : Set.copyOf(instantiatedClasses);
+            instantiatedClasses = immutableSetView(instantiatedClasses);
         }
 
         public static TypeFacts empty() {
@@ -98,101 +63,47 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         }
     }
 
-    public record MethodFacts(Map<MethodReference.Handle, MethodReference> methodsByHandle,
-                              Map<ClassReference.Handle, List<MethodReference.Handle>> methodsByClass) {
+    public record MethodFacts(Map<MethodReference.Handle, MethodReference> methodsByHandle) {
         public MethodFacts {
-            methodsByHandle = methodsByHandle == null || methodsByHandle.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(methodsByHandle);
-            methodsByClass = methodsByClass == null || methodsByClass.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(methodsByClass);
+            methodsByHandle = immutableMapView(methodsByHandle);
         }
 
         public static MethodFacts empty() {
-            return new MethodFacts(Map.of(), Map.of());
+            return new MethodFacts(Map.of());
         }
     }
 
     public record SymbolFacts(List<CallSiteEntity> callSites,
-                              Map<MethodReference.Handle, List<CallSiteEntity>> callSitesByCaller,
-                              Map<String, CallSiteEntity> callSitesByKey,
-                              List<LocalVarEntity> localVars,
-                              Map<MethodReference.Handle, List<LocalVarEntity>> localVarsByMethod,
-                              Map<MethodReference.Handle, List<String>> stringLiteralsByMethod,
-                              Map<MethodReference.Handle, List<String>> annotationStringsByMethod) {
+                              Map<MethodReference.Handle, List<CallSiteEntity>> callSitesByCaller) {
         public SymbolFacts {
-            callSites = callSites == null ? List.of() : List.copyOf(callSites);
-            callSitesByCaller = callSitesByCaller == null || callSitesByCaller.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(callSitesByCaller);
-            callSitesByKey = callSitesByKey == null || callSitesByKey.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(callSitesByKey);
-            localVars = localVars == null ? List.of() : List.copyOf(localVars);
-            localVarsByMethod = localVarsByMethod == null || localVarsByMethod.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(localVarsByMethod);
-            stringLiteralsByMethod = stringLiteralsByMethod == null || stringLiteralsByMethod.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(stringLiteralsByMethod);
-            annotationStringsByMethod = annotationStringsByMethod == null || annotationStringsByMethod.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(annotationStringsByMethod);
+            callSites = immutableListView(callSites);
+            callSitesByCaller = immutableMapView(callSitesByCaller);
         }
 
         public static SymbolFacts empty() {
-            return new SymbolFacts(List.of(), Map.of(), Map.of(), List.of(), Map.of(), Map.of(), Map.of());
+            return new SymbolFacts(List.of(), Map.of());
         }
     }
 
-    public record ResourceFacts(List<ResourceEntity> resources) {
-        public ResourceFacts {
-            resources = resources == null ? List.of() : List.copyOf(resources);
-        }
-
-        public static ResourceFacts empty() {
-            return new ResourceFacts(List.of());
-        }
-    }
-
-    public record SemanticFacts(List<SpringController> controllers,
-                                List<String> interceptors,
-                                List<String> servlets,
-                                List<String> filters,
-                                List<String> listeners,
-                                Map<MethodReference.Handle, Integer> explicitSourceMethodFlags,
+    public record SemanticFacts(Map<MethodReference.Handle, Integer> explicitSourceMethodFlags,
                                 Map<MethodReference.Handle, Integer> methodSemanticFlags) {
         public SemanticFacts {
-            controllers = controllers == null ? List.of() : List.copyOf(controllers);
-            interceptors = interceptors == null ? List.of() : List.copyOf(interceptors);
-            servlets = servlets == null ? List.of() : List.copyOf(servlets);
-            filters = filters == null ? List.of() : List.copyOf(filters);
-            listeners = listeners == null ? List.of() : List.copyOf(listeners);
-            explicitSourceMethodFlags = explicitSourceMethodFlags == null || explicitSourceMethodFlags.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(explicitSourceMethodFlags);
-            methodSemanticFlags = methodSemanticFlags == null || methodSemanticFlags.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(methodSemanticFlags);
+            explicitSourceMethodFlags = immutableMapView(explicitSourceMethodFlags);
+            methodSemanticFlags = immutableMapView(methodSemanticFlags);
         }
 
         public static SemanticFacts empty() {
-            return new SemanticFacts(List.of(), List.of(), List.of(), List.of(), List.of(), Map.of(), Map.of());
+            return new SemanticFacts(Map.of(), Map.of());
         }
     }
 
-    public record BytecodeFacts(Set<ClassFileEntity> classFiles,
-                                BuildBytecodeWorkspace workspace) {
+    public record BytecodeFacts(BuildBytecodeWorkspace workspace) {
         public BytecodeFacts {
-            classFiles = classFiles == null || classFiles.isEmpty()
-                    ? Set.of()
-                    : Set.copyOf(classFiles);
             workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
         }
 
         public static BytecodeFacts empty() {
-            return new BytecodeFacts(Set.of(), BuildBytecodeWorkspace.empty());
+            return new BytecodeFacts(BuildBytecodeWorkspace.empty());
         }
     }
 
@@ -200,13 +111,9 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                                   Map<String, AliasValueFact> instanceFieldFactsByKey,
                                   Map<MethodReference.Handle, MethodConstraintFacts> methodsByHandle) {
         public ConstraintFacts {
-            receiverVarByCallSiteKey = receiverVarByCallSiteKey == null || receiverVarByCallSiteKey.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(receiverVarByCallSiteKey);
+            receiverVarByCallSiteKey = immutableMapView(receiverVarByCallSiteKey);
             instanceFieldFactsByKey = immutableAliasFactMap(instanceFieldFactsByKey);
-            methodsByHandle = methodsByHandle == null || methodsByHandle.isEmpty()
-                    ? Map.of()
-                    : Map.copyOf(methodsByHandle);
+            methodsByHandle = immutableMapView(methodsByHandle);
         }
 
         public AliasValueFact instanceFieldFact(String owner,
@@ -330,7 +237,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         }
 
         private static <T> List<T> immutableList(List<T> values) {
-            return values == null || values.isEmpty() ? List.of() : List.copyOf(values);
+            return immutableListView(values);
         }
 
         private static <K, V> Map<K, List<V>> immutableMapOfLists(Map<K, List<V>> values) {
@@ -342,9 +249,9 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                 if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
                     continue;
                 }
-                out.put(entry.getKey(), List.copyOf(entry.getValue()));
+                out.put(entry.getKey(), immutableListView(entry.getValue()));
             }
-            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+            return out.isEmpty() ? Map.of() : Collections.unmodifiableMap(out);
         }
 
         private static Map<Integer, Map<Integer, AliasValueFact>> immutableNestedAliasFactMap(
@@ -362,7 +269,7 @@ public record BuildFactSnapshot(ArchiveFacts archives,
                     out.put(entry.getKey(), nested);
                 }
             }
-            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+            return out.isEmpty() ? Map.of() : Collections.unmodifiableMap(out);
         }
     }
 
@@ -447,21 +354,11 @@ public record BuildFactSnapshot(ArchiveFacts archives,
         }
 
         private static <K, V> Map<K, V> immutableMap(Map<K, V> values) {
-            if (values == null || values.isEmpty()) {
-                return Map.of();
-            }
-            java.util.LinkedHashMap<K, V> out = new java.util.LinkedHashMap<>();
-            for (Map.Entry<K, V> entry : values.entrySet()) {
-                if (entry == null || entry.getKey() == null || entry.getValue() == null) {
-                    continue;
-                }
-                out.put(entry.getKey(), entry.getValue());
-            }
-            return out.isEmpty() ? Map.of() : Map.copyOf(out);
+            return immutableMapView(values);
         }
 
         private static <T> List<T> immutableList(List<T> values) {
-            return values == null || values.isEmpty() ? List.of() : List.copyOf(values);
+            return immutableListView(values);
         }
     }
 
@@ -555,20 +452,31 @@ public record BuildFactSnapshot(ArchiveFacts archives,
     }
 
     private static <K> Map<K, AliasValueFact> immutableAliasFactMap(Map<K, AliasValueFact> values) {
-        if (values == null || values.isEmpty()) {
-            return Map.of();
-        }
-        java.util.LinkedHashMap<K, AliasValueFact> out = new java.util.LinkedHashMap<>();
-        for (Map.Entry<K, AliasValueFact> entry : values.entrySet()) {
-            if (entry == null || entry.getKey() == null || entry.getValue() == null || entry.getValue().isEmpty()) {
-                continue;
-            }
-            out.put(entry.getKey(), entry.getValue());
-        }
-        return out.isEmpty() ? Map.of() : Map.copyOf(out);
+        return immutableMapView(values);
     }
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static <T> List<T> immutableListView(List<T> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return Collections.unmodifiableList(values);
+    }
+
+    private static <K, V> Map<K, V> immutableMapView(Map<K, V> values) {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(values);
+    }
+
+    private static <T> Set<T> immutableSetView(Set<T> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        return Collections.unmodifiableSet(values);
     }
 }

@@ -12,11 +12,9 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -43,7 +41,6 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -58,22 +55,22 @@ public final class BytecodeSymbolRunner {
     private BytecodeSymbolRunner() {
     }
 
-    public static Result start(Set<ClassFileEntity> classFileList) {
-        if (classFileList == null || classFileList.isEmpty()) {
+    public static Result start(BuildBytecodeWorkspace workspace) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return Result.empty();
         }
-        List<ClassFileEntity> files = new ArrayList<>(classFileList);
-        int threads = resolveThreads(files.size());
+        List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
+        int threads = resolveThreads(parsedClasses.size());
         if (threads <= 1) {
-            return analyzeChunk(files);
+            return analyzeParsedChunk(parsedClasses);
         }
-        List<List<ClassFileEntity>> partitions = partition(files, threads);
+        List<List<BuildBytecodeWorkspace.ParsedClass>> partitions = partitionParsedClasses(parsedClasses, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<Result>> futures = new ArrayList<>();
         Throwable asyncFailure = null;
         try {
-            for (List<ClassFileEntity> chunk : partitions) {
-                futures.add(pool.submit(new LocalTask(chunk)));
+            for (List<BuildBytecodeWorkspace.ParsedClass> chunk : partitions) {
+                futures.add(pool.submit(new ParsedLocalTask(chunk)));
             }
             List<CallSiteEntity> callSites = new ArrayList<>();
             List<LocalVarEntity> localVars = new ArrayList<>();
@@ -104,11 +101,7 @@ public final class BytecodeSymbolRunner {
         }
     }
 
-    public static Result start(BuildBytecodeWorkspace workspace) {
-        if (workspace == null || workspace.parsedClasses().isEmpty()) {
-            return Result.empty();
-        }
-        List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
+    private static Result analyzeParsedChunk(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : parsedClasses) {
@@ -123,44 +116,12 @@ public final class BytecodeSymbolRunner {
                         parsedClass.classNode(),
                         parsedMethod.methodNode(),
                         parsedClass.jarId(),
-                        parsedMethod.sourceFrames()
+                        containsVirtualCalls(parsedMethod.methodNode().instructions)
+                                ? parsedMethod.sourceFrames()
+                                : null
                 );
                 callSites.addAll(bundle.callSites);
                 localVars.addAll(bundle.localVars);
-            }
-        }
-        return new Result(callSites, localVars);
-    }
-
-    private static Result analyzeChunk(List<ClassFileEntity> classFileList) {
-        List<CallSiteEntity> callSites = new ArrayList<>();
-        List<LocalVarEntity> localVars = new ArrayList<>();
-        for (ClassFileEntity file : classFileList) {
-            if (file == null) {
-                continue;
-            }
-            byte[] bytes = file.getFile();
-            if (bytes == null || bytes.length == 0) {
-                continue;
-            }
-            try {
-                ClassReader cr = new ClassReader(bytes);
-                ClassNode cn = new ClassNode();
-                cr.accept(cn, ClassReader.SKIP_FRAMES);
-                if (cn.methods == null || cn.methods.isEmpty()) {
-                    continue;
-                }
-                for (MethodNode mn : cn.methods) {
-                    if (mn == null || mn.instructions == null) {
-                        continue;
-                    }
-                    MethodResultBundle bundle = analyzeMethod(cn, mn, file.getJarId(), null);
-                    callSites.addAll(bundle.callSites);
-                    localVars.addAll(bundle.localVars);
-                }
-            } catch (Exception ex) {
-                throw new IllegalStateException("symbol index failed for class file: "
-                        + (file.getClassName() == null ? "" : file.getClassName()), ex);
             }
         }
         return new Result(callSites, localVars);
@@ -477,11 +438,13 @@ public final class BytecodeSymbolRunner {
         return Math.min(cpu, Math.max(1, classCount / 200));
     }
 
-    private static List<List<ClassFileEntity>> partition(List<ClassFileEntity> items, int parts) {
+    private static List<List<BuildBytecodeWorkspace.ParsedClass>> partitionParsedClasses(
+            List<BuildBytecodeWorkspace.ParsedClass> items,
+            int parts) {
         if (parts <= 1) {
             return Collections.singletonList(items);
         }
-        List<List<ClassFileEntity>> buckets = new ArrayList<>();
+        List<List<BuildBytecodeWorkspace.ParsedClass>> buckets = new ArrayList<>();
         for (int i = 0; i < parts; i++) {
             buckets.add(new ArrayList<>());
         }
@@ -523,16 +486,16 @@ public final class BytecodeSymbolRunner {
         }
     }
 
-    private static final class LocalTask implements Callable<Result> {
-        private final List<ClassFileEntity> classFileList;
+    private static final class ParsedLocalTask implements Callable<Result> {
+        private final List<BuildBytecodeWorkspace.ParsedClass> parsedClasses;
 
-        private LocalTask(List<ClassFileEntity> classFileList) {
-            this.classFileList = classFileList;
+        private ParsedLocalTask(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
+            this.parsedClasses = parsedClasses;
         }
 
         @Override
         public Result call() {
-            return analyzeChunk(classFileList);
+            return analyzeParsedChunk(parsedClasses);
         }
     }
 

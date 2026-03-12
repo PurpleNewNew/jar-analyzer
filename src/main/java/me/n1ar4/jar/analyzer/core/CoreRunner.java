@@ -13,7 +13,9 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.core.asm.FixClassVisitor;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
-import me.n1ar4.jar.analyzer.core.facts.BytecodeFactRunner;
+import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactAssembler;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
@@ -140,9 +142,7 @@ public class CoreRunner {
                     context,
                     inputs.scopeSummary(),
                     inputs.jdkResolution(),
-                    inputs.jarOriginsById(),
                     frontEndStage.workspace(),
-                    localVars,
                     progress,
                     metrics
             );
@@ -447,6 +447,7 @@ public class CoreRunner {
         markBuildStage("discovery");
         long stageStartNs = System.nanoTime();
         BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
+        releaseWorkspaceSourceBytes(context.classFileList);
         DiscoveryRunner.start(
                 workspace,
                 context.discoveredClasses,
@@ -588,9 +589,7 @@ public class CoreRunner {
                                                           BuildContext context,
                                                           ScopeSummary scopeSummary,
                                                           JdkResolution jdkResolution,
-                                                          Map<Integer, ProjectOrigin> jarOriginsById,
                                                           BuildBytecodeWorkspace workspace,
-                                                          List<LocalVarEntity> localVars,
                                                           IntConsumer progress,
                                                           BuildMetricsCollector metrics) {
         markBuildStage("callgraph");
@@ -601,7 +600,6 @@ public class CoreRunner {
                 System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP)
         );
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
-        List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
 
         String callGraphEngine = callGraphPlan.callGraphEngine();
         String callGraphModeMeta = callGraphPlan.callGraphModeMeta();
@@ -622,19 +620,14 @@ public class CoreRunner {
             logger.info("all archives are common/sdk, continue without call graph (policy={})",
                     policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
         } else {
-            BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(
-                    context,
-                    scopeSummary,
-                    jarOriginsById,
-                    localVars,
-                    workspace
-            );
+            BuildFactSnapshot facts = BuildFactAssembler.from(context, workspace);
+            BuildEdgeAccumulator edges = BuildEdgeAccumulator.fromContext(context);
             bytecodeResult = BytecodeMainlineCallGraphRunner.run(
-                    facts.snapshot(),
-                    facts.edges(),
+                    facts,
+                    edges,
                     callGraphPlan.bytecodeSettings()
             );
-            facts.edges().copyInto(context);
+            edges.copyInto(context);
             logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, frameworkCallerCandidates={}, frameworkTargetCandidates={}, frameworkTruncatedRules={}, frameworkTruncatedCallers={}, frameworkTruncatedTargets={}, frameworkDroppedCandidatePairs={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, ptaPrecisionSelectedCallSites={}, ptaPrecisionSemanticCallSites={}, ptaPrecisionReflectionCallSites={}, ptaPrecisionTriggerCallSites={}, ptaPrecisionHighFanoutCallSites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                     msSince(stageStartNs),
                     callGraphModeMeta,
@@ -1128,6 +1121,11 @@ public class CoreRunner {
                 cf.clearCachedBytes();
             }
         }
+    }
+
+    private static void releaseWorkspaceSourceBytes(Set<ClassFileEntity> classFileList) {
+        clearCachedBytes(classFileList);
+        BytecodeCache.clear();
     }
 
     private static Path resolveJarRoot(Path classPath) {

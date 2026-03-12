@@ -199,9 +199,6 @@ class ReflectionConstraintFactModeTest {
 
         return BuildFactAssembler.from(
                 context,
-                null,
-                Map.of(),
-                symbolResult.getLocalVars(),
                 workspace
         );
     }

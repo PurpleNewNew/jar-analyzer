@@ -15,11 +15,8 @@ import me.n1ar4.jar.analyzer.core.asm.StringAnnoClassVisitor;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.objectweb.asm.ClassReader;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -41,31 +38,31 @@ public class DiscoveryRunner {
     private static final String THREADS_PROP = "jar.analyzer.discovery.threads";
     private static final int MIN_CLASSES = 200;
 
-    public static void start(Set<ClassFileEntity> classFileList,
+    public static void start(BuildBytecodeWorkspace workspace,
                              Set<ClassReference> discoveredClasses,
                              Set<MethodReference> discoveredMethods,
                              Map<ClassReference.Handle, ClassReference> classMap,
                              Map<MethodReference.Handle, MethodReference> methodMap,
                              Map<MethodReference.Handle, List<String>> stringAnnoMap) {
         logger.info("start class analyze");
-        if (classFileList == null || classFileList.isEmpty()) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return;
         }
-        List<ClassFileEntity> files = new ArrayList<>(classFileList);
-        int threads = resolveThreads(files.size());
+        List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
+        int threads = resolveThreads(parsedClasses.size());
         if (threads <= 1) {
-            LocalResult result = analyzeChunk(files);
+            LocalResult result = analyzeParsedClasses(parsedClasses);
             mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, result);
         } else {
-            List<List<ClassFileEntity>> partitions = partition(files, threads);
+            List<List<BuildBytecodeWorkspace.ParsedClass>> partitions = partitionParsedClasses(parsedClasses, threads);
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             List<Future<LocalResult>> futures = new ArrayList<>();
-            for (List<ClassFileEntity> chunk : partitions) {
-                futures.add(pool.submit(new LocalTask(chunk)));
-            }
             boolean interrupted = false;
             Throwable asyncFailure = null;
             try {
+                for (List<BuildBytecodeWorkspace.ParsedClass> chunk : partitions) {
+                    futures.add(pool.submit(new ParsedLocalTask(chunk)));
+                }
                 for (Future<LocalResult> future : futures) {
                     try {
                         mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, future.get());
@@ -100,43 +97,14 @@ public class DiscoveryRunner {
                 throw new IllegalStateException("discovery task failed", asyncFailure);
             }
         }
-        List<ClassReference> classRows = new ArrayList<>(discoveredClasses);
-        classRows.sort(Comparator
-                .comparing((ClassReference row) -> safe(row == null ? null : row.getName()))
-                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
-        for (ClassReference clazz : classRows) {
-            if (clazz == null || clazz.getName() == null || clazz.getName().isBlank()) {
-                continue;
-            }
-            classMap.put(clazz.getHandle(), clazz);
-        }
-        List<MethodReference> methodRows = new ArrayList<>(discoveredMethods);
-        methodRows.sort(Comparator
-                .comparing((MethodReference row) -> safe(className(row)))
-                .thenComparing(row -> safe(row == null ? null : row.getName()))
-                .thenComparing(row -> safe(row == null ? null : row.getDesc()))
-                .thenComparingInt(row -> normalizeJarId(row == null ? null : row.getJarId())));
-        for (MethodReference method : methodRows) {
-            if (method == null || method.getClassReference() == null) {
-                continue;
-            }
-            methodMap.put(method.getHandle(), method);
-        }
+        mergeDiscoveredRows(discoveredClasses, discoveredMethods, classMap, methodMap);
         logger.info("string annotation analyze merged");
     }
 
-    public static void start(BuildBytecodeWorkspace workspace,
-                             Set<ClassReference> discoveredClasses,
-                             Set<MethodReference> discoveredMethods,
-                             Map<ClassReference.Handle, ClassReference> classMap,
-                             Map<MethodReference.Handle, MethodReference> methodMap,
-                             Map<MethodReference.Handle, List<String>> stringAnnoMap) {
-        logger.info("start class analyze");
-        if (workspace == null || workspace.parsedClasses().isEmpty()) {
-            return;
-        }
-        LocalResult result = analyzeParsedClasses(workspace.parsedClasses());
-        mergeInto(discoveredClasses, discoveredMethods, stringAnnoMap, result);
+    private static void mergeDiscoveredRows(Set<ClassReference> discoveredClasses,
+                                            Set<MethodReference> discoveredMethods,
+                                            Map<ClassReference.Handle, ClassReference> classMap,
+                                            Map<MethodReference.Handle, MethodReference> methodMap) {
         List<ClassReference> classRows = new ArrayList<>(discoveredClasses);
         classRows.sort(Comparator
                 .comparing((ClassReference row) -> safe(row == null ? null : row.getName()))
@@ -159,7 +127,6 @@ public class DiscoveryRunner {
             }
             methodMap.put(method.getHandle(), method);
         }
-        logger.info("string annotation analyze merged");
     }
 
     private static int resolveThreads(int classCount) {
@@ -181,11 +148,13 @@ public class DiscoveryRunner {
         return Math.min(cpu, Math.max(1, classCount / MIN_CLASSES));
     }
 
-    private static List<List<ClassFileEntity>> partition(List<ClassFileEntity> items, int parts) {
+    private static List<List<BuildBytecodeWorkspace.ParsedClass>> partitionParsedClasses(
+            List<BuildBytecodeWorkspace.ParsedClass> items,
+            int parts) {
         if (parts <= 1) {
             return Collections.singletonList(items);
         }
-        List<List<ClassFileEntity>> buckets = new ArrayList<>();
+        List<List<BuildBytecodeWorkspace.ParsedClass>> buckets = new ArrayList<>();
         for (int i = 0; i < parts; i++) {
             buckets.add(new ArrayList<>());
         }
@@ -217,32 +186,6 @@ public class DiscoveryRunner {
                 }
             }
         }
-    }
-
-    private static LocalResult analyzeChunk(List<ClassFileEntity> classFileList) {
-        Set<ClassReference> discoveredClasses = new HashSet<>();
-        Set<MethodReference> discoveredMethods = new HashSet<>();
-        Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
-        for (ClassFileEntity file : classFileList) {
-            try {
-                if (file == null) {
-                    continue;
-                }
-                byte[] bytes = file.getFile();
-                if (bytes == null || bytes.length == 0) {
-                    continue;
-                }
-                ClassReader cr = new ClassReader(bytes);
-                StringAnnoClassVisitor sav = new StringAnnoClassVisitor(stringAnnoMap, file.getJarId());
-                DiscoveryClassVisitor dcv = new DiscoveryClassVisitor(discoveredClasses,
-                        discoveredMethods, file.getJarName(), file.getJarId(), sav);
-                cr.accept(dcv, Const.DiscoveryASMOptions);
-            } catch (Exception e) {
-                throw new IllegalStateException("discovery failed for class file: "
-                        + safe(file == null ? null : file.getClassName()), e);
-            }
-        }
-        return new LocalResult(discoveredClasses, discoveredMethods, stringAnnoMap);
     }
 
     private static LocalResult analyzeParsedClasses(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
@@ -289,16 +232,16 @@ public class DiscoveryRunner {
         return value == null ? "" : value;
     }
 
-    private static final class LocalTask implements Callable<LocalResult> {
-        private final List<ClassFileEntity> classFileList;
+    private static final class ParsedLocalTask implements Callable<LocalResult> {
+        private final List<BuildBytecodeWorkspace.ParsedClass> parsedClasses;
 
-        private LocalTask(List<ClassFileEntity> classFileList) {
-            this.classFileList = classFileList;
+        private ParsedLocalTask(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
+            this.parsedClasses = parsedClasses;
         }
 
         @Override
         public LocalResult call() {
-            return analyzeChunk(classFileList);
+            return analyzeParsedClasses(parsedClasses);
         }
     }
 

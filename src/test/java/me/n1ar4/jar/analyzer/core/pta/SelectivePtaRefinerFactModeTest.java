@@ -45,7 +45,9 @@ class SelectivePtaRefinerFactModeTest {
         SelectivePtaRefiner.Result result = SelectivePtaRefiner.refine(
                 snapshot,
                 edges,
-                snapshot.types().inheritanceMap()
+                snapshot.bytecode().workspace(),
+                snapshot.types().inheritanceMap(),
+                false
         );
 
         assertTrue(result.ptaEdges() > 0);
@@ -121,9 +123,6 @@ class SelectivePtaRefinerFactModeTest {
 
         return BuildFactAssembler.from(
                 context,
-                null,
-                Map.of(),
-                symbolResult.getLocalVars(),
                 workspace
         );
     }

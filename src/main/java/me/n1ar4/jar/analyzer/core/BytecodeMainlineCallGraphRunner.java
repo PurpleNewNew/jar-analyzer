@@ -14,7 +14,6 @@ import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactAssembler;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
-import me.n1ar4.jar.analyzer.core.facts.BytecodeFactRunner;
 import me.n1ar4.jar.analyzer.core.pta.SelectivePtaRefiner;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -39,17 +38,6 @@ public final class BytecodeMainlineCallGraphRunner {
     public static final String MODE_PRECISION_V1 = "bytecode:precision-v1";
 
     private BytecodeMainlineCallGraphRunner() {
-    }
-
-    public static Result run(BuildContext context) {
-        if (context == null) {
-            return Result.empty();
-        }
-        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
-        BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(context, null, Map.of(), List.of(), workspace);
-        Result result = run(facts.snapshot(), facts.edges(), Settings.semanticV1());
-        facts.edges().copyInto(context);
-        return result;
     }
 
     public static Result run(BuildFactSnapshot snapshot,
@@ -150,16 +138,6 @@ public final class BytecodeMainlineCallGraphRunner {
                 seeded.unresolvedDeclaredTargetCount(),
                 totalEdges
         );
-    }
-
-    public static Result run(BuildContext context, Settings settings) {
-        if (context == null) {
-            return Result.empty();
-        }
-        BytecodeFactRunner.Result facts = BytecodeFactRunner.collect(context, null, Map.of(), List.of());
-        Result result = run(facts.snapshot(), facts.edges(), settings);
-        facts.edges().copyInto(context);
-        return result;
     }
 
     private static SeedResult seedDeclaredEdges(Map<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,

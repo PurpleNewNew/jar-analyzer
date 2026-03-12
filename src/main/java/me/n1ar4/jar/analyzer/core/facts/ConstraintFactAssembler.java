@@ -150,7 +150,7 @@ final class ConstraintFactAssembler {
         if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
             return BuildFactSnapshot.MethodConstraintFacts.empty();
         }
-        Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
+        Frame<SourceValue>[] frames = null;
         Map<String, String> staticStrings = collectStaticStringConstants(parsedMethod.owner().classNode());
         ArrayList<BuildFactSnapshot.AllocEdge> allocEdges = new ArrayList<>();
         LinkedHashMap<Integer, List<BuildFactSnapshot.AssignEdge>> objectAssignEdgesByVar = new LinkedHashMap<>();
@@ -220,6 +220,7 @@ final class ConstraintFactAssembler {
                     arrayLoadEdges.add(new BuildFactSnapshot.ArrayAccessEdge(i));
                 } else if (rawInsn.getOpcode() == Opcodes.AASTORE) {
                     arrayStoreEdges.add(new BuildFactSnapshot.ArrayAccessEdge(i));
+                    frames = ensureSourceFrames(parsedMethod, frames);
                     collectArrayStoreFacts(
                             rawInsn,
                             methodNode,
@@ -238,11 +239,12 @@ final class ConstraintFactAssembler {
                 arrayCopyEdges.add(new BuildFactSnapshot.ArrayCopyEdge(i));
                 nativeModelHints.add(new BuildFactSnapshot.NativeModelHint(
                         i,
-                        "arraycopy",
-                        methodInsn.owner,
-                        methodInsn.name,
-                        methodInsn.desc
+                    "arraycopy",
+                    methodInsn.owner,
+                    methodInsn.name,
+                    methodInsn.desc
                 ));
+                frames = ensureSourceFrames(parsedMethod, frames);
                 collectArrayCopyFacts(methodInsn, methodNode, frames, arrayElementFactsByVar);
             }
         }
@@ -326,6 +328,14 @@ final class ConstraintFactAssembler {
             }
         }
         return best == null ? null : best.name();
+    }
+
+    private static Frame<SourceValue>[] ensureSourceFrames(BuildBytecodeWorkspace.ParsedMethod parsedMethod,
+                                                           Frame<SourceValue>[] current) {
+        if (current != null || parsedMethod == null) {
+            return current;
+        }
+        return parsedMethod.sourceFrames();
     }
 
     private static void collectArrayStoreFacts(AbstractInsnNode insn,

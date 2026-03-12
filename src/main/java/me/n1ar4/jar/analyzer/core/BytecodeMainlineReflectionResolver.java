@@ -87,14 +87,6 @@ final class BytecodeMainlineReflectionResolver {
     private BytecodeMainlineReflectionResolver() {
     }
 
-    static Result appendEdges(BuildContext context,
-                              BytecodeMainlineCallGraphRunner.MethodLookup lookup) {
-        BuildBytecodeWorkspace workspace = context == null
-                ? BuildBytecodeWorkspace.empty()
-                : BuildBytecodeWorkspace.parse(context.classFileList);
-        return appendEdges(BuildFactSnapshot.empty(), context, workspace, lookup);
-    }
-
     static Result appendEdges(BuildFactSnapshot snapshot,
                               BuildContext context,
                               BuildBytecodeWorkspace workspace,
@@ -190,12 +182,6 @@ final class BytecodeMainlineReflectionResolver {
                 hintStats.impreciseSites(),
                 hintStats.thresholdExceededSites()
         );
-    }
-
-    static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
-            BuildBytecodeWorkspace workspace,
-            Map<MethodReference.Handle, MethodReference> methodMap) {
-        return collectReflectionHints(workspace, methodMap, collectInstanceFieldFacts(workspace));
     }
 
     static Map<MethodReference.Handle, BuildFactSnapshot.MethodReflectionHints> collectReflectionHints(
@@ -2755,6 +2741,9 @@ final class BytecodeMainlineReflectionResolver {
                 if (methodNode == null || methodNode.instructions == null || methodNode.instructions.size() == 0) {
                     continue;
                 }
+                if (!containsRelevantConstructorInvoke(methodNode, bindingsByCtor)) {
+                    continue;
+                }
                 Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
                 if (frames == null) {
                     continue;
@@ -2848,6 +2837,9 @@ final class BytecodeMainlineReflectionResolver {
                         || methodNode.instructions.size() == 0) {
                     continue;
                 }
+                if (!containsOwnFieldStore(methodNode, parsedClass.className())) {
+                    continue;
+                }
                 Frame<SourceValue>[] frames = parsedMethod.sourceFrames();
                 if (frames == null) {
                     continue;
@@ -2888,6 +2880,51 @@ final class BytecodeMainlineReflectionResolver {
             }
         }
         return out;
+    }
+
+    private static boolean containsRelevantConstructorInvoke(MethodNode methodNode,
+                                                             Map<String, List<FieldBinding>> bindingsByCtor) {
+        if (methodNode == null
+                || methodNode.instructions == null
+                || methodNode.instructions.size() == 0
+                || bindingsByCtor == null
+                || bindingsByCtor.isEmpty()) {
+            return false;
+        }
+        for (int i = 0, n = methodNode.instructions.size(); i < n; i++) {
+            AbstractInsnNode insn = methodNode.instructions.get(i);
+            if (!(insn instanceof MethodInsnNode mi)
+                    || mi.getOpcode() != Opcodes.INVOKESPECIAL
+                    || !"<init>".equals(mi.name)) {
+                continue;
+            }
+            if (bindingsByCtor.containsKey(constructorKey(mi.owner, mi.desc))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsOwnFieldStore(MethodNode methodNode,
+                                                 String owner) {
+        if (methodNode == null
+                || methodNode.instructions == null
+                || methodNode.instructions.size() == 0
+                || owner == null
+                || owner.isBlank()) {
+            return false;
+        }
+        for (int i = 0, n = methodNode.instructions.size(); i < n; i++) {
+            AbstractInsnNode insn = methodNode.instructions.get(i);
+            if (!(insn instanceof FieldInsnNode fin)
+                    || fin.getOpcode() != Opcodes.PUTFIELD) {
+                continue;
+            }
+            if (owner.equals(fin.owner)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static FieldBinding resolveFieldBinding(FieldInsnNode fieldInsn,

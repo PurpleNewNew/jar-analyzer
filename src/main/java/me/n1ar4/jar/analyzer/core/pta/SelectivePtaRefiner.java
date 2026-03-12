@@ -87,22 +87,6 @@ public final class SelectivePtaRefiner {
 
     public static Result refine(BuildFactSnapshot snapshot,
                                 BuildEdgeAccumulator edges,
-                                InheritanceMap inheritanceMap) {
-        BuildBytecodeWorkspace workspace = snapshot == null
-                ? BuildBytecodeWorkspace.empty()
-                : snapshot.bytecode().workspace();
-        return refine(snapshot, edges, workspace, inheritanceMap, false);
-    }
-
-    public static Result refine(BuildFactSnapshot snapshot,
-                                BuildEdgeAccumulator edges,
-                                BuildBytecodeWorkspace workspace,
-                                InheritanceMap inheritanceMap) {
-        return refine(snapshot, edges, workspace, inheritanceMap, false);
-    }
-
-    public static Result refine(BuildFactSnapshot snapshot,
-                                BuildEdgeAccumulator edges,
                                 BuildBytecodeWorkspace workspace,
                                 InheritanceMap inheritanceMap,
                                 boolean precisionMode) {

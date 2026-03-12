@@ -16,11 +16,9 @@ import me.n1ar4.jar.analyzer.core.asm.StringClassVisitor;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
-import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 
 import java.util.ArrayList;
@@ -28,7 +26,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -43,7 +40,7 @@ public final class ClassAnalysisRunner {
     private ClassAnalysisRunner() {
     }
 
-    public static void start(Set<ClassFileEntity> classFileList,
+    public static void start(BuildBytecodeWorkspace workspace,
                              Map<MethodReference.Handle, MethodReference> methodMap,
                              Map<MethodReference.Handle, List<String>> strMap,
                              Map<ClassReference.Handle, ClassReference> classMap,
@@ -56,20 +53,25 @@ public final class ClassAnalysisRunner {
                              boolean analyzeSpring,
                              boolean analyzeWeb) {
         logger.info("start class analysis pipeline");
-        if (classFileList == null || classFileList.isEmpty()) {
+        if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return;
         }
         if (!analyzeStrings && !analyzeSpring && !analyzeWeb) {
             logger.debug("class analysis skip: all analyzers disabled");
             return;
         }
-
-        List<ClassFileEntity> files = new ArrayList<>(classFileList);
-        int threads = resolveThreads(files);
+        List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
+        int threads = resolveThreads(parsedClasses.size());
         logger.info("class analysis threads: {}", threads);
         if (threads <= 1) {
-            LocalResult result = analyzeChunk(files, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb);
+            LocalResult result = analyzeParsedClasses(
+                    parsedClasses,
+                    methodMap,
+                    classMap,
+                    analyzeStrings,
+                    analyzeSpring,
+                    analyzeWeb
+            );
             mergeStrings(strMap, result.strMap);
             mergeList(controllers, result.controllers);
             mergeList(interceptors, result.interceptors);
@@ -79,17 +81,22 @@ public final class ClassAnalysisRunner {
             return;
         }
 
-        List<List<ClassFileEntity>> partitions = partition(files, threads);
+        List<List<BuildBytecodeWorkspace.ParsedClass>> partitions = partitionParsedClasses(parsedClasses, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<LocalResult>> futures = new ArrayList<>();
-        for (List<ClassFileEntity> chunk : partitions) {
-            futures.add(pool.submit(new LocalTask(chunk, methodMap, classMap,
-                    analyzeStrings, analyzeSpring, analyzeWeb)));
-        }
-
         boolean interrupted = false;
         Throwable asyncFailure = null;
         try {
+            for (List<BuildBytecodeWorkspace.ParsedClass> chunk : partitions) {
+                futures.add(pool.submit(new ParsedLocalTask(
+                        chunk,
+                        methodMap,
+                        classMap,
+                        analyzeStrings,
+                        analyzeSpring,
+                        analyzeWeb
+                )));
+            }
             for (Future<LocalResult> future : futures) {
                 try {
                     LocalResult result = future.get();
@@ -130,44 +137,7 @@ public final class ClassAnalysisRunner {
         }
     }
 
-    public static void start(BuildBytecodeWorkspace workspace,
-                             Map<MethodReference.Handle, MethodReference> methodMap,
-                             Map<MethodReference.Handle, List<String>> strMap,
-                             Map<ClassReference.Handle, ClassReference> classMap,
-                             List<SpringController> controllers,
-                             ArrayList<String> interceptors,
-                             ArrayList<String> servlets,
-                             ArrayList<String> filters,
-                             ArrayList<String> listeners,
-                             boolean analyzeStrings,
-                             boolean analyzeSpring,
-                             boolean analyzeWeb) {
-        logger.info("start class analysis pipeline");
-        if (workspace == null || workspace.parsedClasses().isEmpty()) {
-            return;
-        }
-        if (!analyzeStrings && !analyzeSpring && !analyzeWeb) {
-            logger.debug("class analysis skip: all analyzers disabled");
-            return;
-        }
-        LocalResult result = analyzeParsedClasses(
-                workspace.parsedClasses(),
-                methodMap,
-                classMap,
-                analyzeStrings,
-                analyzeSpring,
-                analyzeWeb
-        );
-        mergeStrings(strMap, result.strMap);
-        mergeList(controllers, result.controllers);
-        mergeList(interceptors, result.interceptors);
-        mergeList(servlets, result.servlets);
-        mergeList(filters, result.filters);
-        mergeList(listeners, result.listeners);
-    }
-
-    private static int resolveThreads(List<ClassFileEntity> files) {
-        int classCount = files.size();
+    private static int resolveThreads(int classCount) {
         String raw = System.getProperty(THREADS_PROP);
         if (raw != null && !raw.trim().isEmpty()) {
             try {
@@ -189,11 +159,13 @@ public final class ClassAnalysisRunner {
         return Math.min(cpu, Math.max(1, classCount));
     }
 
-    private static List<List<ClassFileEntity>> partition(List<ClassFileEntity> items, int parts) {
+    private static List<List<BuildBytecodeWorkspace.ParsedClass>> partitionParsedClasses(
+            List<BuildBytecodeWorkspace.ParsedClass> items,
+            int parts) {
         if (parts <= 1) {
             return Collections.singletonList(items);
         }
-        List<List<ClassFileEntity>> buckets = new ArrayList<>();
+        List<List<BuildBytecodeWorkspace.ParsedClass>> buckets = new ArrayList<>();
         for (int i = 0; i < parts; i++) {
             buckets.add(new ArrayList<>());
         }
@@ -223,51 +195,6 @@ public final class ClassAnalysisRunner {
             return;
         }
         target.addAll(src);
-    }
-
-    private static LocalResult analyzeChunk(List<ClassFileEntity> classFileList,
-                                            Map<MethodReference.Handle, MethodReference> methodMap,
-                                            Map<ClassReference.Handle, ClassReference> classMap,
-                                            boolean analyzeStrings,
-                                            boolean analyzeSpring,
-                                            boolean analyzeWeb) {
-        Map<MethodReference.Handle, List<String>> strMap = analyzeStrings ? new HashMap<>() : null;
-        List<SpringController> controllers = analyzeSpring ? new ArrayList<>() : null;
-        ArrayList<String> interceptors = analyzeWeb ? new ArrayList<>() : null;
-        ArrayList<String> servlets = analyzeWeb ? new ArrayList<>() : null;
-        ArrayList<String> filters = analyzeWeb ? new ArrayList<>() : null;
-        ArrayList<String> listeners = analyzeWeb ? new ArrayList<>() : null;
-
-        for (ClassFileEntity file : classFileList) {
-            if (file == null) {
-                continue;
-            }
-            byte[] bytes = file.getFile();
-            if (bytes == null || bytes.length == 0) {
-                continue;
-            }
-            try {
-                ClassReader cr = new ClassReader(bytes);
-                ClassVisitor chain = new ClassVisitor(Const.ASMVersion) {
-                };
-                if (analyzeWeb) {
-                    chain = new JavaWebClassVisitor(interceptors, servlets, filters, listeners, chain);
-                }
-                if (analyzeSpring) {
-                    chain = new SpringClassVisitor(controllers, classMap, methodMap, file.getJarId(), chain);
-                }
-                if (analyzeStrings) {
-                    chain = new StringClassVisitor(strMap, methodMap, file.getJarId(), chain);
-                }
-                cr.accept(chain, Const.GlobalASMOptions);
-            } catch (Exception e) {
-                throw new IllegalStateException("class analysis failed for class file: "
-                        + safe(file.getClassName()), e);
-            }
-        }
-
-        return new LocalResult(strMap,
-                controllers, interceptors, servlets, filters, listeners);
     }
 
     private static LocalResult analyzeParsedClasses(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses,
@@ -321,21 +248,21 @@ public final class ClassAnalysisRunner {
                 controllers, interceptors, servlets, filters, listeners);
     }
 
-    private static final class LocalTask implements Callable<LocalResult> {
-        private final List<ClassFileEntity> classFileList;
+    private static final class ParsedLocalTask implements Callable<LocalResult> {
+        private final List<BuildBytecodeWorkspace.ParsedClass> parsedClasses;
         private final Map<MethodReference.Handle, MethodReference> methodMap;
         private final Map<ClassReference.Handle, ClassReference> classMap;
         private final boolean analyzeStrings;
         private final boolean analyzeSpring;
         private final boolean analyzeWeb;
 
-        private LocalTask(List<ClassFileEntity> classFileList,
-                          Map<MethodReference.Handle, MethodReference> methodMap,
-                          Map<ClassReference.Handle, ClassReference> classMap,
-                          boolean analyzeStrings,
-                          boolean analyzeSpring,
-                          boolean analyzeWeb) {
-            this.classFileList = classFileList;
+        private ParsedLocalTask(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses,
+                                Map<MethodReference.Handle, MethodReference> methodMap,
+                                Map<ClassReference.Handle, ClassReference> classMap,
+                                boolean analyzeStrings,
+                                boolean analyzeSpring,
+                                boolean analyzeWeb) {
+            this.parsedClasses = parsedClasses;
             this.methodMap = methodMap;
             this.classMap = classMap;
             this.analyzeStrings = analyzeStrings;
@@ -345,7 +272,7 @@ public final class ClassAnalysisRunner {
 
         @Override
         public LocalResult call() {
-            return analyzeChunk(classFileList, methodMap, classMap,
+            return analyzeParsedClasses(parsedClasses, methodMap, classMap,
                     analyzeStrings, analyzeSpring, analyzeWeb);
         }
     }

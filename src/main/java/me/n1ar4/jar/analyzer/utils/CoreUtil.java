@@ -33,7 +33,7 @@ public class CoreUtil {
                                                               List<ResourceEntity> resources,
                                                               boolean resolveInnerJars) {
         logger.info("collect all class");
-        Set<ClassFileEntity> classFileSet = new HashSet<>();
+        Map<ClassFileKey, ClassFileEntity> classFilesByKey = new LinkedHashMap<>();
         Path temp = Paths.get(Const.tempDir);
         try {
             cleanupBuildTemp(temp);
@@ -45,20 +45,54 @@ public class CoreUtil {
         } catch (IOException ex) {
             logger.debug("create temp dir failed: {}: {}", temp, ex.toString());
         }
+        boolean recursiveArchiveScan = shouldResolveInnerJars(jarPathList, resolveInnerJars);
+        if (resolveInnerJars && !recursiveArchiveScan) {
+            logger.info("skip recursive nested jar scan because classpath already contains extracted nested archives");
+        }
         for (String jarPath : jarPathList) {
             JarUtil.ResolveResult result = JarUtil.resolveNormalJarFile(
                     jarPath,
                     jarIdMap.get(jarPath),
-                    resolveInnerJars
+                    recursiveArchiveScan
             );
-            classFileSet.addAll(result.getClassFiles());
+            mergeClassFiles(classFilesByKey, result.getClassFiles());
             if (resources != null) {
                 resources.addAll(result.getResources());
             }
         }
         // 2025/08/01 解决黑名单生效但是会创建空的目录 误导用户 问题
         // 遍历 Const.tempDir 目录 如果目录（以及其子目录）里不包含任何文件 删除该目录
-        return new ArrayList<>(classFileSet);
+        return new ArrayList<>(classFilesByKey.values());
+    }
+
+    private static boolean shouldResolveInnerJars(List<String> jarPathList, boolean resolveInnerJars) {
+        if (!resolveInnerJars) {
+            return false;
+        }
+        if (jarPathList == null || jarPathList.isEmpty()) {
+            return true;
+        }
+        Path nestedRoot = Paths.get(Const.tempDir, CLASSPATH_NESTED_DIR).toAbsolutePath().normalize();
+        for (String jarPath : jarPathList) {
+            Path normalized = normalizePath(jarPath);
+            if (normalized != null && normalized.startsWith(nestedRoot)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void mergeClassFiles(Map<ClassFileKey, ClassFileEntity> classFilesByKey,
+                                        Collection<ClassFileEntity> classFiles) {
+        if (classFilesByKey == null || classFiles == null || classFiles.isEmpty()) {
+            return;
+        }
+        for (ClassFileEntity classFile : classFiles) {
+            if (classFile == null) {
+                continue;
+            }
+            classFilesByKey.putIfAbsent(ClassFileKey.of(classFile), classFile);
+        }
     }
 
     private static void cleanupBuildTemp(Path temp) {
@@ -83,6 +117,18 @@ public class CoreUtil {
             }
         } catch (Exception ex) {
             logger.debug("scan temp dir for cleanup failed: {}: {}", temp, ex.toString());
+        }
+    }
+
+    private static Path normalizePath(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return null;
+        }
+        try {
+            return Paths.get(rawPath).toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            logger.debug("normalize temp archive path failed: {}: {}", rawPath, ex.toString());
+            return null;
         }
     }
 
@@ -122,6 +168,17 @@ public class CoreUtil {
         } catch (IOException e) {
             logger.error("delete null dir {} error {}", directory, e);
             return false;
+        }
+    }
+
+    private record ClassFileKey(String className,
+                                Path path,
+                                Integer jarId) {
+        private static ClassFileKey of(ClassFileEntity classFile) {
+            String className = classFile.getClassName() == null ? "" : classFile.getClassName().trim();
+            Path path = classFile.getPath();
+            Integer jarId = classFile.getJarId() == null ? -1 : classFile.getJarId();
+            return new ClassFileKey(className, path, jarId);
         }
     }
 }

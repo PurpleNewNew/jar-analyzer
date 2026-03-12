@@ -13,6 +13,7 @@ package me.n1ar4.core.perf;
 import me.n1ar4.jar.analyzer.analyze.spring.SpringController;
 import me.n1ar4.jar.analyzer.core.ClassAnalysisRunner;
 import me.n1ar4.jar.analyzer.core.DiscoveryRunner;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
@@ -68,6 +69,7 @@ public class ClassAnalysisPerfTest {
         }
         Path tempDir = Paths.get("target", "perf-temp");
         List<ClassFileEntity> classFiles = extractClasses(jars, tempDir);
+        BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(new HashSet<>(classFiles));
         System.out.println("class files: " + classFiles.size() + " (jars=" + jars.size() + ")");
 
         Set<ClassReference> discoveredClasses = new HashSet<>();
@@ -76,21 +78,21 @@ public class ClassAnalysisPerfTest {
         Map<MethodReference.Handle, MethodReference> methodMap = new HashMap<>();
         Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
 
-        long discoveryMs = measureMs(() -> DiscoveryRunner.start(new HashSet<>(classFiles),
+        long discoveryMs = measureMs(() -> DiscoveryRunner.start(workspace,
                 discoveredClasses, discoveredMethods, classMap, methodMap, stringAnnoMap));
         System.out.println("discovery ms: " + discoveryMs);
 
         BytecodeCache.clear();
-        PerfResult serial = runSerial(classFiles, methodMap, classMap);
+        PerfResult serial = runSerial(workspace, methodMap, classMap);
         System.out.println(serial.format("serial"));
 
         BytecodeCache.clear();
-        int threads = resolveThreads(classFiles.size());
-        PerfResult parallel = runParallel(classFiles, methodMap, classMap, threads);
+        int threads = resolveThreads(workspace.parsedClasses().size());
+        PerfResult parallel = runParallel(workspace, methodMap, classMap, threads);
         System.out.println(parallel.format("parallel"));
     }
 
-    private static PerfResult runSerial(List<ClassFileEntity> classFiles,
+    private static PerfResult runSerial(BuildBytecodeWorkspace workspace,
                                         Map<MethodReference.Handle, MethodReference> methodMap,
                                         Map<ClassReference.Handle, ClassReference> classMap) {
         Map<MethodReference.Handle, List<String>> strMap = new HashMap<>();
@@ -102,7 +104,7 @@ public class ClassAnalysisPerfTest {
 
         String prev = System.getProperty(ANALYSIS_THREADS_PROP);
         System.setProperty(ANALYSIS_THREADS_PROP, "1");
-        long ms = measureMs(() -> ClassAnalysisRunner.start(new HashSet<>(classFiles),
+        long ms = measureMs(() -> ClassAnalysisRunner.start(workspace,
                 methodMap,
                 strMap,
                 classMap,
@@ -120,7 +122,7 @@ public class ClassAnalysisPerfTest {
                 controllers, interceptors, servlets, filters, listeners);
     }
 
-    private static PerfResult runParallel(List<ClassFileEntity> classFiles,
+    private static PerfResult runParallel(BuildBytecodeWorkspace workspace,
                                           Map<MethodReference.Handle, MethodReference> methodMap,
                                           Map<ClassReference.Handle, ClassReference> classMap,
                                           int threads) {
@@ -133,7 +135,7 @@ public class ClassAnalysisPerfTest {
 
         String prev = System.getProperty(ANALYSIS_THREADS_PROP);
         System.setProperty(ANALYSIS_THREADS_PROP, String.valueOf(threads));
-        long ms = measureMs(() -> ClassAnalysisRunner.start(new HashSet<>(classFiles),
+        long ms = measureMs(() -> ClassAnalysisRunner.start(workspace,
                 methodMap,
                 strMap,
                 classMap,
