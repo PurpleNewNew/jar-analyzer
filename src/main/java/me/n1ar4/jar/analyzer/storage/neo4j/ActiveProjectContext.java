@@ -10,8 +10,9 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
+import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,7 +27,7 @@ public final class ActiveProjectContext {
     private static final Object PROJECT_MUTATION_LOCK = new Object();
     private static final AtomicLong PROJECT_EPOCH = new AtomicLong(1L);
     private static final AtomicInteger PROJECT_MUTATION_DEPTH = new AtomicInteger(0);
-    private static final Set<String> MUTATING_PROJECTS = ConcurrentHashMap.newKeySet();
+    private static final Map<String, AtomicInteger> MUTATING_PROJECTS = new ConcurrentHashMap<>();
     private static final ThreadLocal<String> PROJECT_OVERRIDE = new ThreadLocal<>();
 
     private static volatile String activeProjectKey = TEMP_PROJECT_KEY;
@@ -115,7 +116,8 @@ public final class ActiveProjectContext {
         if (normalized.isBlank()) {
             return isProjectMutationInProgress();
         }
-        return MUTATING_PROJECTS.contains(normalized);
+        AtomicInteger counter = MUTATING_PROJECTS.get(normalized);
+        return counter != null && counter.get() > 0;
     }
 
     public static String normalizeProjectKey(String projectKey) {
@@ -218,11 +220,14 @@ public final class ActiveProjectContext {
         if (projectKeys == null || projectKeys.length == 0) {
             return;
         }
-        for (String projectKey : projectKeys) {
-            String normalized = normalizeProjectKey(projectKey);
-            if (!normalized.isBlank()) {
-                MUTATING_PROJECTS.add(normalized);
-            }
+        for (String normalized : distinctProjectKeys(projectKeys)) {
+            MUTATING_PROJECTS.compute(normalized, (ignore, counter) -> {
+                if (counter == null) {
+                    return new AtomicInteger(1);
+                }
+                counter.incrementAndGet();
+                return counter;
+            });
         }
     }
 
@@ -230,11 +235,27 @@ public final class ActiveProjectContext {
         if (projectKeys == null || projectKeys.length == 0) {
             return;
         }
+        for (String normalized : distinctProjectKeys(projectKeys)) {
+            MUTATING_PROJECTS.computeIfPresent(normalized, (ignore, counter) -> {
+                if (counter.decrementAndGet() <= 0) {
+                    return null;
+                }
+                return counter;
+            });
+        }
+    }
+
+    private static LinkedHashSet<String> distinctProjectKeys(String... projectKeys) {
+        LinkedHashSet<String> normalizedKeys = new LinkedHashSet<>();
+        if (projectKeys == null || projectKeys.length == 0) {
+            return normalizedKeys;
+        }
         for (String projectKey : projectKeys) {
             String normalized = normalizeProjectKey(projectKey);
             if (!normalized.isBlank()) {
-                MUTATING_PROJECTS.remove(normalized);
+                normalizedKeys.add(normalized);
             }
         }
+        return normalizedKeys;
     }
 }

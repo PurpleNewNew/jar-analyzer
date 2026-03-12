@@ -98,6 +98,7 @@ public class DatabaseManager {
 
     private static volatile String loadedProjectKey = "";
     private static volatile String buildingProjectKey = "";
+    private static volatile long buildingBuildSeq = 0L;
     private static volatile ProjectModel lastProjectModel;
 
     static {
@@ -152,14 +153,25 @@ public class DatabaseManager {
 
     public static long beginBuild(String projectKey) {
         return withWriteLockValue(() -> {
-            long buildSeq = BUILD_SEQ.incrementAndGet();
             String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-            ProjectMetadataSnapshotStore.getInstance()
-                    .markUnavailable(resolvedProjectKey, buildSeq, "build_started");
-            BUILDING.set(true);
-            buildingProjectKey = resolvedProjectKey;
-            clearProjectRuntimeLocked();
-            return buildSeq;
+            if (BUILDING.get()) {
+                throw new IllegalStateException("project_build_in_progress");
+            }
+            long buildSeq = BUILD_SEQ.incrementAndGet();
+            try {
+                ProjectMetadataSnapshotStore.getInstance()
+                        .markUnavailable(resolvedProjectKey, buildSeq, "build_started");
+                BUILDING.set(true);
+                buildingProjectKey = resolvedProjectKey;
+                buildingBuildSeq = buildSeq;
+                clearProjectRuntimeLocked();
+                return buildSeq;
+            } catch (Throwable ex) {
+                BUILDING.set(false);
+                buildingProjectKey = "";
+                buildingBuildSeq = 0L;
+                throw ex;
+            }
         });
     }
 
@@ -557,29 +569,11 @@ public class DatabaseManager {
     }
 
     static void finishBuild(boolean buildCommitted) {
-        String finishedProjectKey = ActiveProjectContext.resolveRequestedOrActive(buildingProjectKey);
-        BUILDING.set(false);
-        buildingProjectKey = "";
-        if (buildCommitted && !finishedProjectKey.isBlank()) {
-            try {
-                ProjectMetadataSnapshotStore.getInstance().clearUnavailable(finishedProjectKey);
-            } catch (Exception ex) {
-                logger.debug("clear project runtime unavailable marker after build fail: key={} err={}",
-                        finishedProjectKey, ex.toString());
-            }
-        } else if (!buildCommitted && !finishedProjectKey.isBlank()
-                && finishedProjectKey.equals(ActiveProjectContext.getPublishedActiveProjectKey())) {
-            try {
-                ProjectRuntimeSnapshot.ProjectModelData modelData = ProjectMetadataSnapshotStore.getInstance()
-                        .readProjectModelRegardlessOfAvailability(finishedProjectKey);
-                if (modelData != null) {
-                    restoreProjectRuntime(finishedProjectKey, unavailableRuntimeSnapshot(modelData));
-                }
-            } catch (Exception ex) {
-                logger.debug("restore unavailable runtime after failed build fail: key={} err={}",
-                        finishedProjectKey, ex.toString());
-            }
-        }
+        completeBuild(buildingProjectKey, buildingBuildSeq, buildCommitted, false);
+    }
+
+    static void finishBuild(String projectKey, long buildSeq, boolean buildCommitted) {
+        completeBuild(projectKey, buildSeq, buildCommitted, true);
     }
 
     public static boolean isBuilding() {
@@ -1447,6 +1441,51 @@ public class DatabaseManager {
         LISTENERS.clear();
         lastProjectModel = null;
         invalidateGraphSnapshotCache();
+    }
+
+    private static void completeBuild(String expectedProjectKey,
+                                      long expectedBuildSeq,
+                                      boolean buildCommitted,
+                                      boolean requireExactMatch) {
+        withWriteLock(() -> {
+            if (!BUILDING.get()) {
+                return;
+            }
+            String currentProjectKey = ActiveProjectContext.resolveRequestedOrActive(buildingProjectKey);
+            long currentBuildSeq = buildingBuildSeq;
+            String normalizedExpectedProjectKey = ActiveProjectContext.normalizeProjectKey(expectedProjectKey);
+            boolean projectMatches = normalizedExpectedProjectKey.isBlank()
+                    || normalizedExpectedProjectKey.equals(currentProjectKey);
+            boolean buildSeqMatches = expectedBuildSeq <= 0L || expectedBuildSeq == currentBuildSeq;
+            if (requireExactMatch && (!projectMatches || !buildSeqMatches)) {
+                logger.warn("skip finish build due to mismatched session: expectedKey={} expectedSeq={} currentKey={} currentSeq={}",
+                        normalizedExpectedProjectKey, expectedBuildSeq, currentProjectKey, currentBuildSeq);
+                return;
+            }
+            BUILDING.set(false);
+            buildingProjectKey = "";
+            buildingBuildSeq = 0L;
+            if (buildCommitted && !currentProjectKey.isBlank()) {
+                try {
+                    ProjectMetadataSnapshotStore.getInstance().clearUnavailable(currentProjectKey);
+                } catch (Exception ex) {
+                    logger.debug("clear project runtime unavailable marker after build fail: key={} err={}",
+                            currentProjectKey, ex.toString());
+                }
+            } else if (!buildCommitted && !currentProjectKey.isBlank()
+                    && currentProjectKey.equals(ActiveProjectContext.getPublishedActiveProjectKey())) {
+                try {
+                    ProjectRuntimeSnapshot.ProjectModelData modelData = ProjectMetadataSnapshotStore.getInstance()
+                            .readProjectModelRegardlessOfAvailability(currentProjectKey);
+                    if (modelData != null) {
+                        restoreProjectRuntime(currentProjectKey, unavailableRuntimeSnapshot(modelData));
+                    }
+                } catch (Exception ex) {
+                    logger.debug("restore unavailable runtime after failed build fail: key={} err={}",
+                            currentProjectKey, ex.toString());
+                }
+            }
+        });
     }
 
     private static void clearAllDataLocked() {

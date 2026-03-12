@@ -136,11 +136,10 @@ public class CoreRunner {
                     ? Collections.emptyList()
                     : symbolResult.getLocalVars();
             CallGraphStageResult callGraphStage = runCallGraphStage(
-                    jarPath,
                     quickMode,
                     context,
                     inputs.scopeSummary(),
-                    inputs.runtimeHint(),
+                    inputs.jdkResolution(),
                     inputs.jarOriginsById(),
                     frontEndStage.workspace(),
                     localVars,
@@ -171,7 +170,9 @@ public class CoreRunner {
             if (!cleaned) {
                 clearBuildContext(context);
             }
-            if (session != null || DatabaseManager.isBuilding()) {
+            if (session != null) {
+                DatabaseManager.finishBuild(session.targetProjectKey(), session.buildSeq(), buildCommitted);
+            } else if (DatabaseManager.isBuilding()) {
                 DatabaseManager.finishBuild(buildCommitted);
             }
             BUILD_STAGE.remove();
@@ -196,15 +197,8 @@ public class CoreRunner {
     private static BuildSession beginBuildSession() {
         synchronized (ActiveProjectContext.mutationLock()) {
             String targetProjectKey = ActiveProjectContext.getActiveProjectKey();
-            try {
-                long buildSeq = DatabaseManager.beginBuild(targetProjectKey);
-                return new BuildSession(targetProjectKey, buildSeq);
-            } catch (Throwable ex) {
-                if (DatabaseManager.isBuilding(targetProjectKey)) {
-                    DatabaseManager.finishBuild(false);
-                }
-                throw ex;
-            }
+            long buildSeq = DatabaseManager.beginBuild(targetProjectKey);
+            return new BuildSession(targetProjectKey, buildSeq);
         }
     }
 
@@ -242,13 +236,23 @@ public class CoreRunner {
         int[] nextJarId = {1};
 
         progress.accept(10);
-        List<String> userArchives = ClasspathResolver.resolveInputArchives(
-                jarPath, null, !quickMode, includeNested);
+        Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
+        JdkResolution jdkResolution = runtimeHint == null
+                ? JdkResolution.none()
+                : JdkArchiveResolver.resolve(runtimeHint);
+        LinkedHashSet<String> resolvedArchives = new LinkedHashSet<>(ClasspathResolver.resolveInputArchives(
+                jarPath,
+                runtimeArchiveSeed(runtimeHint),
+                !quickMode,
+                includeNested
+        ));
+        mergeResolvedArchives(resolvedArchives, jdkResolution.archives());
+        List<String> userArchives = resolvedArchives.isEmpty() ? List.of() : new ArrayList<>(resolvedArchives);
         List<Path> normalizedArchives = normalizePaths(userArchives);
         try {
             ProjectRuntimeContext.prepareArtifactBuild(
                     null,
-                    null,
+                    runtimeHint,
                     normalizedArchives,
                     includeNested
             );
@@ -256,13 +260,13 @@ public class CoreRunner {
             logger.debug("update analyzed archives fail: {}", ex.toString());
         }
 
-        Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
         ScopeSummary scopeSummary = ArchiveScopeClassifier.classifyArchives(
                 normalizedArchives, jarPath, runtimeHint);
         Map<Path, ProjectOrigin> archiveOrigins = applyProjectModePrimaryInputOriginOverride(
                 scopeSummary.originsByArchive(),
                 normalizedArchives
         );
+        markSdkArchives(archiveOrigins, jdkResolution.archives());
         scopeSummary = rebuildScopeSummary(archiveOrigins);
         Map<Integer, ProjectOrigin> jarOriginsById = new HashMap<>();
 
@@ -310,7 +314,7 @@ public class CoreRunner {
                     "include_nested", includeNested
             ));
         }
-        return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, runtimeHint);
+        return new BuildInputs(userArchives, jarIdMap, jarOriginsById, scopeSummary, jdkResolution);
     }
 
     private static Map<Path, ProjectOrigin> applyProjectModePrimaryInputOriginOverride(Map<Path, ProjectOrigin> originsByArchive,
@@ -580,11 +584,10 @@ public class CoreRunner {
         return new BytecodeFrontEndStageResult(workspace, symbolResult);
     }
 
-    private static CallGraphStageResult runCallGraphStage(Path jarPath,
-                                                          boolean quickMode,
+    private static CallGraphStageResult runCallGraphStage(boolean quickMode,
                                                           BuildContext context,
                                                           ScopeSummary scopeSummary,
-                                                          Path runtimeHint,
+                                                          JdkResolution jdkResolution,
                                                           Map<Integer, ProjectOrigin> jarOriginsById,
                                                           BuildBytecodeWorkspace workspace,
                                                           List<LocalVarEntity> localVars,
@@ -593,7 +596,6 @@ public class CoreRunner {
         markBuildStage("callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
-        JdkResolution jdkResolution = JdkArchiveResolver.resolve(runtimeHint);
         CallGraphPlan callGraphPlan = CallGraphPlan.resolve(
                 System.getProperty(CALL_GRAPH_ENGINE_PROP),
                 System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP)
@@ -601,15 +603,10 @@ public class CoreRunner {
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
         List<Path> libraryArchives = ArchiveScopeClassifier.pickLibraryArchives(scopeSummary);
 
-        LinkedHashSet<Path> callGraphClasspath = new LinkedHashSet<>();
-        callGraphClasspath.addAll(appArchives);
-        callGraphClasspath.addAll(libraryArchives);
-        callGraphClasspath.addAll(jdkResolution.archives());
-
         String callGraphEngine = callGraphPlan.callGraphEngine();
         String callGraphModeMeta = callGraphPlan.callGraphModeMeta();
         String analysisProfile = callGraphPlan.analysisProfile();
-        int explicitEntryCount = 0;
+        int explicitEntryCount = context.explicitSourceMethodFlags.size();
         BytecodeMainlineCallGraphRunner.Result bytecodeResult = BytecodeMainlineCallGraphRunner.Result.empty();
         context.methodCalls.clear();
         context.methodCallMeta.clear();
@@ -690,7 +687,7 @@ public class CoreRunner {
                     "analysis_profile", safe(analysisProfile),
                     "quick_mode", quickMode,
                     "app_archives", appArchives.size(),
-                    "classpath_archives", callGraphClasspath.size(),
+                    "classpath_archives", scopeSummary == null ? 0 : scopeSummary.originsByArchive().size(),
                     "explicit_entries", explicitEntryCount,
                     "target_archives", scopeSummary == null ? 0 : scopeSummary.targetArchiveCount(),
                     "library_archives", scopeSummary == null ? 0 : scopeSummary.libraryArchiveCount()
@@ -939,7 +936,7 @@ public class CoreRunner {
                                Map<String, Integer> jarIdMap,
                                Map<Integer, ProjectOrigin> jarOriginsById,
                                ScopeSummary scopeSummary,
-                               Path runtimeHint) {
+                               JdkResolution jdkResolution) {
     }
 
     private record BytecodeFrontEndStageResult(BuildBytecodeWorkspace workspace,
@@ -1342,6 +1339,44 @@ public class CoreRunner {
         meta.put("sdk_entry_count", jdkResolution == null ? 0 : Math.max(0, jdkResolution.sdkEntryCount()));
         meta.put("explicit_entry_method_count", Math.max(0, explicitEntryMethodCount));
         return meta;
+    }
+
+    private static Path runtimeArchiveSeed(Path runtimeHint) {
+        Path normalized = normalizePath(runtimeHint);
+        if (normalized == null || !Files.isRegularFile(normalized)) {
+            return null;
+        }
+        String name = normalized.getFileName() == null
+                ? ""
+                : normalized.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".jar") || name.endsWith(".war")) {
+            return normalized;
+        }
+        return null;
+    }
+
+    private static void mergeResolvedArchives(LinkedHashSet<String> resolvedArchives, List<Path> archives) {
+        if (resolvedArchives == null || archives == null || archives.isEmpty()) {
+            return;
+        }
+        for (Path archive : archives) {
+            Path normalized = normalizePath(archive);
+            if (normalized != null) {
+                resolvedArchives.add(normalized.toString());
+            }
+        }
+    }
+
+    private static void markSdkArchives(Map<Path, ProjectOrigin> archiveOrigins, List<Path> sdkArchives) {
+        if (archiveOrigins == null || archiveOrigins.isEmpty() || sdkArchives == null || sdkArchives.isEmpty()) {
+            return;
+        }
+        for (Path archive : sdkArchives) {
+            Path normalized = normalizePath(archive);
+            if (normalized != null && archiveOrigins.containsKey(normalized)) {
+                archiveOrigins.put(normalized, ProjectOrigin.SDK);
+            }
+        }
     }
 
     private static List<Path> normalizePaths(List<String> paths) {

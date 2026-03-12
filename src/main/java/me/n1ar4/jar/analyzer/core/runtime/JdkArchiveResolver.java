@@ -89,6 +89,19 @@ public final class JdkArchiveResolver {
         Set<Path> rawArchives = new LinkedHashSet<>();
         if (Files.isRegularFile(runtime)) {
             rawArchives.add(runtime);
+            String name = safeName(runtime);
+            if (name.endsWith(".jmod")) {
+                Path converted = JmodToJarConverter.convert(runtime);
+                if (converted != null) {
+                    return new JdkResolution(runtime, List.of(converted), "jmods", policyOrDefault(modulePolicy));
+                }
+            }
+            if (name.endsWith(".jar")) {
+                return new JdkResolution(runtime, List.of(runtime), "rt-jar", policyOrDefault(modulePolicy));
+            }
+            if (name.endsWith(".zip")) {
+                return new JdkResolution(runtime, List.of(runtime), "custom", policyOrDefault(modulePolicy));
+            }
         } else {
             Path rtJar = runtime.resolve(Paths.get("lib", "rt.jar"));
             Path jreRtJar = runtime.resolve(Paths.get("jre", "lib", "rt.jar"));

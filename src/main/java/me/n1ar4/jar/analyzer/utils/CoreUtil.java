@@ -26,6 +26,7 @@ import java.util.*;
 public class CoreUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final String CLASSPATH_NESTED_DIR = "classpath-nested";
+    private static final String JMOD_CACHE_DIR = "jmod-cache";
 
     public static List<ClassFileEntity> getAllClassesFromJars(List<String> jarPathList,
                                                               Map<String, Integer> jarIdMap,
@@ -70,8 +71,8 @@ public class CoreUtil {
                     continue;
                 }
                 String name = child.getFileName() == null ? "" : child.getFileName().toString();
-                if (CLASSPATH_NESTED_DIR.equals(name)) {
-                    // Keep nested classpath cache extracted during classpath resolution.
+                if (CLASSPATH_NESTED_DIR.equals(name) || JMOD_CACHE_DIR.equals(name)) {
+                    // Keep extracted classpath/runtime caches used as build inputs.
                     continue;
                 }
                 try {
