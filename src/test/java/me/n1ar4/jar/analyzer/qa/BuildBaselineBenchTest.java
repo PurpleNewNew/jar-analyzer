@@ -126,7 +126,6 @@ public class BuildBaselineBenchTest {
                     scenario.input(),
                     null,
                     false,
-                    false,
                     null
             );
             String validation = scenario.validate().run(build);

@@ -4,8 +4,7 @@ public record BuildSettingsDto(
         String inputPath,
         String sdkPath,
         boolean resolveNestedJars,
-        boolean fixClassPath,
-        boolean quickMode
+        boolean fixClassPath
 ) {
     public BuildSettingsDto {
         inputPath = normalizePath(inputPath);

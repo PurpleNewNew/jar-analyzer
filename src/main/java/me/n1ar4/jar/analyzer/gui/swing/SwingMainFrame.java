@@ -285,7 +285,6 @@ public final class SwingMainFrame extends JFrame {
     private JPanel rightToolRoot;
     private JToggleButton topToggleMergePackageRoot;
     private JToggleButton topToggleEditorTabs;
-    private JToggleButton topToggleQuickMode;
     private final JPanel rightContentHost = new JPanel(new BorderLayout());
     private final JPanel topCards = new JPanel(new java.awt.CardLayout());
     private final JLabel topTitle = new JLabel();
@@ -961,20 +960,6 @@ public final class SwingMainFrame extends JFrame {
                     applyEditorTabsVisibility();
                 }
         );
-        topToggleQuickMode = addTopToolbarToggleButton(
-                bar,
-                "icons/jadx/pagination.svg",
-                tr("快速模式", "Quick Mode"),
-                tooling != null && tooling.quickMode(),
-                true,
-                e -> {
-                    if (topToolbarToggleSyncing) {
-                        return;
-                    }
-                    RuntimeFacades.tooling().toggleQuickMode();
-                    requestRefresh(false, true);
-                }
-        );
         addTopToolbarSeparator(bar);
         addTopToolbarButton(bar, "icons/jadx/find.svg", "全局搜索", e -> RuntimeFacades.tooling().openGlobalSearchTool());
         addTopToolbarButton(bar, "icons/jadx/ejbFinderMethod.svg", "类搜索", e -> promptTreeSearchKeyword());
@@ -1052,9 +1037,6 @@ public final class SwingMainFrame extends JFrame {
         try {
             if (topToggleMergePackageRoot != null && tooling != null) {
                 topToggleMergePackageRoot.setSelected(tooling.mergePackageRoot());
-            }
-            if (topToggleQuickMode != null && tooling != null) {
-                topToggleQuickMode.setSelected(tooling.quickMode());
             }
             if (topToggleEditorTabs != null) {
                 topToggleEditorTabs.setSelected(editorTabsVisible);
@@ -1160,8 +1142,7 @@ public final class SwingMainFrame extends JFrame {
                 input,
                 old.sdkPath(),
                 old.resolveNestedJars(),
-                old.fixClassPath(),
-                old.quickMode()
+                old.fixClassPath()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
@@ -3434,8 +3415,7 @@ public final class SwingMainFrame extends JFrame {
                 file.toAbsolutePath().toString(),
                 old.sdkPath(),
                 old.resolveNestedJars(),
-                old.fixClassPath(),
-                old.quickMode()
+                old.fixClassPath()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
@@ -3752,16 +3732,6 @@ public final class SwingMainFrame extends JFrame {
         });
         configMenu.add(mergeRootItem);
 
-        JCheckBoxMenuItem quickModeItem = new JCheckBoxMenuItem(
-                tr("快速模式", "Quick Mode"),
-                tooling != null && tooling.quickMode()
-        );
-        quickModeItem.addActionListener(e -> {
-            RuntimeFacades.tooling().toggleQuickMode();
-            requestRefresh(false, true);
-        });
-        configMenu.add(quickModeItem);
-
         JCheckBoxMenuItem stripeNamesItem = new JCheckBoxMenuItem(
                 tr("侧栏显示名称", "Show Stripe Labels"),
                 tooling != null && tooling.stripeShowNames()
@@ -3971,9 +3941,6 @@ public final class SwingMainFrame extends JFrame {
         }
         if (topToggleEditorTabs != null) {
             topToggleEditorTabs.setToolTipText(tr("代码标签栏", "Code Tabs"));
-        }
-        if (topToggleQuickMode != null) {
-            topToggleQuickMode.setToolTipText(tr("快速模式", "Quick Mode"));
         }
         updateLogButtonStyle(stripeNamesVisible);
         buildLogButton.setToolTipText(tr("构建日志", "Build Log"));

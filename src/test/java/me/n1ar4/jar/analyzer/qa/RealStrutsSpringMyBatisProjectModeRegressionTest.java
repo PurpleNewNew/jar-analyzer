@@ -63,7 +63,7 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
 
             ProjectRuntimeContext.replaceProjectModel(buildProjectModel(projectDir, archive));
             ProjectRuntimeContext.updateResolveInnerJars(false);
-            CoreRunner.run(archive, null, false, false, null);
+            CoreRunner.run(archive, null, false, null);
 
             GraphSnapshot snapshot = new GraphStore().loadSnapshot();
             assertPath(snapshot,

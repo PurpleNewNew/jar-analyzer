@@ -92,7 +92,7 @@ class BytecodeMainlineGadgetParityTest {
         System.setProperty("jar.analyzer.callgraph.engine", "bytecode-mainline+pta-refine");
         Path jar = FixtureJars.gadgetFamilyTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
         return new GraphStore().loadSnapshot();
     }
 
@@ -100,7 +100,7 @@ class BytecodeMainlineGadgetParityTest {
         System.setProperty("jar.analyzer.callgraph.engine", "bytecode-mainline+pta-refine");
         Path jar = FixtureJars.ysoserialPayloadTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
         return new GraphStore().loadSnapshot();
     }
 

@@ -67,7 +67,7 @@ public class Client {
         }
 
         // CLI build always replaces the active project graph with a fresh build.
-        CoreRunner.run(jarPathPath, null, false, false, null, buildCmd.enableInnerJars());
+        CoreRunner.run(jarPathPath, null, false, null, buildCmd.enableInnerJars());
         logger.info("build finished; project store replaced atomically");
     }
 }

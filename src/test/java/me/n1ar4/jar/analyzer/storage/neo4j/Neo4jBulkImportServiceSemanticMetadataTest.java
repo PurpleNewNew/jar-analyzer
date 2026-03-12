@@ -90,7 +90,6 @@ class Neo4jBulkImportServiceSemanticMetadataTest {
         new Neo4jBulkImportService().replaceFromAnalysis(
                 projectKey,
                 1L,
-                false,
                 "oracle-harness:balanced",
                 methods,
                 Map.of(entry.getHandle(), Set.of(mapper.getHandle())),

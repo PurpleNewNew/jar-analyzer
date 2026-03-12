@@ -85,7 +85,6 @@ public final class Neo4jBulkImportService {
 
     public ProjectRuntimeSnapshot replaceFromAnalysis(String projectKey,
                                                      long buildSeq,
-                                                     boolean quickMode,
                                                      String callGraphMode,
                                                      Set<MethodReference> methods,
                                                      Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
@@ -117,7 +116,6 @@ public final class Neo4jBulkImportService {
                     nodeFile,
                     relFile,
                     buildSeq,
-                    quickMode,
                     callGraphMode,
                     methods,
                     methodCalls,
@@ -252,7 +250,6 @@ public final class Neo4jBulkImportService {
             Path nodeFile,
             Path relFile,
             long buildSeq,
-            boolean quickMode,
             String callGraphMode,
             Set<MethodReference> methods,
             Map<MethodReference.Handle, ? extends Set<MethodReference.Handle>> methodCalls,
@@ -293,7 +290,6 @@ public final class Neo4jBulkImportService {
                         "is_abstract:boolean",
                         "key",
                         "build_seq:long",
-                        "quick_mode:boolean",
                         "call_graph_mode",
                         "node_count:int",
                         "edge_count:long",
@@ -363,7 +359,6 @@ public final class Neo4jBulkImportService {
                         0,
                         classReference != null && classReference.isInterface(),
                         isAbstractClass(classReference),
-                        "",
                         "",
                         "",
                         "",
@@ -476,7 +471,6 @@ public final class Neo4jBulkImportService {
                         methodSemanticFlags,
                         false,
                         false,
-                        "",
                         "",
                         "",
                         "",
@@ -657,7 +651,6 @@ public final class Neo4jBulkImportService {
             }
             BuildMetaCsvRow buildMetaRow = BuildMetaCsvRow.from(
                     buildSeq,
-                    quickMode,
                     callGraphMode,
                     classNodeCount + methodNodeCount,
                     edgeCount,
@@ -679,7 +672,6 @@ public final class Neo4jBulkImportService {
                     "",
                     BUILD_META_KEY,
                     buildMetaRow.buildSeq(),
-                    buildMetaRow.quickMode(),
                     buildMetaRow.callGraphMode(),
                     buildMetaRow.nodeCount(),
                     buildMetaRow.edgeCount(),
@@ -948,7 +940,6 @@ public final class Neo4jBulkImportService {
             if (key.isBlank()
                     || "key".equals(key)
                     || "build_seq".equals(key)
-                    || "quick_mode".equals(key)
                     || "call_graph_mode".equals(key)
                     || "node_count".equals(key)
                     || "edge_count".equals(key)
@@ -1010,7 +1001,6 @@ public final class Neo4jBulkImportService {
     }
 
     private record BuildMetaCsvRow(long buildSeq,
-                                   boolean quickMode,
                                    String callGraphMode,
                                    int nodeCount,
                                    long edgeCount,
@@ -1022,7 +1012,6 @@ public final class Neo4jBulkImportService {
                                    int sdkEntryCount,
                                    int explicitEntryMethodCount) {
         private static BuildMetaCsvRow from(long buildSeq,
-                                            boolean quickMode,
                                             String callGraphMode,
                                             int nodeCount,
                                             long edgeCount,
@@ -1030,7 +1019,6 @@ public final class Neo4jBulkImportService {
             long now = System.currentTimeMillis();
             return new BuildMetaCsvRow(
                     Math.max(0L, buildSeq),
-                    quickMode,
                     safe(callGraphMode),
                     Math.max(0, nodeCount),
                     Math.max(0L, edgeCount),

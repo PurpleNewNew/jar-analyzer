@@ -40,7 +40,7 @@ public class RealStrutsSpringMyBatisAppRegressionTest {
         try {
             Path archive = FixtureJars.strutsSpringMyBatisAppArchive();
             ProjectRuntimeContext.updateResolveInnerJars(false);
-            CoreRunner.run(archive, null, false, false, null);
+            CoreRunner.run(archive, null, false, null);
 
             assertTrue(DatabaseManager.getServlets().contains("com/example/ssm/web/DispatchServlet"));
             assertTrue(DatabaseManager.getFilters().contains("com/example/ssm/web/AuthFilter"));

@@ -130,7 +130,6 @@ final class BuildRuntimeFacade implements BuildFacade {
                         input,
                         workspaceSdkPath,
                         settings.fixClassPath(),
-                        settings.quickMode(),
                         state::setBuildProgress,
                         settings.resolveNestedJars()
                 );
@@ -324,7 +323,6 @@ final class BuildRuntimeFacade implements BuildFacade {
         CoreRunner.BuildResult run(Path input,
                                    Path runtimeArchive,
                                    boolean fixClassPath,
-                                   boolean quickMode,
                                    IntConsumer progressConsumer,
                                    boolean resolveNestedJars);
     }

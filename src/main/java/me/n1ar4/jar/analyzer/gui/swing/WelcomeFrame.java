@@ -422,7 +422,7 @@ public final class WelcomeFrame extends JFrame {
         }
         BuildSnapshotDto snapshot = RuntimeFacades.build().snapshot();
         BuildSettingsDto current = snapshot == null || snapshot.settings() == null
-                ? new BuildSettingsDto("", "", false, false, false)
+                ? new BuildSettingsDto("", "", false, false)
                 : snapshot.settings();
 
         String nextInput = safe(entry.inputPath());
@@ -441,8 +441,7 @@ public final class WelcomeFrame extends JFrame {
                 nextInput,
                 nextRuntime,
                 resolveNested,
-                current.fixClassPath(),
-                current.quickMode()
+                current.fixClassPath()
         ));
     }
 

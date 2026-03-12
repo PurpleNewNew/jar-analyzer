@@ -595,7 +595,6 @@ public final class RuntimeFacades {
                 "",
                 "",
                 false,
-                false,
                 false
         );
         private volatile int buildProgress = 0;
@@ -3172,8 +3171,7 @@ public final class RuntimeFacades {
                     s.inputPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
-                    !s.fixClassPath(),
-                    s.quickMode()
+                    !s.fixClassPath()
             ));
             emitTextWindow("Config", "fix class path: " + STATE.buildSettings.fixClassPath());
         }
@@ -3205,18 +3203,6 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void toggleQuickMode() {
-            updateBuildSettings(s -> new BuildSettingsDto(
-                    s.inputPath(),
-                    s.sdkPath(),
-                    s.resolveNestedJars(),
-                    s.fixClassPath(),
-                    !s.quickMode()
-            ));
-            emitTextWindow("Config", "quick mode: " + STATE.buildSettings.quickMode());
-        }
-
-        @Override
         public ToolingConfigSnapshotDto configSnapshot() {
             return new ToolingConfigSnapshotDto(
                     STATE.showInnerClass,
@@ -3225,7 +3211,6 @@ public final class RuntimeFacades {
                     STATE.sortByClass,
                     STATE.groupTreeByJar,
                     STATE.mergePackageRoot,
-                    STATE.buildSettings.quickMode(),
                     STATE.language == GlobalOptions.ENGLISH ? "en" : "zh",
                     STATE.theme,
                     STATE.stripeShowNames,

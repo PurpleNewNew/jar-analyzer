@@ -47,7 +47,7 @@ public class HeadlessSmokeTest {
 
             Path file = FixtureJars.springbootTestJar();
             ProjectRuntimeContext.updateResolveInnerJars(false);
-            CoreRunner.run(file, null, false, true, null);
+            CoreRunner.run(file, null, false, null);
 
             ConfigFile config = new ConfigFile();
             config.setDbPath(Neo4jProjectStore.getInstance()

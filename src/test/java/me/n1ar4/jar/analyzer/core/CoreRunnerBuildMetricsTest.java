@@ -36,7 +36,7 @@ class CoreRunnerBuildMetricsTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
         assertNotNull(result);
         assertTrue(result.getBuildWallMs() > 0L);
 
@@ -132,7 +132,7 @@ class CoreRunnerBuildMetricsTest {
         ProjectRuntimeContext.updateResolveInnerJars(false);
         List<Integer> progress = new ArrayList<>();
 
-        CoreRunner.run(jar, null, false, false, progress::add);
+        CoreRunner.run(jar, null, false, progress::add);
 
         assertTrue(progress.size() > 10);
         assertIterableEquals(

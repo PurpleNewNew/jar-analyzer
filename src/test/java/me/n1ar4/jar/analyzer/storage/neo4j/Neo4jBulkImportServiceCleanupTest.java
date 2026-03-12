@@ -92,7 +92,6 @@ class Neo4jBulkImportServiceCleanupTest {
         new Neo4jBulkImportService().replaceFromAnalysis(
                 projectKey,
                 3L,
-                false,
                 "bytecode:balanced-v1",
                 methods,
                 Map.of(),

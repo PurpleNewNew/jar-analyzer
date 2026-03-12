@@ -29,7 +29,6 @@ class ToolingFacadeMenuParityTest {
 
         tooling.toggleShowInnerClass();
         tooling.toggleFixClassPath();
-        tooling.toggleQuickMode();
         tooling.toggleGroupTreeByJar();
         tooling.toggleMergePackageRoot();
         tooling.setSortByMethod();
@@ -39,7 +38,6 @@ class ToolingFacadeMenuParityTest {
         ToolingConfigSnapshotDto after = tooling.configSnapshot();
         assertEquals(!before.showInnerClass(), after.showInnerClass());
         assertEquals(!before.fixClassPath(), after.fixClassPath());
-        assertEquals(!before.quickMode(), after.quickMode());
         assertEquals(!before.groupTreeByJar(), after.groupTreeByJar());
         assertEquals(!before.mergePackageRoot(), after.mergePackageRoot());
         assertEquals(true, after.sortByMethod());

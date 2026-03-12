@@ -88,7 +88,6 @@ class Neo4jBulkImportServiceBuildMetaTest {
         new Neo4jBulkImportService().replaceFromAnalysis(
                 projectKey,
                 7L,
-                false,
                 "bytecode:balanced-v1",
                 methods,
                 Map.of(),
@@ -121,7 +120,6 @@ class Neo4jBulkImportServiceBuildMetaTest {
             assertTrue(it.hasNext());
             var meta = it.next();
             assertEquals(7L, ((Number) meta.getProperty("build_seq")).longValue());
-            assertEquals(false, meta.getProperty("quick_mode"));
             assertEquals("bytecode:balanced-v1", meta.getProperty("call_graph_mode"));
             assertEquals("bytecode-mainline+pta-refine", meta.getProperty("call_graph_engine"));
             assertEquals("balanced", meta.getProperty("analysis_profile"));

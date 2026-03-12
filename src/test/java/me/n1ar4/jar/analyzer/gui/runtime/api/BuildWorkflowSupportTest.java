@@ -23,7 +23,7 @@ class BuildWorkflowSupportTest {
         Path textFile = Files.createFile(tempDir.resolve("notes.txt"));
 
         BuildWorkflowSupport.BuildInputResolution result = support.resolveBuildInput(
-                new BuildSettingsDto(textFile.toString(), "", false, false, false)
+                new BuildSettingsDto(textFile.toString(), "", false, false)
         );
 
         assertFalse(result.error().isBlank());
@@ -39,7 +39,7 @@ class BuildWorkflowSupportTest {
         Files.write(classFile, new byte[]{0x01});
 
         BuildWorkflowSupport.BuildInputResolution result = support.resolveBuildInput(
-                new BuildSettingsDto(tempDir.toString(), "", true, false, false)
+                new BuildSettingsDto(tempDir.toString(), "", true, false)
         );
 
         assertTrue(result.error().isBlank());

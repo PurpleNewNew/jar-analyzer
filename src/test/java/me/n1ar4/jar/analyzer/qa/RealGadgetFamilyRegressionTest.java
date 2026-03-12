@@ -173,7 +173,7 @@ public class RealGadgetFamilyRegressionTest {
     private static GraphSnapshot buildSnapshot() {
         Path jar = FixtureJars.gadgetFamilyTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
         return new GraphStore().loadSnapshot();
     }
 

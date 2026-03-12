@@ -7,7 +7,6 @@ public record ToolingConfigSnapshotDto(
         boolean sortByClass,
         boolean groupTreeByJar,
         boolean mergePackageRoot,
-        boolean quickMode,
         String language,
         String theme,
         boolean stripeShowNames,

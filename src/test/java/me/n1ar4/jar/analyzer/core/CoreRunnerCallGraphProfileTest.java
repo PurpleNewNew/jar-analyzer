@@ -38,7 +38,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
@@ -59,7 +59,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.ENGINE_BYTECODE, result.getCallGraphEngine());
@@ -80,7 +80,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
@@ -103,7 +103,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
@@ -133,7 +133,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.PROFILE_PRECISION, result.getAnalysisProfile());
@@ -170,7 +170,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
@@ -184,7 +184,7 @@ class CoreRunnerCallGraphProfileTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         assertNotNull(result);
         assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());

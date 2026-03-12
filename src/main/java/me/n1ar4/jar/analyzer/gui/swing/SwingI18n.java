@@ -70,7 +70,6 @@ public final class SwingI18n {
         add("清理缓存", "Clear Cache");
         add("解析嵌套 Jar", "resolve nested jars");
         add("修复类路径", "fix class path");
-        add("快速模式", "quick mode");
         add("查询条件", "Search Query");
         add("方法调用", "method call");
         add("方法定义", "method definition");

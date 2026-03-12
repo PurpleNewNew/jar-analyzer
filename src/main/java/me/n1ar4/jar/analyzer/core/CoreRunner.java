@@ -89,9 +89,8 @@ public class CoreRunner {
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
                                   boolean fixClass,
-                                  boolean quickMode,
                                   IntConsumer progressConsumer) {
-        return run(jarPath, rtJarPath, fixClass, quickMode, progressConsumer, false);
+        return run(jarPath, rtJarPath, fixClass, progressConsumer, false);
     }
 
     /**
@@ -102,7 +101,6 @@ public class CoreRunner {
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
                                   boolean fixClass,
-                                  boolean quickMode,
                                   IntConsumer progressConsumer,
                                   boolean includeNested) {
         IntConsumer progress = progressConsumer == null ? NOOP_PROGRESS : progressConsumer;
@@ -120,12 +118,11 @@ public class CoreRunner {
             buildSeq = session.buildSeq();
             LAST_BUILD_STAGE.remove();
             markBuildStage("resolve-inputs");
-            BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress, metrics);
+            BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, includeNested, progress, metrics);
             markBuildStage("prepare-class-files");
             prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress, metrics);
-            BuildBytecodeWorkspace workspace = runBytecodeStages(context, quickMode, progress, metrics);
+            BuildBytecodeWorkspace workspace = runBytecodeStages(context, progress, metrics);
             CallGraphStageResult callGraphStage = runCallGraphStage(
-                    quickMode,
                     context,
                     inputs.scopeSummary(),
                     inputs.jdkResolution(),
@@ -136,7 +133,6 @@ public class CoreRunner {
             BuildResult result = commitBuild(
                     targetProjectKey,
                     buildSeq,
-                    quickMode,
                     context,
                     inputs,
                     workspace,
@@ -191,7 +187,6 @@ public class CoreRunner {
 
     private static BuildInputs resolveBuildInputs(Path jarPath,
                                                   Path rtJarPath,
-                                                  boolean quickMode,
                                                   boolean includeNested,
                                                   IntConsumer progress,
                                                   BuildMetricsCollector metrics) {
@@ -207,7 +202,7 @@ public class CoreRunner {
         LinkedHashSet<String> resolvedArchives = new LinkedHashSet<>(ClasspathResolver.resolveInputArchives(
                 jarPath,
                 runtimeArchiveSeed(runtimeHint),
-                !quickMode,
+                true,
                 includeNested
         ));
         mergeResolvedArchives(resolvedArchives, jdkResolution.archives());
@@ -274,7 +269,6 @@ public class CoreRunner {
                     "target_archives", scopeSummary.targetArchiveCount(),
                     "library_archives", scopeSummary.libraryArchiveCount(),
                     "sdk_archives", scopeSummary.sdkArchiveCount(),
-                    "quick_mode", quickMode,
                     "include_nested", includeNested
             ));
         }
@@ -405,7 +399,6 @@ public class CoreRunner {
     }
 
     private static BuildBytecodeWorkspace runBytecodeStages(BuildContext context,
-                                                            boolean quickMode,
                                                             IntConsumer progress,
                                                             BuildMetricsCollector metrics) {
         markBuildStage("discovery");
@@ -448,9 +441,9 @@ public class CoreRunner {
                 context.servlets,
                 context.filters,
                 context.listeners,
-                !quickMode,
-                !quickMode,
-                !quickMode
+                true,
+                true,
+                true
         );
         logger.info("build stage class-analysis: {} ms (strings={}, controllers={}, servlets={}, filters={}, listeners={}, heap={})",
                 msSince(stageStartNs),
@@ -517,16 +510,6 @@ public class CoreRunner {
         markBuildStage("bytecode-symbol");
         stageStartNs = System.nanoTime();
         progress.accept(40);
-        if (quickMode) {
-            logger.info("build stage bytecode-symbol: skipped in quick mode (heap={})", heapUsage());
-            if (metrics != null) {
-                metrics.record("bytecode_symbol", msSince(stageStartNs), metricMap(
-                        "call_sites", 0,
-                        "skipped", true
-                ));
-            }
-            return workspace;
-        }
         List<CallSiteEntity> callSites = BytecodeSymbolRunner.collectCallSites(workspace);
         context.callSites.clear();
         if (callSites != null && !callSites.isEmpty()) {
@@ -546,8 +529,7 @@ public class CoreRunner {
         return workspace;
     }
 
-    private static CallGraphStageResult runCallGraphStage(boolean quickMode,
-                                                          BuildContext context,
+    private static CallGraphStageResult runCallGraphStage(BuildContext context,
                                                           ScopeSummary scopeSummary,
                                                           JdkResolution jdkResolution,
                                                           BuildBytecodeWorkspace workspace,
@@ -653,7 +635,6 @@ public class CoreRunner {
             Map<String, Object> callGraphMetrics = new LinkedHashMap<>(metricMap(
                     "engine", callGraphEngine,
                     "analysis_profile", safe(analysisProfile),
-                    "quick_mode", quickMode,
                     "app_archives", appArchives.size(),
                     "classpath_archives", scopeSummary == null ? 0 : scopeSummary.originsByArchive().size(),
                     "explicit_entries", explicitEntryCount,
@@ -719,7 +700,6 @@ public class CoreRunner {
 
     private static BuildResult commitBuild(String targetProjectKey,
                                            long buildSeq,
-                                           boolean quickMode,
                                            BuildContext context,
                                            BuildInputs inputs,
                                            BuildBytecodeWorkspace workspace,
@@ -747,7 +727,6 @@ public class CoreRunner {
         ProjectRuntimeSnapshot runtimeSnapshot = GRAPH_BUILD_SERVICE.replaceFromAnalysis(
                 targetProjectKey,
                 buildSeq,
-                quickMode,
                 callGraphStage.callGraphModeMeta(),
                 context.discoveredMethods,
                 callGraphStage.edges().methodCalls(),
@@ -887,7 +866,6 @@ public class CoreRunner {
                 edgeCount,
                 fileSizeBytes,
                 fileSizeMB,
-                quickMode,
                 callGraphStage.callGraphEngine(),
                 callGraphStage.callGraphModeMeta(),
                 callGraphStage.analysisProfile(),
@@ -1395,7 +1373,6 @@ public class CoreRunner {
         private final long edgeCount;
         private final long dbSizeBytes;
         private final String dbSizeLabel;
-        private final boolean quickMode;
         private final String callGraphEngine;
         private final String callGraphMode;
         private final String analysisProfile;
@@ -1417,7 +1394,6 @@ public class CoreRunner {
                            long edgeCount,
                            long dbSizeBytes,
                            String dbSizeLabel,
-                           boolean quickMode,
                            String callGraphEngine,
                            String callGraphMode,
                            String analysisProfile,
@@ -1438,7 +1414,6 @@ public class CoreRunner {
             this.edgeCount = edgeCount;
             this.dbSizeBytes = dbSizeBytes;
             this.dbSizeLabel = dbSizeLabel;
-            this.quickMode = quickMode;
             this.callGraphEngine = callGraphEngine;
             this.callGraphMode = callGraphMode;
             this.analysisProfile = analysisProfile;
@@ -1488,10 +1463,6 @@ public class CoreRunner {
 
         public String getDbSizeLabel() {
             return dbSizeLabel;
-        }
-
-        public boolean isQuickMode() {
-            return quickMode;
         }
 
         public String getCallGraphEngine() {

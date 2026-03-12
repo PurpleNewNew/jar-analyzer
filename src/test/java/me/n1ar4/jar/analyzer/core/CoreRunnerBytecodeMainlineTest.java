@@ -39,7 +39,7 @@ class CoreRunnerBytecodeMainlineTest {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
         assertNotNull(result);
         assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, result.getCallGraphEngine());
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());
@@ -335,7 +335,7 @@ class CoreRunnerBytecodeMainlineTest {
         Path jar = FixtureJars.frameworkStackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
         assertNotNull(result);
         assertEquals(BytecodeMainlineCallGraphRunner.ENGINE, result.getCallGraphEngine());
         assertEquals(BytecodeMainlineCallGraphRunner.MODE_SEMANTIC_V1, result.getCallGraphMode());

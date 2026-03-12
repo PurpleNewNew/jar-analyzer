@@ -35,7 +35,6 @@ class CoreRunnerSpringbootFatJarNestedBuildTest {
                 jar,
                 null,
                 false,
-                false,
                 progress::add,
                 true
         );

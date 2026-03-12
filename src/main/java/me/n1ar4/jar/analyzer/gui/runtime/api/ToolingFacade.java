@@ -85,7 +85,5 @@ public interface ToolingFacade {
 
     void toggleMergePackageRoot();
 
-    void toggleQuickMode();
-
     ToolingConfigSnapshotDto configSnapshot();
 }

@@ -36,10 +36,10 @@ class CoreRunnerRuntimePathIntegrationTest {
         createCallerJar(appJar, "demo/AppCaller");
         createRuntimeJar(rtJar, "sdk/RuntimeApi");
 
-        CoreRunner.BuildResult withoutRuntime = CoreRunner.run(appJar, null, false, false, null);
+        CoreRunner.BuildResult withoutRuntime = CoreRunner.run(appJar, null, false, null);
         assertTrue(DatabaseManager.getMethodReferencesByClass("sdk/RuntimeApi").isEmpty());
 
-        CoreRunner.BuildResult withRuntime = CoreRunner.run(appJar, rtJar, false, false, null);
+        CoreRunner.BuildResult withRuntime = CoreRunner.run(appJar, rtJar, false, null);
 
         assertTrue(withRuntime.getEdgeCount() > withoutRuntime.getEdgeCount());
         assertFalse(DatabaseManager.getMethodReferencesByClass("sdk/RuntimeApi").isEmpty());
@@ -55,7 +55,7 @@ class CoreRunnerRuntimePathIntegrationTest {
         createCallerJar(appJar, "demo/AppCaller");
         createRuntimeJmod(jmods.resolve("java.base.jmod"), "sdk/RuntimeApi");
 
-        CoreRunner.BuildResult result = CoreRunner.run(appJar, javaHome, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(appJar, javaHome, false, null);
 
         assertTrue(result.getEdgeCount() > 0L);
         assertFalse(DatabaseManager.getMethodReferencesByClass("sdk/RuntimeApi").isEmpty());

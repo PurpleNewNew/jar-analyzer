@@ -251,7 +251,7 @@ public class NavigationQualityBenchTest {
     private static CoreEngine buildCallbackFixture() throws Exception {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
         ConfigFile config = new ConfigFile();
         config.setDbPath(Neo4jProjectStore.getInstance()
                 .resolveProjectHome(ActiveProjectContext.getActiveProjectKey())

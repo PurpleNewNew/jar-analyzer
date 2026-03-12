@@ -93,7 +93,6 @@ public final class StartToolPanel extends JPanel {
     private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
     private final JCheckBox fixClassPathBox = new JCheckBox("fix class path");
-    private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JLabel engineStatusValue = new JLabel("-");
     private final JLabel totalJarValue = new JLabel("0");
     private final JLabel totalClassValue = new JLabel("0");
@@ -125,10 +124,9 @@ public final class StartToolPanel extends JPanel {
         pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
-        JPanel optionsPanel = new JPanel(new GridLayout(2, 2, 4, 4));
+        JPanel optionsPanel = new JPanel(new GridLayout(1, 2, 4, 4));
         optionsPanel.add(resolveNestedJarsBox);
         optionsPanel.add(fixClassPathBox);
-        optionsPanel.add(quickModeBox);
         settingsPanel.add(optionsPanel, BorderLayout.CENTER);
 
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -317,7 +315,6 @@ public final class StartToolPanel extends JPanel {
             setTextIfIdle(runtimePathText, settings.sdkPath());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
             fixClassPathBox.setSelected(settings.fixClassPath());
-            quickModeBox.setSelected(settings.quickMode());
         }
         engineStatusValue.setText(safe(snapshot.engineStatus()));
         totalJarValue.setText(safe(snapshot.totalJar()));
@@ -381,8 +378,7 @@ public final class StartToolPanel extends JPanel {
                     inputPath,
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
-                    fixClassPathBox.isSelected(),
-                    quickModeBox.isSelected()
+                    fixClassPathBox.isSelected()
             );
             RuntimeFacades.build().apply(next);
         } catch (Throwable ex) {

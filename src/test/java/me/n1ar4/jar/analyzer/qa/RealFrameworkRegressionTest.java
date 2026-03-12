@@ -40,7 +40,7 @@ public class RealFrameworkRegressionTest {
         try {
             Path jar = FixtureJars.springbootTestJar();
             ProjectRuntimeContext.updateResolveInnerJars(false);
-            CoreRunner.run(jar, null, false, false, null);
+            CoreRunner.run(jar, null, false, null);
 
             assertFalse(DatabaseManager.getSpringControllers().isEmpty());
 
@@ -80,7 +80,7 @@ public class RealFrameworkRegressionTest {
         try {
             Path jar = FixtureJars.frameworkStackTestJar();
             ProjectRuntimeContext.updateResolveInnerJars(false);
-            CoreRunner.run(jar, null, false, false, null);
+            CoreRunner.run(jar, null, false, null);
 
             assertTrue(DatabaseManager.getServlets().contains("fixture/framework/web/XmlServlet"));
             assertTrue(DatabaseManager.getFilters().contains("fixture/framework/web/AuditFilter"));

@@ -33,7 +33,7 @@ class GlobalSearchIndexIncrementalTest {
     void incrementalSearchShouldPickUpDatabaseManagerMutations() throws Exception {
         Path jar = FixtureJars.springbootTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
 
         Class<?> indexClass = Class.forName(
                 "me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog$GlobalSearchIndex");

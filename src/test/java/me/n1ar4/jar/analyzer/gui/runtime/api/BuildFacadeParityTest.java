@@ -43,22 +43,18 @@ class BuildFacadeParityTest {
     void applyShouldRoundTripSettings() {
         boolean[] bools = new boolean[]{false, true};
         for (boolean fixClassPath : bools) {
-            for (boolean quickMode : bools) {
-                BuildSettingsDto settings = new BuildSettingsDto(
-                        "/tmp/input.jar",
-                        "/tmp/rt.jar",
-                        true,
-                        fixClassPath,
-                        quickMode
-                );
-                RuntimeFacades.build().apply(settings);
-                BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
-                assertEquals("/tmp/input.jar", snapshot.activeInputPath());
-                assertEquals("/tmp/rt.jar", snapshot.sdkPath());
-                assertEquals(true, snapshot.resolveNestedJars());
-                assertEquals(fixClassPath, snapshot.fixClassPath());
-                assertEquals(quickMode, snapshot.quickMode());
-            }
+            BuildSettingsDto settings = new BuildSettingsDto(
+                    "/tmp/input.jar",
+                    "/tmp/rt.jar",
+                    true,
+                    fixClassPath
+            );
+            RuntimeFacades.build().apply(settings);
+            BuildSettingsDto snapshot = RuntimeFacades.build().snapshot().settings();
+            assertEquals("/tmp/input.jar", snapshot.activeInputPath());
+            assertEquals("/tmp/rt.jar", snapshot.sdkPath());
+            assertEquals(true, snapshot.resolveNestedJars());
+            assertEquals(fixClassPath, snapshot.fixClassPath());
         }
     }
 
@@ -117,14 +113,14 @@ class BuildFacadeParityTest {
     void outOfMemoryShouldReportHeapHint() throws Exception {
         Path input = java.nio.file.Files.createTempFile("build-facade-oom", ".jar");
         try {
-            TestBuildState state = new TestBuildState(new BuildSettingsDto(input.toString(), "", false, false, false));
+            TestBuildState state = new TestBuildState(new BuildSettingsDto(input.toString(), "", false, false));
             BuildRuntimeFacade facade = new BuildRuntimeFacade(
                     state,
                     new BuildWorkflowSupport((zh, en) -> zh),
                     () -> null,
                     (zh, en) -> zh,
                     () -> "CLOSED",
-                    (jar, runtimeArchive, fixClassPath, quickMode, progressConsumer, resolveNestedJars) -> {
+                    (jar, runtimeArchive, fixClassPath, progressConsumer, resolveNestedJars) -> {
                         throw new OutOfMemoryError("Java heap space");
                     }
             );

@@ -35,7 +35,7 @@ class CoreRunnerExplicitEntryMetricTest {
         Path jar = Files.createTempDirectory("ja-explicit-entry").resolve("jsp-entry.jar");
         createJspEntryJar(jar, "demo/JspEntry");
 
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
 
         CoreRunner.BuildStageMetric callGraph = result.getStageMetric("callgraph");
         assertNotNull(callGraph);

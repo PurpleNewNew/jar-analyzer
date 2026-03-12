@@ -34,7 +34,6 @@ public final class AdvanceToolPanel extends JPanel {
     private final JCheckBox sortByClassBox = new JCheckBox("search sort by class");
     private final JCheckBox groupTreeByJarBox = new JCheckBox("group tree by jar");
     private final JCheckBox mergePackageRootBox = new JCheckBox("merge package root");
-    private final JCheckBox quickModeBox = new JCheckBox("quick mode");
     private final JCheckBox stripeShowNamesBox = new JCheckBox("stripe show names");
     private final JSpinner stripeWidthSpin = new JSpinner(new SpinnerNumberModel(40, 40, 100, 1));
     private final JLabel statusValue = new JLabel(SwingI18n.tr("就绪", "ready"));
@@ -95,7 +94,6 @@ public final class AdvanceToolPanel extends JPanel {
         configPanel.add(sortByClassBox);
         configPanel.add(groupTreeByJarBox);
         configPanel.add(mergePackageRootBox);
-        configPanel.add(quickModeBox);
         configPanel.add(stripeShowNamesBox);
         configPanel.add(new JLabel("stripe width"));
         configPanel.add(stripeWidthSpin);
@@ -106,7 +104,6 @@ public final class AdvanceToolPanel extends JPanel {
         sortByClassBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::setSortByClass));
         groupTreeByJarBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleGroupTreeByJar));
         mergePackageRootBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleMergePackageRoot));
-        quickModeBox.addItemListener(e -> toggleIfUser(e, RuntimeFacades.tooling()::toggleQuickMode));
         stripeShowNamesBox.addItemListener(e -> {
             if (!syncing && (e.getStateChange() == ItemEvent.SELECTED || e.getStateChange() == ItemEvent.DESELECTED)) {
                 RuntimeFacades.tooling().setStripeShowNames(stripeShowNamesBox.isSelected());
@@ -162,7 +159,6 @@ public final class AdvanceToolPanel extends JPanel {
             sortByClassBox.setSelected(snapshot.sortByClass());
             groupTreeByJarBox.setSelected(snapshot.groupTreeByJar());
             mergePackageRootBox.setSelected(snapshot.mergePackageRoot());
-            quickModeBox.setSelected(snapshot.quickMode());
             stripeShowNamesBox.setSelected(snapshot.stripeShowNames());
             stripeWidthSpin.setValue(snapshot.stripeWidth());
             hasSnapshot = true;

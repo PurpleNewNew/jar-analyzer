@@ -173,7 +173,7 @@ public class YsoserialPayloadRegressionTest {
     private static GraphSnapshot buildSnapshot() {
         Path jar = FixtureJars.ysoserialPayloadTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
-        CoreRunner.run(jar, null, false, false, null);
+        CoreRunner.run(jar, null, false, null);
         return new GraphStore().loadSnapshot();
     }
 

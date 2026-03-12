@@ -131,7 +131,6 @@ class Neo4jBulkImportServiceAliasEdgeTest {
             new Neo4jBulkImportService().replaceFromAnalysis(
                     projectKey,
                     1L,
-                    false,
                     "oracle-harness:balanced",
                     methods,
                     Map.of(caller.getHandle(), Set.of(wrapper.getHandle())),
