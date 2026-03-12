@@ -123,13 +123,13 @@ public class CoreRunner {
             BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress, metrics);
             markBuildStage("prepare-class-files");
             prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress, metrics);
-            BytecodeFrontEndStageResult frontEndStage = runBytecodeStages(context, quickMode, progress, metrics);
+            BuildBytecodeWorkspace workspace = runBytecodeStages(context, quickMode, progress, metrics);
             CallGraphStageResult callGraphStage = runCallGraphStage(
                     quickMode,
                     context,
                     inputs.scopeSummary(),
                     inputs.jdkResolution(),
-                    frontEndStage.workspace(),
+                    workspace,
                     progress,
                     metrics
             );
@@ -139,7 +139,7 @@ public class CoreRunner {
                     quickMode,
                     context,
                     inputs,
-                    frontEndStage.workspace(),
+                    workspace,
                     callGraphStage,
                     progress,
                     metrics,
@@ -404,10 +404,10 @@ public class CoreRunner {
         }
     }
 
-    private static BytecodeFrontEndStageResult runBytecodeStages(BuildContext context,
-                                                                 boolean quickMode,
-                                                                 IntConsumer progress,
-                                                                 BuildMetricsCollector metrics) {
+    private static BuildBytecodeWorkspace runBytecodeStages(BuildContext context,
+                                                            boolean quickMode,
+                                                            IntConsumer progress,
+                                                            BuildMetricsCollector metrics) {
         markBuildStage("discovery");
         long stageStartNs = System.nanoTime();
         BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(context.classFileList);
@@ -525,7 +525,7 @@ public class CoreRunner {
                         "skipped", true
                 ));
             }
-            return new BytecodeFrontEndStageResult(workspace);
+            return workspace;
         }
         List<CallSiteEntity> callSites = BytecodeSymbolRunner.collectCallSites(workspace);
         context.callSites.clear();
@@ -543,7 +543,7 @@ public class CoreRunner {
                     "skipped", false
             ));
         }
-        return new BytecodeFrontEndStageResult(workspace);
+        return workspace;
     }
 
     private static CallGraphStageResult runCallGraphStage(boolean quickMode,
@@ -912,12 +912,6 @@ public class CoreRunner {
                                JdkResolution jdkResolution) {
     }
 
-    private record BytecodeFrontEndStageResult(BuildBytecodeWorkspace workspace) {
-        private BytecodeFrontEndStageResult {
-            workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
-        }
-    }
-
     private record CallGraphStageResult(ScopeSummary scopeSummary,
                                         JdkResolution jdkResolution,
                                         String analysisProfile,
@@ -957,7 +951,6 @@ public class CoreRunner {
         int value = switch (stageKey) {
             case "neo4j_csv_payload" -> 76;
             case "neo4j_bulk_import" -> 84;
-            case "neo4j_write_build_meta" -> 86;
             case "neo4j_persist_runtime_snapshot" -> 90;
             case "neo4j_swap_home" -> 92;
             default -> -1;

@@ -132,7 +132,7 @@ class ProjectMetadataSnapshotStoreTest {
         assertEquals(projectKey, ActiveProjectContext.getPublishedActiveProjectKey());
         assertEquals(42L, DatabaseManager.getProjectBuildSeq());
         assertNotNull(DatabaseManager.getProjectModel());
-        assertEquals("/tmp/jar-analyzer/app.jar", DatabaseManager.getProjectModel().primaryInputPath().toString());
+        assertEquals(model.primaryInputPath().toString(), DatabaseManager.getProjectModel().primaryInputPath().toString());
         assertEquals(1, DatabaseManager.getClassFiles().size());
         assertEquals(1, DatabaseManager.getMethodReferences().size());
         assertEquals(List.of("jdbc:demo"),

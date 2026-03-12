@@ -19,6 +19,8 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -197,7 +199,7 @@ public final class FixtureJars {
         if (projectDir == null) {
             Assertions.fail("fixture project dir is null");
         }
-        ProcessBuilder pb = new ProcessBuilder("mvn", "-q", "-DskipTests", "package");
+        ProcessBuilder pb = new ProcessBuilder(resolveMavenCommand(projectDir));
         pb.directory(projectDir.toFile());
         pb.redirectErrorStream(true);
         try {
@@ -222,5 +224,97 @@ public final class FixtureJars {
         } catch (Exception e) {
             Assertions.fail("mvn package failed for " + projectDir.toAbsolutePath() + ": " + e);
         }
+    }
+
+    private static List<String> resolveMavenCommand(Path projectDir) {
+        List<String> wrapper = resolveWrapperCommand(projectDir);
+        if (!wrapper.isEmpty()) {
+            return wrapper;
+        }
+        Path executable = resolveMavenExecutable();
+        if (executable != null) {
+            return List.of(executable.toString(), "-q", "-DskipTests", "package");
+        }
+        return List.of("mvn.cmd", "-q", "-DskipTests", "package");
+    }
+
+    private static List<String> resolveWrapperCommand(Path projectDir) {
+        if (projectDir == null) {
+            return List.of();
+        }
+        Path windowsWrapper = projectDir.resolve("mvnw.cmd");
+        if (Files.isRegularFile(windowsWrapper)) {
+            return List.of(windowsWrapper.toString(), "-q", "-DskipTests", "package");
+        }
+        Path wrapper = projectDir.resolve("mvnw");
+        if (Files.isRegularFile(wrapper)) {
+            return List.of(wrapper.toString(), "-q", "-DskipTests", "package");
+        }
+        return List.of();
+    }
+
+    private static Path resolveMavenExecutable() {
+        Path fromProperty = resolveMavenHomeExecutable(System.getProperty("maven.home"));
+        if (fromProperty != null) {
+            return fromProperty;
+        }
+        Path fromEnvHome = resolveMavenHomeExecutable(System.getenv("MAVEN_HOME"));
+        if (fromEnvHome != null) {
+            return fromEnvHome;
+        }
+        Path fromEnvM2 = resolveMavenHomeExecutable(System.getenv("M2_HOME"));
+        if (fromEnvM2 != null) {
+            return fromEnvM2;
+        }
+        return resolveFromPath();
+    }
+
+    private static Path resolveMavenHomeExecutable(String home) {
+        if (home == null || home.isBlank()) {
+            return null;
+        }
+        Path bin = Paths.get(home).resolve("bin");
+        Path windows = bin.resolve("mvn.cmd");
+        if (Files.isRegularFile(windows)) {
+            return windows;
+        }
+        Path unix = bin.resolve("mvn");
+        if (Files.isRegularFile(unix)) {
+            return unix;
+        }
+        return null;
+    }
+
+    private static Path resolveFromPath() {
+        String pathValue = System.getenv("PATH");
+        if (pathValue == null || pathValue.isBlank()) {
+            return null;
+        }
+        String[] entries = pathValue.split(java.io.File.pathSeparator);
+        List<String> candidates = new ArrayList<>();
+        if (isWindows()) {
+            candidates.add("mvn.cmd");
+            candidates.add("mvn.bat");
+            candidates.add("mvn.exe");
+        }
+        candidates.add("mvn");
+        for (String entry : entries) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            Path dir = Paths.get(entry.trim());
+            for (String candidate : candidates) {
+                Path executable = dir.resolve(candidate);
+                if (Files.isRegularFile(executable)) {
+                    return executable;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isWindows() {
+        String os = System.getProperty("os.name");
+        return os != null && os.toLowerCase().contains("win");
     }
 }

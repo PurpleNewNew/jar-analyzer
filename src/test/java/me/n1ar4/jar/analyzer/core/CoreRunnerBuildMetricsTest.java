@@ -52,7 +52,6 @@ class CoreRunnerBuildMetricsTest {
         assertTrue(metrics.containsKey("callgraph"));
         assertTrue(metrics.containsKey("neo4j_csv_payload"));
         assertTrue(metrics.containsKey("neo4j_bulk_import"));
-        assertTrue(metrics.containsKey("neo4j_write_build_meta"));
         assertTrue(metrics.containsKey("build_runtime_snapshot"));
         assertTrue(metrics.containsKey("neo4j_persist_runtime_snapshot"));
         assertTrue(metrics.containsKey("neo4j_swap_home"));
@@ -137,7 +136,7 @@ class CoreRunnerBuildMetricsTest {
 
         assertTrue(progress.size() > 10);
         assertIterableEquals(
-                List.of(70, 76, 84, 86, 88, 90, 92, 94, 97, 100),
+                List.of(70, 76, 84, 88, 90, 92, 94, 97, 100),
                 progress.stream()
                         .filter(value -> value >= 70)
                         .distinct()

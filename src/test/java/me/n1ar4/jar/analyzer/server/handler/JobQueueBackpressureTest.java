@@ -4,9 +4,16 @@
 
 package me.n1ar4.jar.analyzer.server.handler;
 
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,11 +24,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class JobQueueBackpressureTest {
+    private final String originalProjectKey = ActiveProjectContext.getPublishedActiveProjectKey();
+    private final String originalProjectAlias = ActiveProjectContext.getPublishedActiveProjectAlias();
+
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+        ProjectRuntimeContext.clear();
+        ActiveProjectContext.setActiveProject(originalProjectKey, originalProjectAlias);
+    }
+
     @Test
     void dfsQueueShouldRejectWhenWorkerAndQueueAreFull() throws Exception {
         ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
         BlockingDfsJobManager manager = new BlockingDfsJobManager(cleaner);
         try {
+            prepareReadyProject("dfs-backpressure");
             DfsApiUtil.DfsRequest req = dummyDfsRequest();
             manager.createJob(req);
             manager.awaitWorker();
@@ -42,6 +60,7 @@ class JobQueueBackpressureTest {
         ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
         BlockingTaintJobManager manager = new BlockingTaintJobManager(cleaner);
         try {
+            prepareReadyProject("taint-backpressure");
             manager.createJob("dfs-a", "demo", 1000, 10, null, 1L);
             manager.awaitWorker();
             manager.createJob("dfs-b", "demo", 1000, 10, null, 1L);
@@ -66,6 +85,33 @@ class JobQueueBackpressureTest {
         req.sinkMethod = "sink";
         req.sinkDesc = "()V";
         return req;
+    }
+
+    private static void prepareReadyProject(String projectKey) {
+        ActiveProjectContext.setActiveProject(projectKey, projectKey);
+        DatabaseManager.restoreProjectRuntime(projectKey, snapshotFor(1L));
+    }
+
+    private static ProjectRuntimeSnapshot snapshotFor(long buildSeq) {
+        return new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                buildSeq,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of(),
+                java.util.Set.of()
+        );
     }
 
     private static final class BlockingDfsJobManager extends DfsJobManager {

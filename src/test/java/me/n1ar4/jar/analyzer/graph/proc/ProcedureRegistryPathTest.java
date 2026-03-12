@@ -110,11 +110,7 @@ class ProcedureRegistryPathTest {
     void fromToShouldFailWhenPathBudgetExceeded() {
         GraphSnapshot snapshot = buildPathExplosionSnapshot();
         ProcedureRegistry registry = new ProcedureRegistry();
-        QueryOptions options = QueryOptions.fromMap(Map.of(
-                "pathBudget", 16,
-                "maxPaths", 5000,
-                "maxHops", 8
-        ));
+        QueryOptions options = new QueryOptions(500, 15000, 8, 5000, 0, 16, 0);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> registry.execute(
                 "ja.path.from_to",
@@ -130,11 +126,7 @@ class ProcedureRegistryPathTest {
     void fromToPrunedShouldKeepSingleSemanticPathUnderPathExplosion() {
         PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
         ProcedureRegistry registry = new ProcedureRegistry();
-        QueryOptions options = QueryOptions.fromMap(Map.of(
-                "pathBudget", 16,
-                "maxPaths", 5000,
-                "maxHops", 8
-        ));
+        QueryOptions options = new QueryOptions(500, 15000, 8, 5000, 0, 16, 0);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> registry.execute(
                 "ja.path.from_to",
@@ -162,11 +154,7 @@ class ProcedureRegistryPathTest {
     void shortestShouldFailWhenExpandBudgetExceeded() {
         GraphSnapshot snapshot = buildTwoComponentDenseSnapshot();
         ProcedureRegistry registry = new ProcedureRegistry();
-        QueryOptions options = QueryOptions.fromMap(Map.of(
-                "expandBudget", 1000,
-                "maxHops", 64,
-                "maxMs", 30000
-        ));
+        QueryOptions options = new QueryOptions(500, 30000, 64, 500, 1000, 0, 0);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> registry.execute(
                 "ja.path.shortest",

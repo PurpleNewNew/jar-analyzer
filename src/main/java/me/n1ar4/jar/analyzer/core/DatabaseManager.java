@@ -32,7 +32,6 @@ import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStore;
-import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -1548,16 +1547,16 @@ public class DatabaseManager {
     }
 
     private static String resolveJarName(String jarPath) {
-        if (jarPath == null) {
+        if (jarPath == null || jarPath.isBlank()) {
             return "";
         }
-        String[] temp;
-        if (OSUtil.isWindows()) {
-            temp = jarPath.split("\\\\");
-        } else {
-            temp = jarPath.split("/");
+        int slash = jarPath.lastIndexOf('/');
+        int backslash = jarPath.lastIndexOf('\\');
+        int split = Math.max(slash, backslash);
+        if (split < 0 || split + 1 >= jarPath.length()) {
+            return jarPath;
         }
-        return temp[temp.length - 1];
+        return jarPath.substring(split + 1);
     }
 
     private static String semanticKey(String cacheType, String cacheKey) {

@@ -157,12 +157,6 @@ public final class Neo4jBulkImportService {
                     heapUsage());
 
             try {
-                long buildMetaStartNs = System.nanoTime();
-                notifyStage(stageObserver, "neo4j_write_build_meta", buildMetaStartNs, detailMap(
-                        "nodes", csvResult.totalNodes(),
-                        "edges", csvResult.edgeCount(),
-                        "strategy", "csv_import"
-                ));
                 runtimeSnapshot = requireRuntimeSnapshot(runtimeSnapshotSupplier);
                 long persistSnapshotStartNs = System.nanoTime();
                 ProjectMetadataSnapshotStore.getInstance().writeToHome(stagingHome, projectHome, runtimeSnapshot);
