@@ -9,12 +9,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.neo4j.graphdb.Label;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.nio.file.Path;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -85,6 +88,7 @@ class CoreRunnerBuildMetricsTest {
         assertTrue(commit.getDurationMs() >= 0L);
         assertTrue(discovery.getDetails().containsKey("heap_used_bytes"));
         assertTrue(callGraph.getDetails().containsKey("heap_committed_bytes"));
+        assertEquals(Boolean.TRUE, symbol.getDetails().get("local_vars_deferred"));
 
         var database = Neo4jProjectStore.getInstance().database(ActiveProjectContext.getActiveProjectKey());
         try (var tx = database.beginTx();
@@ -105,8 +109,7 @@ class CoreRunnerBuildMetricsTest {
             assertTrue(meta.hasProperty("build_stage_callgraph_framework_truncated_rules"));
             assertEquals(intMetric(symbol, "call_sites"),
                     ((Number) meta.getProperty("build_stage_bytecode_symbol_call_sites")).intValue());
-            assertEquals(intMetric(symbol, "local_vars"),
-                    ((Number) meta.getProperty("build_stage_bytecode_symbol_local_vars")).intValue());
+            assertEquals(Boolean.TRUE, meta.getProperty("build_stage_bytecode_symbol_local_vars_deferred"));
             tx.commit();
         }
 
@@ -122,6 +125,24 @@ class CoreRunnerBuildMetricsTest {
         }
         Object prewarmTotalMs = awaitMetaProperty("async_prewarm_total_ms", 5_000L);
         assertTrue(assertInstanceOf(Number.class, prewarmTotalMs).longValue() >= 0L);
+    }
+
+    @Test
+    void buildShouldReportGranularCommitProgress() {
+        Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.updateResolveInnerJars(false);
+        List<Integer> progress = new ArrayList<>();
+
+        CoreRunner.run(jar, null, false, false, progress::add);
+
+        assertTrue(progress.size() > 10);
+        assertIterableEquals(
+                List.of(70, 76, 84, 86, 88, 90, 92, 94, 97, 100),
+                progress.stream()
+                        .filter(value -> value >= 70)
+                        .distinct()
+                        .toList()
+        );
     }
 
     private static int intMetric(CoreRunner.BuildStageMetric metric, String key) {

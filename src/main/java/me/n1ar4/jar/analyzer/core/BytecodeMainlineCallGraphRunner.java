@@ -12,7 +12,6 @@ package me.n1ar4.jar.analyzer.core;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
-import me.n1ar4.jar.analyzer.core.facts.BuildFactAssembler;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.pta.SelectivePtaRefiner;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -29,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public final class BytecodeMainlineCallGraphRunner {
     public static final String ENGINE = "bytecode-mainline";
@@ -42,15 +42,25 @@ public final class BytecodeMainlineCallGraphRunner {
 
     public static Result run(BuildFactSnapshot snapshot,
                              BuildEdgeAccumulator edges,
-                             Settings settings) {
+                             Settings settings,
+                             Consumer<String> phaseListener) {
         if (snapshot == null || edges == null) {
             return Result.empty();
         }
-        BuildContext contextView = BuildFactAssembler.contextView(snapshot, edges);
+        Consumer<String> listener = phaseListener == null ? ignore -> {
+        } : phaseListener;
+        BuildContext contextView = BuildContext.callGraphView(
+                snapshot.types().classesByHandle(),
+                snapshot.methods().methodsByHandle(),
+                snapshot.symbols().callSites(),
+                edges.methodCalls(),
+                edges.methodCallMeta()
+        );
         Settings resolved = settings == null ? Settings.semanticV1() : settings;
         InheritanceMap inheritanceMap = snapshot.types().inheritanceMap();
         BuildBytecodeWorkspace workspace = snapshot.bytecode().workspace();
         MethodLookup lookup = MethodLookup.build(snapshot.methods().methodsByHandle());
+        listener.accept("seed");
         SeedResult seeded = seedDeclaredEdges(
                 contextView.methodCalls,
                 contextView.methodCallMeta,
@@ -60,6 +70,7 @@ public final class BytecodeMainlineCallGraphRunner {
         Set<ClassReference.Handle> instantiatedClasses = snapshot.types().instantiatedClasses().isEmpty()
                 ? DispatchCallResolver.collectInstantiatedClasses(workspace, inheritanceMap)
                 : snapshot.types().instantiatedClasses();
+        listener.accept("dispatch");
         int typedDispatchEdges = TypedDispatchResolver.expandWithTypes(
                 contextView.methodCalls,
                 contextView.methodCallMeta,
@@ -76,8 +87,10 @@ public final class BytecodeMainlineCallGraphRunner {
                 inheritanceMap,
                 instantiatedClasses
         );
+        listener.accept("reflection");
         BytecodeMainlineReflectionResolver.Result reflectionResult =
                 BytecodeMainlineReflectionResolver.appendEdges(snapshot, contextView, workspace, lookup);
+        listener.accept("semantic");
         BytecodeMainlineSemanticEdgeRunner.Result semanticResult =
                 BytecodeMainlineSemanticEdgeRunner.appendEdges(
                         contextView,
@@ -85,14 +98,10 @@ public final class BytecodeMainlineCallGraphRunner {
                         instantiatedClasses,
                         lookup
                 );
-        BuildEdgeAccumulator updated = BuildEdgeAccumulator.fromContext(contextView);
+        listener.accept("pta");
         SelectivePtaRefiner.Result ptaResult = resolved.enableSelectivePta()
-                ? SelectivePtaRefiner.refine(snapshot, updated, workspace, inheritanceMap, resolved.precisionMode())
+                ? SelectivePtaRefiner.refine(snapshot, edges, workspace, inheritanceMap, resolved.precisionMode())
                 : SelectivePtaRefiner.Result.empty();
-        edges.methodCalls().clear();
-        edges.methodCallMeta().clear();
-        edges.methodCalls().putAll(updated.methodCalls());
-        edges.methodCallMeta().putAll(updated.methodCallMeta());
         long totalEdges = countEdges(edges.methodCalls());
         return new Result(
                 seeded.directEdges(),

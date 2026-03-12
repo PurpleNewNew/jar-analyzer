@@ -32,21 +32,57 @@ import java.util.Set;
  * Note: analysis-time state should not live here.
  */
 public final class BuildContext {
-    public final Set<ClassFileEntity> classFileList = new HashSet<>();
-    public final Set<ClassReference> discoveredClasses = new HashSet<>();
-    public final Set<MethodReference> discoveredMethods = new HashSet<>();
-    public final Map<ClassReference.Handle, ClassReference> classMap = new HashMap<>();
-    public final Map<MethodReference.Handle, MethodReference> methodMap = new HashMap<>();
-    public final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls = new HashMap<>();
-    public final Map<MethodCallKey, MethodCallMeta> methodCallMeta = new HashMap<>();
-    public final Map<MethodReference.Handle, List<String>> strMap = new HashMap<>();
-    public final ArrayList<SpringController> controllers = new ArrayList<>();
-    public final ArrayList<String> interceptors = new ArrayList<>();
-    public final ArrayList<String> servlets = new ArrayList<>();
-    public final ArrayList<String> filters = new ArrayList<>();
-    public final ArrayList<String> listeners = new ArrayList<>();
-    public final Map<MethodReference.Handle, Integer> explicitSourceMethodFlags = new HashMap<>();
-    public final Map<MethodReference.Handle, List<String>> stringAnnoMap = new HashMap<>();
-    public final ArrayList<ResourceEntity> resources = new ArrayList<>();
-    public final ArrayList<CallSiteEntity> callSites = new ArrayList<>();
+    public final Set<ClassFileEntity> classFileList;
+    public final Set<ClassReference> discoveredClasses;
+    public final Set<MethodReference> discoveredMethods;
+    public final Map<ClassReference.Handle, ClassReference> classMap;
+    public final Map<MethodReference.Handle, MethodReference> methodMap;
+    public final HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls;
+    public final Map<MethodCallKey, MethodCallMeta> methodCallMeta;
+    public final Map<MethodReference.Handle, List<String>> strMap;
+    public final List<SpringController> controllers;
+    public final ArrayList<String> interceptors;
+    public final ArrayList<String> servlets;
+    public final ArrayList<String> filters;
+    public final ArrayList<String> listeners;
+    public final Map<MethodReference.Handle, Integer> explicitSourceMethodFlags;
+    public final Map<MethodReference.Handle, List<String>> stringAnnoMap;
+    public final List<ResourceEntity> resources;
+    public final List<CallSiteEntity> callSites;
+
+    public BuildContext() {
+        this(null, null, null, null, null);
+    }
+
+    public static BuildContext callGraphView(Map<ClassReference.Handle, ClassReference> classMap,
+                                             Map<MethodReference.Handle, MethodReference> methodMap,
+                                             List<CallSiteEntity> callSites,
+                                             HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+                                             Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+        return new BuildContext(classMap, methodMap, callSites, methodCalls, methodCallMeta);
+    }
+
+    private BuildContext(Map<ClassReference.Handle, ClassReference> classMap,
+                         Map<MethodReference.Handle, MethodReference> methodMap,
+                         List<CallSiteEntity> callSites,
+                         HashMap<MethodReference.Handle, HashSet<MethodReference.Handle>> methodCalls,
+                         Map<MethodCallKey, MethodCallMeta> methodCallMeta) {
+        this.classFileList = new HashSet<>();
+        this.discoveredClasses = new HashSet<>();
+        this.discoveredMethods = new HashSet<>();
+        this.classMap = classMap == null ? new HashMap<>() : classMap;
+        this.methodMap = methodMap == null ? new HashMap<>() : methodMap;
+        this.methodCalls = methodCalls == null ? new HashMap<>() : methodCalls;
+        this.methodCallMeta = methodCallMeta == null ? new HashMap<>() : methodCallMeta;
+        this.strMap = new HashMap<>();
+        this.controllers = new ArrayList<>();
+        this.interceptors = new ArrayList<>();
+        this.servlets = new ArrayList<>();
+        this.filters = new ArrayList<>();
+        this.listeners = new ArrayList<>();
+        this.explicitSourceMethodFlags = new HashMap<>();
+        this.stringAnnoMap = new HashMap<>();
+        this.resources = new ArrayList<>();
+        this.callSites = callSites == null ? new ArrayList<>() : callSites;
+    }
 }

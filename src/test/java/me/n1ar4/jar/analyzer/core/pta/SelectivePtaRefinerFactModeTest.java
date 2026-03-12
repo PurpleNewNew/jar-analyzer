@@ -118,8 +118,7 @@ class SelectivePtaRefinerFactModeTest {
                 context.methodMap,
                 context.stringAnnoMap
         );
-        BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(workspace);
-        context.callSites.addAll(symbolResult.getCallSites());
+        context.callSites.addAll(BytecodeSymbolRunner.collectCallSites(workspace));
 
         return BuildFactAssembler.from(
                 context,

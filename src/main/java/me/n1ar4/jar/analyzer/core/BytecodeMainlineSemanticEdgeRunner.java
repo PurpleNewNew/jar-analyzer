@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 final class BytecodeMainlineSemanticEdgeRunner {
     private static final Logger logger = LogManager.getLogger();
@@ -191,15 +192,8 @@ final class BytecodeMainlineSemanticEdgeRunner {
         if (rule == null) {
             return FrameworkEdgeStats.empty();
         }
-        List<MethodReference.Handle> callers = collectFrameworkCallers(
-                context.buildContext(),
-                rule.owners(),
-                rule.methodNames()
-        );
-        List<MethodReference.Handle> targets = collectSemanticTargets(
-                context.buildContext(),
-                rule.semanticFlag()
-        );
+        List<MethodReference.Handle> callers = context.frameworkCallers(rule);
+        List<MethodReference.Handle> targets = context.semanticTargets(rule.semanticFlag());
         return addFrameworkEdges(context.buildContext(), callers, targets, rule.reason());
     }
 
@@ -867,6 +861,8 @@ final class BytecodeMainlineSemanticEdgeRunner {
         private final BytecodeMainlineCallGraphRunner.MethodLookup lookup;
         private final EnumMap<TargetKey, List<MethodReference.Handle>> targetCache =
                 new EnumMap<>(TargetKey.class);
+        private final Map<Integer, List<MethodReference.Handle>> semanticTargetCache = new java.util.HashMap<>();
+        private final Map<String, List<MethodReference.Handle>> frameworkCallerCache = new java.util.HashMap<>();
 
         private SemanticRuleContext(BuildContext buildContext,
                                     InheritanceMap inheritanceMap,
@@ -892,6 +888,27 @@ final class BytecodeMainlineSemanticEdgeRunner {
 
         private List<MethodReference.Handle> targets(TargetKey key) {
             return targetCache.computeIfAbsent(key, this::computeTargets);
+        }
+
+        private List<MethodReference.Handle> semanticTargets(int semanticFlag) {
+            if (semanticFlag <= 0) {
+                return List.of();
+            }
+            return semanticTargetCache.computeIfAbsent(
+                    semanticFlag,
+                    flag -> collectSemanticTargets(buildContext, flag)
+            );
+        }
+
+        private List<MethodReference.Handle> frameworkCallers(FrameworkRule rule) {
+            if (rule == null || rule.owners().isEmpty() || rule.methodNames().isEmpty()) {
+                return List.of();
+            }
+            String key = frameworkRuleKey(rule.owners(), rule.methodNames());
+            return frameworkCallerCache.computeIfAbsent(
+                    key,
+                    ignore -> collectFrameworkCallers(buildContext, rule.owners(), rule.methodNames())
+            );
         }
 
         private List<MethodReference.Handle> computeTargets(TargetKey key) {
@@ -976,6 +993,21 @@ final class BytecodeMainlineSemanticEdgeRunner {
                 );
             };
         }
+    }
+
+    private static String frameworkRuleKey(Set<String> owners, Set<String> methodNames) {
+        if ((owners == null || owners.isEmpty()) && (methodNames == null || methodNames.isEmpty())) {
+            return "";
+        }
+        TreeSet<String> ownerSet = new TreeSet<>();
+        if (owners != null) {
+            ownerSet.addAll(owners);
+        }
+        TreeSet<String> methodSet = new TreeSet<>();
+        if (methodNames != null) {
+            methodSet.addAll(methodNames);
+        }
+        return String.join(",", ownerSet) + "|" + String.join(",", methodSet);
     }
 
     private static final class SemanticInvokeRuleRegistry {

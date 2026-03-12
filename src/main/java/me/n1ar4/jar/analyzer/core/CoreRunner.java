@@ -119,24 +119,11 @@ public class CoreRunner {
             targetProjectKey = session.targetProjectKey();
             buildSeq = session.buildSeq();
             LAST_BUILD_STAGE.remove();
-            markBuildStage("prepare-project-model");
-            long stageStartNs = System.nanoTime();
-            prepareProjectModelForBuild(jarPath, rtJarPath, includeNested);
-            metrics.record("prepare_project_model", msSince(stageStartNs), metricMap(
-                    "include_nested", includeNested,
-                    "project_mode", ProjectRuntimeContext.getProjectModel() != null
-                            && ProjectRuntimeContext.getProjectModel().buildMode() == ProjectBuildMode.PROJECT,
-                    "runtime_hint_present", rtJarPath != null || ProjectRuntimeContext.runtimePath() != null
-            ));
             markBuildStage("resolve-inputs");
             BuildInputs inputs = resolveBuildInputs(jarPath, rtJarPath, quickMode, includeNested, progress, metrics);
             markBuildStage("prepare-class-files");
             prepareClassFiles(context, inputs.userArchives(), inputs.jarIdMap(), fixClass, includeNested, progress, metrics);
             BytecodeFrontEndStageResult frontEndStage = runBytecodeStages(context, quickMode, progress, metrics);
-            BytecodeSymbolRunner.Result symbolResult = frontEndStage.symbolResult();
-            List<LocalVarEntity> localVars = symbolResult == null || symbolResult.getLocalVars() == null
-                    ? Collections.emptyList()
-                    : symbolResult.getLocalVars();
             CallGraphStageResult callGraphStage = runCallGraphStage(
                     quickMode,
                     context,
@@ -152,7 +139,7 @@ public class CoreRunner {
                     quickMode,
                     context,
                     inputs,
-                    symbolResult,
+                    frontEndStage.workspace(),
                     callGraphStage,
                     progress,
                     metrics,
@@ -202,29 +189,6 @@ public class CoreRunner {
         }
     }
 
-    private static void prepareProjectModelForBuild(Path jarPath,
-                                                    Path rtJarPath,
-                                                    boolean includeNested) {
-        try {
-            ProjectModel currentModel = ProjectRuntimeContext.getProjectModel();
-            boolean explicitProjectMode = currentModel != null
-                    && currentModel.buildMode() == ProjectBuildMode.PROJECT;
-            Path runtimeForModel = rtJarPath;
-            if (!explicitProjectMode && runtimeForModel == null) {
-                runtimeForModel = ProjectRuntimeContext.runtimePath();
-            }
-            ProjectRuntimeContext.prepareArtifactBuild(
-                    explicitProjectMode ? null : jarPath,
-                    runtimeForModel,
-                    null,
-                    includeNested
-            );
-        } catch (Exception ex) {
-            logger.warn("prepare artifact project model fail, continue with possible degraded archive classification: {}",
-                    ex.toString());
-        }
-    }
-
     private static BuildInputs resolveBuildInputs(Path jarPath,
                                                   Path rtJarPath,
                                                   boolean quickMode,
@@ -251,7 +215,7 @@ public class CoreRunner {
         List<Path> normalizedArchives = normalizePaths(userArchives);
         try {
             ProjectRuntimeContext.prepareArtifactBuild(
-                    null,
+                    jarPath,
                     runtimeHint,
                     normalizedArchives,
                     includeNested
@@ -558,31 +522,28 @@ public class CoreRunner {
             if (metrics != null) {
                 metrics.record("bytecode_symbol", msSince(stageStartNs), metricMap(
                         "call_sites", 0,
-                        "local_vars", 0,
                         "skipped", true
                 ));
             }
-            return new BytecodeFrontEndStageResult(workspace, null);
+            return new BytecodeFrontEndStageResult(workspace);
         }
-        BytecodeSymbolRunner.Result symbolResult = BytecodeSymbolRunner.start(workspace);
-        List<CallSiteEntity> callSites = symbolResult.getCallSites();
+        List<CallSiteEntity> callSites = BytecodeSymbolRunner.collectCallSites(workspace);
         context.callSites.clear();
         if (callSites != null && !callSites.isEmpty()) {
             context.callSites.addAll(callSites);
         }
-        logger.info("build stage symbol: {} ms (callSites={}, localVars={}, heap={})",
+        logger.info("build stage symbol: {} ms (callSites={}, localVars=deferred, heap={})",
                 msSince(stageStartNs),
                 callSites == null ? 0 : callSites.size(),
-                symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size(),
                 heapUsage());
         if (metrics != null) {
             metrics.record("bytecode_symbol", msSince(stageStartNs), metricMap(
                     "call_sites", callSites == null ? 0 : callSites.size(),
-                    "local_vars", symbolResult.getLocalVars() == null ? 0 : symbolResult.getLocalVars().size(),
+                    "local_vars_deferred", true,
                     "skipped", false
             ));
         }
-        return new BytecodeFrontEndStageResult(workspace, symbolResult);
+        return new BytecodeFrontEndStageResult(workspace);
     }
 
     private static CallGraphStageResult runCallGraphStage(boolean quickMode,
@@ -606,6 +567,7 @@ public class CoreRunner {
         String analysisProfile = callGraphPlan.analysisProfile();
         int explicitEntryCount = context.explicitSourceMethodFlags.size();
         BytecodeMainlineCallGraphRunner.Result bytecodeResult = BytecodeMainlineCallGraphRunner.Result.empty();
+        BuildEdgeAccumulator edges = BuildEdgeAccumulator.empty();
         context.methodCalls.clear();
         context.methodCallMeta.clear();
 
@@ -620,14 +582,27 @@ public class CoreRunner {
             logger.info("all archives are common/sdk, continue without call graph (policy={})",
                     policy == null || policy.isBlank() ? ALL_COMMON_POLICY_CONTINUE : policy);
         } else {
+            progress.accept(56);
             BuildFactSnapshot facts = BuildFactAssembler.from(context, workspace);
-            BuildEdgeAccumulator edges = BuildEdgeAccumulator.fromContext(context);
+            progress.accept(58);
             bytecodeResult = BytecodeMainlineCallGraphRunner.run(
                     facts,
                     edges,
-                    callGraphPlan.bytecodeSettings()
+                    callGraphPlan.bytecodeSettings(),
+                    phase -> {
+                        if ("seed".equals(phase)) {
+                            progress.accept(60);
+                        } else if ("dispatch".equals(phase)) {
+                            progress.accept(62);
+                        } else if ("reflection".equals(phase)) {
+                            progress.accept(64);
+                        } else if ("semantic".equals(phase)) {
+                            progress.accept(66);
+                        } else if ("pta".equals(phase)) {
+                            progress.accept(68);
+                        }
+                    }
             );
-            edges.copyInto(context);
             logger.info("build stage bytecode-mainline: {} ms (mode={}, precisionMode={}, ptaBudgetProfile={}, directEdges={}, declaredDispatchEdges={}, invokeDynamicEdges={}, typedDispatchEdges={}, dispatchExpansionEdges={}, reflectionEdges={}, methodHandleEdges={}, reflectionHintConstSites={}, reflectionHintLogSites={}, reflectionHintCastSites={}, reflectionHintUnknownSites={}, reflectionHintImpreciseSites={}, reflectionHintThresholdExceededSites={}, callbackEdges={}, frameworkEdges={}, frameworkCallerCandidates={}, frameworkTargetCandidates={}, frameworkTruncatedRules={}, frameworkTruncatedCallers={}, frameworkTruncatedTargets={}, frameworkDroppedCandidatePairs={}, triggerBridgeEdges={}, ptaEdges={}, ptaRefinedCallSites={}, ptaHotspotCallSites={}, ptaFieldSites={}, ptaArraySites={}, ptaArrayCopySites={}, ptaPrecisionSelectedCallSites={}, ptaPrecisionSemanticCallSites={}, ptaPrecisionReflectionCallSites={}, ptaPrecisionTriggerCallSites={}, ptaPrecisionHighFanoutCallSites={}, instantiatedClasses={}, unresolvedCallers={}, unresolvedDeclaredTargets={}, totalEdges={}, heap={})",
                     msSince(stageStartNs),
                     callGraphModeMeta,
@@ -737,7 +712,8 @@ public class CoreRunner {
                 analysisProfile,
                 callGraphEngine,
                 callGraphModeMeta,
-                explicitEntryCount
+                explicitEntryCount,
+                edges
         );
     }
 
@@ -746,25 +722,23 @@ public class CoreRunner {
                                            boolean quickMode,
                                            BuildContext context,
                                            BuildInputs inputs,
-                                           BytecodeSymbolRunner.Result symbolResult,
+                                           BuildBytecodeWorkspace workspace,
                                            CallGraphStageResult callGraphStage,
                                            IntConsumer progress,
                                            BuildMetricsCollector metrics,
                                            long buildStartNs) {
         clearCachedBytes(context.classFileList);
         progress.accept(70);
-        progress.accept(90);
 
         DeferredFileWriter.awaitAndStop();
         CoreUtil.cleanupEmptyTempDirs();
-        List<LocalVarEntity> localVars = symbolResult == null ? Collections.emptyList() : symbolResult.getLocalVars();
-        int localVarCount = localVars == null ? 0 : localVars.size();
+        int[] localVarCountRef = {0};
         int jarCount = inputs.userArchives().size();
         int classFileCount = context.classFileList.size();
         int classCount = context.discoveredClasses.size();
         int methodCount = context.discoveredMethods.size();
         int callSiteCount = context.callSites.size();
-        long edgeCount = countEdges(context.methodCalls);
+        long edgeCount = countEdges(callGraphStage.edges().methodCalls());
         ProjectModel projectModel = ProjectRuntimeContext.getProjectModel();
         List<String> runtimeSnapshotJarPaths = new ArrayList<>(inputs.jarIdMap().keySet());
 
@@ -776,8 +750,8 @@ public class CoreRunner {
                 quickMode,
                 callGraphStage.callGraphModeMeta(),
                 context.discoveredMethods,
-                context.methodCalls,
-                context.methodCallMeta,
+                callGraphStage.edges().methodCalls(),
+                callGraphStage.edges().methodCallMeta(),
                 new Neo4jBulkImportService.GraphPayloadData(
                         context.callSites,
                         new ArrayList<>(context.discoveredClasses),
@@ -790,7 +764,10 @@ public class CoreRunner {
                 ),
                 () -> {
                     markBuildStage("build-runtime-snapshot");
+                    progress.accept(88);
                     long snapshotStartNs = System.nanoTime();
+                    List<LocalVarEntity> localVars = BytecodeSymbolRunner.collectLocalVars(workspace);
+                    localVarCountRef[0] = localVars == null ? 0 : localVars.size();
                     ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot(
                             buildSeq,
                             projectModel,
@@ -814,14 +791,14 @@ public class CoreRunner {
                             classFileCount,
                             methodCount,
                             callSiteCount,
-                            localVarCount,
+                            localVarCountRef[0],
                             heapUsage());
                     if (metrics != null) {
                         metrics.record("build_runtime_snapshot", msSince(snapshotStartNs), metricMap(
                                 "class_files", classFileCount,
                                 "methods", methodCount,
                                 "call_sites", callSiteCount,
-                                "local_vars", localVarCount
+                                "local_vars", localVarCountRef[0]
                         ));
                     }
                     releaseSnapshotBackedBuildData(context, localVars);
@@ -835,14 +812,16 @@ public class CoreRunner {
                         callGraphStage.explicitEntryCount()
                 ),
                 (stageKey, durationMs, details) -> {
+                    updateCommitProgress(progress, stageKey);
                     if (metrics != null) {
                         metrics.record(stageKey, durationMs, details);
                     }
                 }
         );
+        progress.accept(94);
         markBuildStage("publish-runtime");
         long publishStartNs = System.nanoTime();
-        releaseCommittedBuildData(context, localVars);
+        releaseCommittedBuildData(context, Collections.emptyList());
         ProjectRegistryService.getInstance().publishBuiltActiveProjectRuntime(
                 targetProjectKey,
                 runtimeSnapshot,
@@ -854,6 +833,7 @@ public class CoreRunner {
                     "build_seq", buildSeq
             ));
         }
+        progress.accept(97);
         markBuildStage("refresh-caches");
         long refreshStartNs = System.nanoTime();
         refreshCachesAfterBuild();
@@ -871,7 +851,7 @@ public class CoreRunner {
                     "class_files", classFileCount,
                     "methods", methodCount,
                     "call_sites", callSiteCount,
-                    "local_vars", localVarCount,
+                    "local_vars", localVarCountRef[0],
                     "edges", edgeCount
             ));
         }
@@ -932,8 +912,7 @@ public class CoreRunner {
                                JdkResolution jdkResolution) {
     }
 
-    private record BytecodeFrontEndStageResult(BuildBytecodeWorkspace workspace,
-                                               BytecodeSymbolRunner.Result symbolResult) {
+    private record BytecodeFrontEndStageResult(BuildBytecodeWorkspace workspace) {
         private BytecodeFrontEndStageResult {
             workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
         }
@@ -944,7 +923,8 @@ public class CoreRunner {
                                         String analysisProfile,
                                         String callGraphEngine,
                                         String callGraphModeMeta,
-                                        int explicitEntryCount) {
+                                        int explicitEntryCount,
+                                        BuildEdgeAccumulator edges) {
     }
 
     private record HeapStats(long usedBytes, long committedBytes, long maxBytes) {
@@ -968,6 +948,23 @@ public class CoreRunner {
             LAST_BUILD_STAGE.set(normalized);
         }
         logger.info("build stage enter: {} (heap={})", normalized, heapUsage());
+    }
+
+    private static void updateCommitProgress(IntConsumer progress, String stageKey) {
+        if (progress == null || stageKey == null || stageKey.isBlank()) {
+            return;
+        }
+        int value = switch (stageKey) {
+            case "neo4j_csv_payload" -> 76;
+            case "neo4j_bulk_import" -> 84;
+            case "neo4j_write_build_meta" -> 86;
+            case "neo4j_persist_runtime_snapshot" -> 90;
+            case "neo4j_swap_home" -> 92;
+            default -> -1;
+        };
+        if (value >= 0) {
+            progress.accept(value);
+        }
     }
 
     private static void scheduleBackgroundPrewarm(String projectKey, long buildSeq) {

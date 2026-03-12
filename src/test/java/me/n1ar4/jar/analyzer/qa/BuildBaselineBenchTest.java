@@ -58,7 +58,6 @@ public class BuildBaselineBenchTest {
     private static final String CALLGRAPH_STAGE_KEY = "callgraph";
 
     private static final List<String> STAGE_KEYS = List.of(
-            "prepare_project_model",
             "resolve_inputs",
             "prepare_class_files",
             "discovery",
@@ -256,7 +255,6 @@ public class BuildBaselineBenchTest {
                 "heap_max_mb",
                 "build_wall_ms",
                 "scenario_wall_ms",
-                "build_stage_prepare_project_model_ms",
                 "build_stage_resolve_inputs_ms",
                 "build_stage_prepare_class_files_ms",
                 "build_stage_discovery_ms",
@@ -304,7 +302,6 @@ public class BuildBaselineBenchTest {
                     String.valueOf(toMiB(record.heapMaxBytes())),
                     String.valueOf(record.buildWallMs()),
                     String.valueOf(record.scenarioWallMs()),
-                    String.valueOf(record.stageDurationMs("prepare_project_model")),
                     String.valueOf(record.stageDurationMs("resolve_inputs")),
                     String.valueOf(record.stageDurationMs("prepare_class_files")),
                     String.valueOf(record.stageDurationMs("discovery")),

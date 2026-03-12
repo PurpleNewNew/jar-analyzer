@@ -50,8 +50,7 @@ class BytecodeSymbolRunnerInvokeDynamicTest {
         entity.setJarName("demo.jar");
 
         BuildBytecodeWorkspace workspace = BuildBytecodeWorkspace.parse(Set.of(entity));
-        BytecodeSymbolRunner.Result result = BytecodeSymbolRunner.start(workspace);
-        List<CallSiteEntity> sites = result.getCallSites().stream()
+        List<CallSiteEntity> sites = BytecodeSymbolRunner.collectCallSites(workspace).stream()
                 .filter(site -> "build".equals(site.getCallerMethodName()))
                 .filter(site -> site.getOpCode() != null && site.getOpCode() == Opcodes.INVOKEDYNAMIC)
                 .toList();

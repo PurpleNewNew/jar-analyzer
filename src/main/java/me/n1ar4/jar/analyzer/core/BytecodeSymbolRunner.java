@@ -55,14 +55,27 @@ public final class BytecodeSymbolRunner {
     private BytecodeSymbolRunner() {
     }
 
-    public static Result start(BuildBytecodeWorkspace workspace) {
+    public static List<CallSiteEntity> collectCallSites(BuildBytecodeWorkspace workspace) {
+        return collect(workspace, true, false).callSites;
+    }
+
+    public static List<LocalVarEntity> collectLocalVars(BuildBytecodeWorkspace workspace) {
+        return collect(workspace, false, true).localVars;
+    }
+
+    private static Result collect(BuildBytecodeWorkspace workspace,
+                                  boolean includeCallSites,
+                                  boolean includeLocalVars) {
+        if (!includeCallSites && !includeLocalVars) {
+            return Result.empty();
+        }
         if (workspace == null || workspace.parsedClasses().isEmpty()) {
             return Result.empty();
         }
         List<BuildBytecodeWorkspace.ParsedClass> parsedClasses = new ArrayList<>(workspace.parsedClasses());
         int threads = resolveThreads(parsedClasses.size());
         if (threads <= 1) {
-            return analyzeParsedChunk(parsedClasses);
+            return analyzeParsedChunk(parsedClasses, includeCallSites, includeLocalVars);
         }
         List<List<BuildBytecodeWorkspace.ParsedClass>> partitions = partitionParsedClasses(parsedClasses, threads);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -70,7 +83,7 @@ public final class BytecodeSymbolRunner {
         Throwable asyncFailure = null;
         try {
             for (List<BuildBytecodeWorkspace.ParsedClass> chunk : partitions) {
-                futures.add(pool.submit(new ParsedLocalTask(chunk)));
+                futures.add(pool.submit(new ParsedLocalTask(chunk, includeCallSites, includeLocalVars)));
             }
             List<CallSiteEntity> callSites = new ArrayList<>();
             List<LocalVarEntity> localVars = new ArrayList<>();
@@ -101,7 +114,9 @@ public final class BytecodeSymbolRunner {
         }
     }
 
-    private static Result analyzeParsedChunk(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
+    private static Result analyzeParsedChunk(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses,
+                                             boolean includeCallSites,
+                                             boolean includeLocalVars) {
         List<CallSiteEntity> callSites = new ArrayList<>();
         List<LocalVarEntity> localVars = new ArrayList<>();
         for (BuildBytecodeWorkspace.ParsedClass parsedClass : parsedClasses) {
@@ -116,12 +131,18 @@ public final class BytecodeSymbolRunner {
                         parsedClass.classNode(),
                         parsedMethod.methodNode(),
                         parsedClass.jarId(),
+                        includeCallSites,
+                        includeLocalVars,
                         containsVirtualCalls(parsedMethod.methodNode().instructions)
                                 ? parsedMethod.sourceFrames()
                                 : null
                 );
-                callSites.addAll(bundle.callSites);
-                localVars.addAll(bundle.localVars);
+                if (includeCallSites) {
+                    callSites.addAll(bundle.callSites);
+                }
+                if (includeLocalVars) {
+                    localVars.addAll(bundle.localVars);
+                }
             }
         }
         return new Result(callSites, localVars);
@@ -130,28 +151,35 @@ public final class BytecodeSymbolRunner {
     private static MethodResultBundle analyzeMethod(ClassNode cn,
                                                     MethodNode mn,
                                                     Integer jarId,
+                                                    boolean includeCallSites,
+                                                    boolean includeLocalVars,
                                                     Frame<SourceValue>[] precomputedFrames) {
         InsnList instructions = mn.instructions;
         int size = instructions.size();
         Map<LabelNode, Integer> labelIndex = new IdentityHashMap<>();
         Map<LabelNode, Integer> lineByLabel = new IdentityHashMap<>();
-        for (int i = 0; i < size; i++) {
-            AbstractInsnNode insn = instructions.get(i);
-            if (insn instanceof LabelNode) {
-                labelIndex.put((LabelNode) insn, i);
-            } else if (insn instanceof LineNumberNode) {
-                LineNumberNode ln = (LineNumberNode) insn;
-                if (ln.start != null) {
+        boolean needsReceiverInfer = includeCallSites && containsVirtualCalls(instructions);
+        if (needsReceiverInfer || includeLocalVars) {
+            for (int i = 0; i < size; i++) {
+                AbstractInsnNode insn = instructions.get(i);
+                if (insn instanceof LabelNode labelNode && (needsReceiverInfer || includeLocalVars)) {
+                    labelIndex.put(labelNode, i);
+                    continue;
+                }
+                if (includeLocalVars && insn instanceof LineNumberNode ln && ln.start != null) {
                     lineByLabel.put(ln.start, ln.line);
                 }
             }
         }
-        Map<Integer, List<VarRange>> localsByIndex = buildLocalVarRanges(mn, labelIndex);
-        List<LocalVarEntity> localVars = buildLocalVarEntities(cn, mn, jarId, lineByLabel);
+        Map<Integer, List<VarRange>> localsByIndex = needsReceiverInfer
+                ? buildLocalVarRanges(mn, labelIndex)
+                : Collections.emptyMap();
+        List<LocalVarEntity> localVars = includeLocalVars
+                ? buildLocalVarEntities(cn, mn, jarId, lineByLabel)
+                : Collections.emptyList();
 
-        boolean needsInfer = containsVirtualCalls(instructions);
         Frame<SourceValue>[] frames = precomputedFrames;
-        if (needsInfer && frames == null) {
+        if (needsReceiverInfer && frames == null) {
             try {
                 Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
                 frames = analyzer.analyze(cn.name, mn);
@@ -163,6 +191,9 @@ public final class BytecodeSymbolRunner {
         List<CallSiteEntity> callSites = new ArrayList<>();
         int currentLine = -1;
         int callIndex = 0;
+        if (!includeCallSites) {
+            return new MethodResultBundle(callSites, localVars);
+        }
         for (int i = 0; i < size; i++) {
             AbstractInsnNode insn = instructions.get(i);
             if (insn instanceof LineNumberNode) {
@@ -488,14 +519,20 @@ public final class BytecodeSymbolRunner {
 
     private static final class ParsedLocalTask implements Callable<Result> {
         private final List<BuildBytecodeWorkspace.ParsedClass> parsedClasses;
+        private final boolean includeCallSites;
+        private final boolean includeLocalVars;
 
-        private ParsedLocalTask(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses) {
+        private ParsedLocalTask(List<BuildBytecodeWorkspace.ParsedClass> parsedClasses,
+                                boolean includeCallSites,
+                                boolean includeLocalVars) {
             this.parsedClasses = parsedClasses;
+            this.includeCallSites = includeCallSites;
+            this.includeLocalVars = includeLocalVars;
         }
 
         @Override
         public Result call() {
-            return analyzeParsedChunk(parsedClasses);
+            return analyzeParsedChunk(parsedClasses, includeCallSites, includeLocalVars);
         }
     }
 
@@ -541,21 +578,13 @@ public final class BytecodeSymbolRunner {
         }
     }
 
-    public static final class Result {
+    private static final class Result {
         private final List<CallSiteEntity> callSites;
         private final List<LocalVarEntity> localVars;
 
         private Result(List<CallSiteEntity> callSites, List<LocalVarEntity> localVars) {
             this.callSites = callSites == null ? new ArrayList<>() : callSites;
             this.localVars = localVars == null ? new ArrayList<>() : localVars;
-        }
-
-        public List<CallSiteEntity> getCallSites() {
-            return callSites;
-        }
-
-        public List<LocalVarEntity> getLocalVars() {
-            return localVars;
         }
 
         public static Result empty() {

@@ -13,7 +13,6 @@ package me.n1ar4.jar.analyzer.core.facts;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
-import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
@@ -83,23 +82,5 @@ public final class BuildFactAssembler {
                 bytecode,
                 constraints
         );
-    }
-
-    public static BuildContext contextView(BuildFactSnapshot snapshot,
-                                          BuildEdgeAccumulator edges) {
-        BuildContext context = new BuildContext();
-        if (snapshot == null) {
-            if (edges != null) {
-                edges.copyInto(context);
-            }
-            return context;
-        }
-        context.classMap.putAll(snapshot.types().classesByHandle());
-        context.methodMap.putAll(snapshot.methods().methodsByHandle());
-        context.callSites.addAll(snapshot.symbols().callSites());
-        if (edges != null) {
-            edges.copyInto(context);
-        }
-        return context;
     }
 }

@@ -113,19 +113,21 @@ public record BuildFactSnapshot(TypeFacts types,
         private final Map<String, AliasValueFact> instanceFieldFactsByKey;
         private final Map<MethodReference.Handle, MethodReflectionHints> reflectionHintsByHandle;
         private final Set<MethodReference.Handle> reflectionPrecisionSignalHandles;
-        private final Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodsByHandle;
+        private final BuildBytecodeWorkspace workspace;
+        private final ConcurrentHashMap<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodCache;
         private final ConcurrentHashMap<MethodReference.Handle, MethodConstraintFacts> methodConstraintCache;
 
         public ConstraintFacts(Map<String, String> receiverVarByCallSiteKey,
                                Map<String, AliasValueFact> instanceFieldFactsByKey,
                                Map<MethodReference.Handle, MethodReflectionHints> reflectionHintsByHandle,
                                Set<MethodReference.Handle> reflectionPrecisionSignalHandles,
-                               Map<MethodReference.Handle, BuildBytecodeWorkspace.ParsedMethod> parsedMethodsByHandle) {
+                               BuildBytecodeWorkspace workspace) {
             this.receiverVarByCallSiteKey = immutableMapView(receiverVarByCallSiteKey);
             this.instanceFieldFactsByKey = immutableAliasFactMap(instanceFieldFactsByKey);
             this.reflectionHintsByHandle = immutableMapView(reflectionHintsByHandle);
             this.reflectionPrecisionSignalHandles = immutableSetView(reflectionPrecisionSignalHandles);
-            this.parsedMethodsByHandle = immutableMapView(parsedMethodsByHandle);
+            this.workspace = workspace == null ? BuildBytecodeWorkspace.empty() : workspace;
+            this.parsedMethodCache = new ConcurrentHashMap<>();
             this.methodConstraintCache = new ConcurrentHashMap<>();
         }
 
@@ -174,11 +176,11 @@ public record BuildFactSnapshot(TypeFacts types,
         }
 
         public static ConstraintFacts empty() {
-            return new ConstraintFacts(Map.of(), Map.of(), Map.of(), Set.of(), Map.of());
+            return new ConstraintFacts(Map.of(), Map.of(), Map.of(), Set.of(), BuildBytecodeWorkspace.empty());
         }
 
         private MethodConstraintFacts loadMethodConstraints(MethodReference.Handle handle) {
-            BuildBytecodeWorkspace.ParsedMethod parsedMethod = parsedMethodsByHandle.get(handle);
+            BuildBytecodeWorkspace.ParsedMethod parsedMethod = resolveParsedMethod(handle);
             MethodReflectionHints reflectionHints = methodReflectionHints(handle);
             if (parsedMethod == null) {
                 return ConstraintFactAssembler.emptyMethodConstraints(reflectionHints);
@@ -188,6 +190,35 @@ public record BuildFactSnapshot(TypeFacts types,
                     reflectionHints,
                     instanceFieldFactsByKey
             );
+        }
+
+        private BuildBytecodeWorkspace.ParsedMethod resolveParsedMethod(MethodReference.Handle handle) {
+            if (handle == null || handle.getClassReference() == null || workspace.classesByHandle().isEmpty()) {
+                return null;
+            }
+            BuildBytecodeWorkspace.ParsedMethod cached = parsedMethodCache.get(handle);
+            if (cached != null) {
+                return cached;
+            }
+            BuildBytecodeWorkspace.ParsedClass parsedClass = workspace.findClass(
+                    handle.getClassReference().getName(),
+                    handle.getJarId()
+            );
+            if (parsedClass == null || parsedClass.methods().isEmpty()) {
+                return null;
+            }
+            for (BuildBytecodeWorkspace.ParsedMethod parsedMethod : parsedClass.methods()) {
+                if (parsedMethod == null || parsedMethod.methodNode() == null) {
+                    continue;
+                }
+                if (!safe(parsedMethod.methodNode().name).equals(safe(handle.getName()))
+                        || !safe(parsedMethod.methodNode().desc).equals(safe(handle.getDesc()))) {
+                    continue;
+                }
+                BuildBytecodeWorkspace.ParsedMethod existing = parsedMethodCache.putIfAbsent(handle, parsedMethod);
+                return existing == null ? parsedMethod : existing;
+            }
+            return null;
         }
     }
 

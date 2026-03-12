@@ -2,7 +2,6 @@ package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.core.build.BuildContext;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
-import me.n1ar4.jar.analyzer.core.edge.BuildEdgeAccumulator;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactAssembler;
 import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
@@ -39,7 +38,7 @@ class BuildFactAssemblerTest {
     }
 
     @Test
-    void shouldAssembleSnapshotAndLegacyViewFromBuildContext() {
+    void shouldAssembleSnapshotFromBuildContext() {
         BuildContext context = new BuildContext();
 
         ClassReference owner = new ClassReference(
@@ -115,18 +114,6 @@ class BuildFactAssemblerTest {
         assertEquals(3, snapshot.semantics().explicitSourceMethodFlags().get(caller.getHandle()));
         assertEquals(7, snapshot.semantics().methodSemanticFlags().get(caller.getHandle()));
         assertTrue(snapshot.bytecode().workspace().parsedClasses().isEmpty());
-
-        BuildEdgeAccumulator edges = BuildEdgeAccumulator.fromContext(context);
-        BuildContext contextView = BuildFactAssembler.contextView(snapshot, edges);
-
-        assertEquals(context.methodCalls.keySet(), contextView.methodCalls.keySet());
-        assertEquals(context.methodCallMeta.keySet(), contextView.methodCallMeta.keySet());
-        assertEquals(1, contextView.callSites.size());
-        assertEquals(2, contextView.methodMap.size());
-        assertTrue(contextView.classFileList.isEmpty());
-        assertTrue(contextView.resources.isEmpty());
-        assertTrue(contextView.strMap.isEmpty());
-        assertTrue(contextView.explicitSourceMethodFlags.isEmpty());
     }
 
     @Test
@@ -190,7 +177,7 @@ class BuildFactAssemblerTest {
                 context.methodMap,
                 context.stringAnnoMap
         );
-        context.callSites.addAll(BytecodeSymbolRunner.start(workspace).getCallSites());
+        context.callSites.addAll(BytecodeSymbolRunner.collectCallSites(workspace));
 
         BuildFactSnapshot snapshot = BuildFactAssembler.from(context, workspace);
         MethodReference.Handle reflectHelper = new MethodReference.Handle(

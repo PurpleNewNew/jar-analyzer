@@ -157,7 +157,7 @@ class BuildBytecodeWorkspaceTest {
         assertNotNull(candidate);
         assertFalse(sourceFramesLoaded(candidate));
 
-        BytecodeSymbolRunner.start(workspace);
+        BytecodeSymbolRunner.collectCallSites(workspace);
 
         assertFalse(sourceFramesLoaded(candidate));
     }
@@ -223,15 +223,14 @@ class BuildBytecodeWorkspaceTest {
     }
 
     private static SymbolSnapshot runSymbol(BuildBytecodeWorkspace workspace) {
-        BytecodeSymbolRunner.Result result = BytecodeSymbolRunner.start(workspace);
         TreeSet<String> callSites = new TreeSet<>();
-        result.getCallSites().forEach(site -> callSites.add(
+        BytecodeSymbolRunner.collectCallSites(workspace).forEach(site -> callSites.add(
                 site.getCallerClassName() + "|" + site.getCallerMethodName() + "|" + site.getCallerMethodDesc()
                         + "|" + site.getCalleeOwner() + "|" + site.getCalleeMethodName() + "|"
                         + site.getCalleeMethodDesc() + "|" + site.getOpCode() + "|" + site.getCallSiteKey()
         ));
         TreeSet<String> localVars = new TreeSet<>();
-        result.getLocalVars().forEach(localVar -> localVars.add(
+        BytecodeSymbolRunner.collectLocalVars(workspace).forEach(localVar -> localVars.add(
                 localVar.getClassName() + "|" + localVar.getMethodName() + "|" + localVar.getMethodDesc()
                         + "|" + localVar.getVarIndex() + "|" + localVar.getVarName() + "|" + localVar.getVarDesc()
         ));
