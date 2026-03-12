@@ -6,7 +6,7 @@ import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
@@ -159,7 +159,7 @@ final class SearchWorkflowSupport {
         return new SearchRunResult(out, status);
     }
 
-    private List<SearchResultDto> mapMethodResults(List<MethodResult> methods,
+    private List<SearchResultDto> mapMethodViews(List<MethodView> methods,
                                                    String contributor,
                                                    boolean nullParamFilter,
                                                    CallGraphScope scope,
@@ -168,7 +168,7 @@ final class SearchWorkflowSupport {
         if (methods == null || methods.isEmpty()) {
             return out;
         }
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null) {
                 continue;
             }
@@ -315,10 +315,10 @@ final class SearchWorkflowSupport {
             return List.of();
         }
         String ownerClass = classFilter.isBlank() ? null : classFilter;
-        List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
+        List<MethodView> methods = matchMode == SearchMatchMode.EQUALS
                 ? engine.getMethod(ownerClass, methodTerm, null)
                 : engine.getMethodLike(ownerClass, methodTerm, null);
-        return mapMethodResults(trimLimit(methods, limit), "method", nullParamFilter, scope, resolver);
+        return mapMethodViews(trimLimit(methods, limit), "method", nullParamFilter, scope, resolver);
     }
 
     private List<SearchResultDto> searchCallerContributor(CoreEngine engine,
@@ -338,10 +338,10 @@ final class SearchWorkflowSupport {
             return List.of();
         }
         String ownerClass = classFilter.isBlank() ? null : classFilter;
-        List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
+        List<MethodView> methods = matchMode == SearchMatchMode.EQUALS
                 ? engine.getCallers(ownerClass, methodTerm, null, null)
                 : engine.getCallersLike(ownerClass, methodTerm, null);
-        return mapMethodResults(trimLimit(methods, limit), "caller", nullParamFilter, scope, resolver);
+        return mapMethodViews(trimLimit(methods, limit), "caller", nullParamFilter, scope, resolver);
     }
 
     private List<SearchResultDto> searchStringContributor(CoreEngine engine,
@@ -356,12 +356,12 @@ final class SearchWorkflowSupport {
         if (term.isBlank()) {
             return List.of();
         }
-        List<MethodResult> methods = matchMode == SearchMatchMode.EQUALS
+        List<MethodView> methods = matchMode == SearchMatchMode.EQUALS
                 ? engine.getMethodsByStrEqual(term)
                 : engine.getMethodsByStr(term);
         if (!classFilter.isBlank()) {
-            List<MethodResult> filtered = new ArrayList<>();
-            for (MethodResult method : methods) {
+            List<MethodView> filtered = new ArrayList<>();
+            for (MethodView method : methods) {
                 if (method == null) {
                     continue;
                 }
@@ -372,7 +372,7 @@ final class SearchWorkflowSupport {
             }
             methods = filtered;
         }
-        return mapMethodResults(trimLimit(methods, limit), "string", nullParamFilter, scope, resolver);
+        return mapMethodViews(trimLimit(methods, limit), "string", nullParamFilter, scope, resolver);
     }
 
     private List<SearchResultDto> searchResourceContributor(CoreEngine engine,
@@ -705,7 +705,7 @@ final class SearchWorkflowSupport {
         return value.replace('.', '/');
     }
 
-    private SearchResultDto toSearchResult(MethodResult method, String contributor, String origin) {
+    private SearchResultDto toSearchResult(MethodView method, String contributor, String origin) {
         String preview = safe(method.getClassName()) + "#" + safe(method.getMethodName()) + safe(method.getMethodDesc());
         return new SearchResultDto(
                 safe(method.getClassName()),

@@ -14,7 +14,7 @@ import me.n1ar4.jar.analyzer.core.others.Proxy;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
@@ -1094,9 +1094,9 @@ public final class ToolWindowDialogs {
         if (engine == null || !engine.isEnabled()) {
             return new ElSearchRun(List.of(), tr(translator, "引擎尚未就绪", "engine is not ready"));
         }
-        List<MethodResult> methods = engine.getMethodsByStr(needle, null, null, 1000, "auto");
+        List<MethodView> methods = engine.getMethodsByStr(needle, null, null, 1000, "auto");
         List<SearchResultDto> results = new ArrayList<>();
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null) {
                 continue;
             }

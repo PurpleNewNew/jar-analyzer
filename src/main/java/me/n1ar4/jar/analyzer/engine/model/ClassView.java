@@ -8,9 +8,9 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.entity;
+package me.n1ar4.jar.analyzer.engine.model;
 
-public class ClassResult {
+public class ClassView {
     private String jarName;
     private String className;
     private String superClassName;
@@ -59,7 +59,7 @@ public class ClassResult {
 
     @Override
     public String toString() {
-        return "ClassResult{" +
+        return "ClassView{" +
                 "jarName='" + jarName + '\'' +
                 ", className='" + className + '\'' +
                 ", superClassName='" + superClassName + '\'' +

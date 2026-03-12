@@ -58,10 +58,10 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.jar.analyzer.utils.JarUtil;
@@ -238,7 +238,7 @@ public final class TypeSolver {
         if (scope instanceof SuperExpr) {
             String cls = ctx != null ? ctx.className : resolveEnclosingClassName(cu, scope);
             if (cls != null && engine != null) {
-                ClassResult result = engine.getClassByClass(cls);
+                ClassView result = engine.getClassByClass(cls);
                 if (result != null && result.getSuperClassName() != null) {
                     return TypeRef.fromInternalName(result.getSuperClassName());
                 }
@@ -558,7 +558,7 @@ public final class TypeSolver {
         if (fiType == null || fiType.internalName == null) {
             return ARG_COUNT_UNKNOWN;
         }
-        MethodResult sam = resolveSamMethod(fiType.internalName);
+        MethodView sam = resolveSamMethod(fiType.internalName);
         if (sam == null) {
             return ARG_COUNT_UNKNOWN;
         }
@@ -582,14 +582,14 @@ public final class TypeSolver {
         if (classHint == null || engine == null) {
             return samArgs;
         }
-        List<MethodResult> methods = engine.getMethod(classHint, identifier, null);
+        List<MethodView> methods = engine.getMethod(classHint, identifier, null);
         if (methods == null || methods.isEmpty()) {
             return samArgs;
         }
         boolean hasStatic = false;
         boolean hasInstance = false;
         int instanceArgs = Math.max(0, samArgs - 1);
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null || method.getMethodDesc() == null) {
                 continue;
             }
@@ -640,7 +640,7 @@ public final class TypeSolver {
         if (fiType == null || fiType.internalName == null) {
             return null;
         }
-        MethodResult sam = resolveSamMethod(fiType.internalName);
+        MethodView sam = resolveSamMethod(fiType.internalName);
         if (sam == null || sam.getMethodDesc() == null) {
             return null;
         }
@@ -839,19 +839,19 @@ public final class TypeSolver {
         return null;
     }
 
-    private MethodResult resolveSamMethod(String interfaceName) {
+    private MethodView resolveSamMethod(String interfaceName) {
         if (interfaceName == null || interfaceName.isBlank()) {
             return null;
         }
         if (engine == null) {
             return null;
         }
-        List<MethodResult> methods = engine.getMethod(interfaceName, null, null);
+        List<MethodView> methods = engine.getMethod(interfaceName, null, null);
         if (methods == null || methods.isEmpty()) {
             return null;
         }
-        List<MethodResult> candidates = new ArrayList<>();
-        for (MethodResult method : methods) {
+        List<MethodView> candidates = new ArrayList<>();
+        for (MethodView method : methods) {
             if (method == null || method.getMethodName() == null) {
                 continue;
             }
@@ -877,7 +877,7 @@ public final class TypeSolver {
         return resolveSamMethod(interfaceName) != null;
     }
 
-    MethodResult resolveSamMethodPublic(String interfaceName) {
+    MethodView resolveSamMethodPublic(String interfaceName) {
         return resolveSamMethod(interfaceName);
     }
 
@@ -888,7 +888,7 @@ public final class TypeSolver {
         if (ref == null || targetType == null || targetType.internalName == null) {
             return false;
         }
-        MethodResult sam = resolveSamMethod(targetType.internalName);
+        MethodView sam = resolveSamMethod(targetType.internalName);
         if (sam == null || sam.getMethodDesc() == null) {
             return false;
         }
@@ -921,11 +921,11 @@ public final class TypeSolver {
             return true;
         }
         if ("new".equals(identifier)) {
-            List<MethodResult> ctors = engine.getMethod(owner, "<init>", null);
+            List<MethodView> ctors = engine.getMethod(owner, "<init>", null);
             if (ctors == null || ctors.isEmpty()) {
                 return false;
             }
-            for (MethodResult ctor : ctors) {
+            for (MethodView ctor : ctors) {
                 if (ctor == null || ctor.getMethodDesc() == null) {
                     continue;
                 }
@@ -944,13 +944,13 @@ public final class TypeSolver {
             }
             return samArgs < 0;
         }
-        List<MethodResult> methods = engine.getMethod(owner, identifier, null);
+        List<MethodView> methods = engine.getMethod(owner, identifier, null);
         if (methods == null || methods.isEmpty()) {
             return false;
         }
         boolean scopeIsType = scope instanceof TypeExpr;
         int instanceArgs = scopeIsType ? Math.max(0, samArgs - 1) : samArgs;
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null || method.getMethodDesc() == null) {
                 continue;
             }
@@ -999,7 +999,7 @@ public final class TypeSolver {
         if (lambda == null || targetType == null || targetType.internalName == null) {
             return false;
         }
-        MethodResult sam = resolveSamMethod(targetType.internalName);
+        MethodView sam = resolveSamMethod(targetType.internalName);
         if (sam == null || sam.getMethodDesc() == null) {
             return false;
         }
@@ -1198,7 +1198,7 @@ public final class TypeSolver {
         return true;
     }
 
-    private List<TypeRef> resolveSamParamTypes(TypeRef interfaceType, MethodResult sam) {
+    private List<TypeRef> resolveSamParamTypes(TypeRef interfaceType, MethodView sam) {
         if (sam == null || sam.getMethodDesc() == null) {
             return null;
         }
@@ -1313,7 +1313,7 @@ public final class TypeSolver {
     }
 
     private TypeRef resolveSamParamType(TypeRef interfaceType,
-                                        MethodResult sam,
+                                        MethodView sam,
                                         int paramIndex) {
         if (interfaceType == null || sam == null) {
             return null;
@@ -1874,7 +1874,7 @@ public final class TypeSolver {
             return fallback;
         }
         String normalized = normalizeClassName(className);
-        ClassResult result = engine.getClassByClass(normalized);
+        ClassView result = engine.getClassByClass(normalized);
         if (result != null && result.getIsInterfaceInt() == 1) {
             return SymbolKind.INTERFACE;
         }
@@ -1979,7 +1979,7 @@ public final class TypeSolver {
                         if (engine.getMemberByClassAndName(owner, memberName) != null) {
                             return owner;
                         }
-                        List<MethodResult> methods = engine.getMethod(owner, memberName, null);
+                        List<MethodView> methods = engine.getMethod(owner, memberName, null);
                         if (methods != null && !methods.isEmpty()) {
                             return owner;
                         }
@@ -2108,7 +2108,7 @@ public final class TypeSolver {
                                                           MethodReferenceExpr ref,
                                                           CallContext ctx) {
         TypeRef fiType = resolveFunctionalInterfaceTypeFromContext(cu, ref, ctx);
-        MethodResult sam = null;
+        MethodView sam = null;
         if (fiType != null && fiType.internalName != null) {
             sam = resolveSamMethod(fiType.internalName);
         }
@@ -2155,12 +2155,12 @@ public final class TypeSolver {
                 if (scope instanceof TypeExpr) {
                     String owner = resolveClassNameFromExpression(cu, scope, ref, ctx);
                     if (owner != null && engine != null) {
-                        List<MethodResult> methods = engine.getMethod(owner, identifier, null);
+                        List<MethodView> methods = engine.getMethod(owner, identifier, null);
                         if (methods != null && !methods.isEmpty() && !params.isEmpty()) {
                             boolean hasInstance = false;
                             boolean hasStaticExact = false;
                             int instanceArgCount = Math.max(0, params.size() - 1);
-                            for (MethodResult method : methods) {
+                            for (MethodView method : methods) {
                                 if (method == null || method.getMethodDesc() == null) {
                                     continue;
                                 }
@@ -2291,7 +2291,7 @@ public final class TypeSolver {
             if (member != null) {
                 break;
             }
-            ClassResult result = engine.getClassByClass(current);
+            ClassView result = engine.getClassByClass(current);
             if (result == null || result.getSuperClassName() == null
                     || result.getSuperClassName().isBlank()) {
                 break;

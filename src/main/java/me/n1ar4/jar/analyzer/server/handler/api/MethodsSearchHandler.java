@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -45,7 +45,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
                 return needParam("anno");
             }
             String annoScope = getStringParam(session, "annoScope");
-            CoreEngine.PageSlice<AnnoMethodResult> page = engine.getMethodsByAnnoPage(
+            CoreEngine.PageSlice<AnnoMethodView> page = engine.getMethodsByAnnoPage(
                     annos, annoMatch, annoScope, jarId, offset, limit, includeJdk);
             Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());
             meta.put("resultType", "anno");
@@ -59,7 +59,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
             if (!StringUtil.isNull(classLike)) {
                 classLike = normalizeClassName(classLike);
             }
-            CoreEngine.PageSlice<MethodResult> page = engine.searchMethodsByStr(
+            CoreEngine.PageSlice<MethodView> page = engine.searchMethodsByStr(
                     str, jarId, classLike, mode, offset, limit, includeJdk);
             Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());
             meta.put("resultType", "method");
@@ -73,7 +73,7 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
             return needParam("class|str|anno");
         }
 
-        List<MethodResult> results;
+        List<MethodView> results;
         if (StringUtil.isNull(methodName)) {
             results = engine.getMethodsByClass(className);
         } else {
@@ -84,18 +84,18 @@ public class MethodsSearchHandler extends ApiBaseHandler implements HttpHandler 
                     : engine.getMethod(className, methodName, methodDesc);
         }
         results = filterMethods(filterMethodsByJarId(results, jarId), includeJdk);
-        List<MethodResult> page = applyLimitOffset(results, offset, limit);
+        List<MethodView> page = applyLimitOffset(results, offset, limit);
         Map<String, Object> meta = pageMeta(offset, limit, page.size(), results.size());
         meta.put("resultType", "method");
         return ok(page, meta);
     }
 
-    private List<MethodResult> filterMethodsByJarId(List<MethodResult> results, Integer jarId) {
+    private List<MethodView> filterMethodsByJarId(List<MethodView> results, Integer jarId) {
         if (results == null || results.isEmpty() || jarId == null || jarId < 0) {
             return results;
         }
-        List<MethodResult> out = new ArrayList<>();
-        for (MethodResult result : results) {
+        List<MethodView> out = new ArrayList<>();
+        for (MethodView result : results) {
             if (result != null && result.getJarId() == jarId) {
                 out.add(result);
             }

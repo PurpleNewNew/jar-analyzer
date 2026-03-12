@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -101,11 +101,11 @@ public class HeadlessSmokeTest {
         if (engine == null || !engine.isEnabled()) {
             return null;
         }
-        List<MethodCallResult> edges = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
+        List<CallEdgeView> edges = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
         if (edges == null || edges.isEmpty()) {
             return null;
         }
-        for (MethodCallResult row : edges) {
+        for (CallEdgeView row : edges) {
             if (row == null) {
                 continue;
             }

@@ -14,7 +14,7 @@ import com.alibaba.fastjson2.TypeReference;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.rules.SinkModel;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
@@ -53,7 +53,7 @@ public class GetCallersBySinkHandler extends ApiBaseHandler implements HttpHandl
                 continue;
             }
             for (MethodReference resolvedSink : resolvedSinks) {
-                ArrayList<MethodResult> callers = engine.getCallers(
+                ArrayList<MethodView> callers = engine.getCallers(
                         resolvedClassName(resolvedSink),
                         safe(resolvedSink.getName()),
                         safe(resolvedSink.getDesc()),

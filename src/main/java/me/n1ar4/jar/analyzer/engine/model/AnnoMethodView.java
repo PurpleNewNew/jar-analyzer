@@ -8,9 +8,9 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.entity;
+package me.n1ar4.jar.analyzer.engine.model;
 
-public class AnnoMethodResult {
+public class AnnoMethodView {
     private String className;
     private String methodName;
     private String methodDesc;
@@ -90,7 +90,7 @@ public class AnnoMethodResult {
 
     @Override
     public String toString() {
-        return "AnnoMethodResult{" +
+        return "AnnoMethodView{" +
                 "className='" + className + '\'' +
                 ", methodName='" + methodName + '\'' +
                 ", methodDesc='" + methodDesc + '\'' +

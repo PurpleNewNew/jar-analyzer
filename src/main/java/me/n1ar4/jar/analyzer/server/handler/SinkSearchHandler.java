@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.SearchCondition;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
@@ -87,7 +87,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
                 if (conditions == null || conditions.isEmpty()) {
                     continue;
                 }
-                Map<String, MethodResult> uniq = new LinkedHashMap<>();
+                Map<String, MethodView> uniq = new LinkedHashMap<>();
                 for (SearchCondition condition : conditions) {
                     if (condition == null) {
                         continue;
@@ -95,8 +95,8 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
                     String className = normalizeValue(condition.getClassName());
                     String methodName = normalizeValue(condition.getMethodName());
                     String methodDesc = normalizeValue(condition.getMethodDesc());
-                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                    for (MethodResult m : results) {
+                    ArrayList<MethodView> results = engine.getCallers(className, methodName, methodDesc);
+                    for (MethodView m : results) {
                         if (m == null) {
                             continue;
                         }
@@ -127,7 +127,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
                 if (truncated) {
                     break outer;
                 }
-                List<MethodResult> finalResults = new ArrayList<>(uniq.values());
+                List<MethodView> finalResults = new ArrayList<>(uniq.values());
                 Map<String, Object> item = new HashMap<>();
                 item.put("name", ruleName);
                 item.put("level", entryLevel);
@@ -219,7 +219,7 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
         return out;
     }
 
-    private boolean isAllowed(MethodResult m, List<String> blacklist, List<String> whitelist,
+    private boolean isAllowed(MethodView m, List<String> blacklist, List<String> whitelist,
                               Set<String> jarNames, Set<Integer> jarIds, boolean includeJdk) {
         if (m == null) {
             return false;
@@ -360,8 +360,8 @@ public class SinkSearchHandler extends ApiBaseHandler implements HttpHandler {
                     String className = normalizeValue(condition.getClassName());
                     String methodName = normalizeValue(condition.getMethodName());
                     String methodDesc = normalizeValue(condition.getMethodDesc());
-                    ArrayList<MethodResult> results = engine.getCallers(className, methodName, methodDesc);
-                    for (MethodResult m : results) {
+                    ArrayList<MethodView> results = engine.getCallers(className, methodName, methodDesc);
+                    for (MethodView m : results) {
                         if (!isAllowed(m, blacklist, whitelist, jarNames, jarIds, includeJdk)) {
                             continue;
                         }

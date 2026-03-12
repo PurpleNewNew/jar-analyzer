@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.entity;
 
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -61,16 +63,16 @@ public class ConfigUsageResult {
     }
 
     public static class Usage {
-        private MethodResult method;
+        private MethodView method;
         private List<EntryPoint> entrypoints = new ArrayList<>();
         private List<String> semanticTags = new ArrayList<>();
         private List<String> annoNames = new ArrayList<>();
 
-        public MethodResult getMethod() {
+        public MethodView getMethod() {
             return method;
         }
 
-        public void setMethod(MethodResult method) {
+        public void setMethod(MethodView method) {
             this.method = method;
         }
 

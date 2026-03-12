@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.gui.util;
 
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import org.objectweb.asm.Opcodes;
@@ -95,18 +95,18 @@ public final class EditorSymbolNavigationResolver {
                 continue;
             }
             if (seed.methodTarget()) {
-                List<MethodResult> callers = engine.getCallers(
+                List<MethodView> callers = engine.getCallers(
                         normalizeClass(seed.className()),
                         seed.methodName(),
                         seed.methodDesc(),
                         normalizeJarId(seed.jarId()));
                 if (callers != null && !callers.isEmpty()) {
                     callers.sort(Comparator
-                            .comparing((MethodResult item) -> safe(item.getClassName()))
+                            .comparing((MethodView item) -> safe(item.getClassName()))
                             .thenComparing(item -> safe(item.getMethodName()))
                             .thenComparing(item -> safe(item.getMethodDesc()))
-                            .thenComparingInt(MethodResult::getJarId));
-                    for (MethodResult caller : callers) {
+                            .thenComparingInt(MethodView::getJarId));
+                    for (MethodView caller : callers) {
                         appendMethodTarget(out, caller, "usage-caller");
                     }
                     continue;
@@ -134,9 +134,9 @@ public final class EditorSymbolNavigationResolver {
                 String method = safe(seed.methodName());
                 String desc = safe(seed.methodDesc());
                 Integer jarId = normalizeJarId(seed.jarId());
-                List<MethodResult> impls = engine.getImpls(owner, method, desc, jarId);
+                List<MethodView> impls = engine.getImpls(owner, method, desc, jarId);
                 if (impls != null && !impls.isEmpty()) {
-                    for (MethodResult impl : impls) {
+                    for (MethodView impl : impls) {
                         if (sameMethod(seed, impl)) {
                             continue;
                         }
@@ -165,23 +165,23 @@ public final class EditorSymbolNavigationResolver {
             }
             if (seed.methodTarget()) {
                 addTarget(out, withSource(seed, "hier-self"));
-                List<MethodResult> supers = engine.getSuperImpls(
+                List<MethodView> supers = engine.getSuperImpls(
                         normalizeClass(seed.className()),
                         seed.methodName(),
                         seed.methodDesc(),
                         normalizeJarId(seed.jarId()));
                 if (supers != null) {
-                    for (MethodResult superMethod : supers) {
+                    for (MethodView superMethod : supers) {
                         appendMethodTarget(out, superMethod, "hier-super");
                     }
                 }
-                List<MethodResult> impls = engine.getImpls(
+                List<MethodView> impls = engine.getImpls(
                         normalizeClass(seed.className()),
                         seed.methodName(),
                         seed.methodDesc(),
                         normalizeJarId(seed.jarId()));
                 if (impls != null) {
-                    for (MethodResult impl : impls) {
+                    for (MethodView impl : impls) {
                         appendMethodTarget(out, impl, "hier-sub");
                     }
                 }
@@ -276,7 +276,7 @@ public final class EditorSymbolNavigationResolver {
             if (handle == null || handle.getName() == null) {
                 continue;
             }
-            List<MethodResult> methods = engine.getMethod(handle.getName(), methodName, methodDesc);
+            List<MethodView> methods = engine.getMethod(handle.getName(), methodName, methodDesc);
             if (methods == null || methods.isEmpty()) {
                 scanned++;
                 if (scanned >= MAX_CLASS_SCAN) {
@@ -284,7 +284,7 @@ public final class EditorSymbolNavigationResolver {
                 }
                 continue;
             }
-            for (MethodResult method : methods) {
+            for (MethodView method : methods) {
                 appendMethodTarget(out, method, "impl-fallback");
             }
             scanned++;
@@ -301,11 +301,11 @@ public final class EditorSymbolNavigationResolver {
         if (className == null || seed.methodName() == null || seed.methodName().isBlank()) {
             return;
         }
-        List<MethodResult> methods = engine.getMethod(className, seed.methodName(), null);
+        List<MethodView> methods = engine.getMethod(className, seed.methodName(), null);
         if (methods == null || methods.isEmpty()) {
             return;
         }
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null) {
                 continue;
             }
@@ -324,15 +324,15 @@ public final class EditorSymbolNavigationResolver {
         if (normalized == null) {
             return;
         }
-        List<ClassResult> classes = engine.getClassesByClass(normalized);
+        List<ClassView> classes = engine.getClassesByClass(normalized);
         if (classes == null || classes.isEmpty()) {
             addTarget(out, new EditorDeclarationTargetDto(
                     normalized, "", "", "", 0, -1, "class", source));
             return;
         }
-        classes.sort(Comparator.comparingInt(ClassResult::getJarId)
+        classes.sort(Comparator.comparingInt(ClassView::getJarId)
                 .thenComparing(item -> safe(item.getJarName())));
-        for (ClassResult item : classes) {
+        for (ClassView item : classes) {
             if (item == null) {
                 continue;
             }
@@ -350,7 +350,7 @@ public final class EditorSymbolNavigationResolver {
     }
 
     private static void appendMethodTarget(Map<String, EditorDeclarationTargetDto> out,
-                                           MethodResult method,
+                                           MethodView method,
                                            String source) {
         if (method == null) {
             return;
@@ -367,7 +367,7 @@ public final class EditorSymbolNavigationResolver {
         ));
     }
 
-    private static boolean sameMethod(EditorDeclarationTargetDto target, MethodResult method) {
+    private static boolean sameMethod(EditorDeclarationTargetDto target, MethodView method) {
         if (target == null || method == null) {
             return false;
         }

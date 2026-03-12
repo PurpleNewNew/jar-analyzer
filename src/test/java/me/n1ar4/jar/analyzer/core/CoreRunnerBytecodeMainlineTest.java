@@ -4,7 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.support.FixtureJars;
@@ -64,182 +64,182 @@ class CoreRunnerBytecodeMainlineTest {
 
         CoreEngine engine = new CoreEngine(config());
         EngineContext.setEngine(engine);
-        ArrayList<MethodCallResult> fieldDispatchEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> fieldDispatchEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "ptaFieldSensitiveDispatch",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> noiseDispatchEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> noiseDispatchEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "ptaNoiseInstantiate",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> arrayDispatchEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> arrayDispatchEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "ptaArraySensitiveDispatch",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> arrayCopyDispatchEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> arrayCopyDispatchEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "ptaNativeArrayCopyDispatch",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> threadStartEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> threadStartEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "threadStart",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> executorSubmitEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> executorSubmitEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "executorSubmit",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> doPrivilegedEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> doPrivilegedEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "doPrivileged",
                 "()Ljava/lang/Object;",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> completableEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> completableEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "completableSupply",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> dynamicProxyEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> dynamicProxyEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "dynamicProxy",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> cglibProxyEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> cglibProxyEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "cglibProxy",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectInvokeEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectInvokeEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectInvoke",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectLoaderChainEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectLoaderChainEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectWithClassLoaderChain",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectLoadClassApiEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectLoadClassApiEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaLoadClassApi",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectHelperFlowEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectHelperFlowEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaHelperFlow",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectFieldAliasEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectFieldAliasEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaFieldAliasFacts",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectArrayCopyAliasEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectArrayCopyAliasEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaStringArrayCopyAlias",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleDirect",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleStaticEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleStaticEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleFindStatic",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleCtorEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleCtorEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleFindConstructor",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleBindToEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleBindToEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleBindToReceiver",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleSpecialEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleSpecialEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleFindSpecial",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> methodHandleHelperFlowEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> methodHandleHelperFlowEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "methodHandleViaHelperFlow",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> indyStaticRefEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> indyStaticRefEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "invokeDynamicStaticMethodRef",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> indyCtorRefEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> indyCtorRefEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "invokeDynamicConstructorRef",
                 "()V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectCastFallbackEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectCastFallbackEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaCastFallback",
                 "(Ljava/lang/String;)V",
                 0,
                 Integer.MAX_VALUE
         );
-        ArrayList<MethodCallResult> reflectImpreciseThresholdEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> reflectImpreciseThresholdEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/CallbackEntry",
                 "reflectViaImpreciseThreshold",
                 "(Ljava/lang/String;)V",
@@ -258,7 +258,7 @@ class CoreRunnerBytecodeMainlineTest {
                 "me/n1ar4/cb/SlowTask".equals(edge.getCalleeClassName())
                         && "run".equals(edge.getCalleeMethodName())
                         && "()V".equals(edge.getCalleeMethodDesc())));
-        MethodCallResult fieldPtaEdge = fieldDispatchEdges.stream()
+        CallEdgeView fieldPtaEdge = fieldDispatchEdges.stream()
                 .filter(edge -> "me/n1ar4/cb/FastTask".equals(edge.getCalleeClassName())
                         && "run".equals(edge.getCalleeMethodName())
                         && "()V".equals(edge.getCalleeMethodDesc())
@@ -270,7 +270,7 @@ class CoreRunnerBytecodeMainlineTest {
                 .orElse(null);
         assertNotNull(fieldPtaEdge);
         assertTrue(fieldPtaEdge.getCallSiteKey() != null && !fieldPtaEdge.getCallSiteKey().isBlank());
-        MethodCallResult arrayPtaEdge = arrayDispatchEdges.stream()
+        CallEdgeView arrayPtaEdge = arrayDispatchEdges.stream()
                 .filter(edge -> "me/n1ar4/cb/FastTask".equals(edge.getCalleeClassName())
                         && "run".equals(edge.getCalleeMethodName())
                         && "()V".equals(edge.getCalleeMethodDesc())
@@ -282,7 +282,7 @@ class CoreRunnerBytecodeMainlineTest {
                 .orElse(null);
         assertNotNull(arrayPtaEdge);
         assertTrue(arrayPtaEdge.getCallSiteKey() != null && !arrayPtaEdge.getCallSiteKey().isBlank());
-        MethodCallResult arrayCopyPtaEdge = arrayCopyDispatchEdges.stream()
+        CallEdgeView arrayCopyPtaEdge = arrayCopyDispatchEdges.stream()
                 .filter(edge -> "me/n1ar4/cb/FastTask".equals(edge.getCalleeClassName())
                         && "run".equals(edge.getCalleeMethodName())
                         && "()V".equals(edge.getCalleeMethodDesc())
@@ -348,7 +348,7 @@ class CoreRunnerBytecodeMainlineTest {
 
         CoreEngine engine = new CoreEngine(config());
         EngineContext.setEngine(engine);
-        ArrayList<MethodCallResult> nettyDispatchEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> nettyDispatchEdges = engine.getCallEdgesByCaller(
                 "io/netty/channel/SimpleChannelInboundHandler",
                 "channelRead",
                 "(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;)V",
@@ -370,7 +370,7 @@ class CoreRunnerBytecodeMainlineTest {
         return config;
     }
 
-    private static void assertEdge(List<MethodCallResult> edges,
+    private static void assertEdge(List<CallEdgeView> edges,
                                    String calleeClass,
                                    String calleeMethod,
                                    String calleeDesc,

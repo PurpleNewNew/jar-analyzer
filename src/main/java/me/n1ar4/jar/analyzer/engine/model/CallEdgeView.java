@@ -8,9 +8,9 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.entity;
+package me.n1ar4.jar.analyzer.engine.model;
 
-public class MethodCallResult {
+public class CallEdgeView {
     private String callerClassName;
     private String callerMethodName;
     private String callerMethodDesc;
@@ -149,7 +149,7 @@ public class MethodCallResult {
 
     @Override
     public String toString() {
-        return "MethodCallResult{" +
+        return "CallEdgeView{" +
                 "callerClassName='" + callerClassName + '\'' +
                 ", callerMethodName='" + callerMethodName + '\'' +
                 ", callerMethodDesc='" + callerMethodDesc + '\'' +

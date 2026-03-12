@@ -10,6 +10,8 @@
 
 package me.n1ar4.jar.analyzer.entity;
 
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -61,15 +63,15 @@ public class SemanticHintResult {
     }
 
     public static class HintMethod {
-        private MethodResult method;
+        private MethodView method;
         private String source;
         private String evidence;
 
-        public MethodResult getMethod() {
+        public MethodView getMethod() {
             return method;
         }
 
-        public void setMethod(MethodResult method) {
+        public void setMethod(MethodView method) {
             this.method = method;
         }
 

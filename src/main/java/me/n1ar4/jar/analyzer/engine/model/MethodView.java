@@ -8,7 +8,7 @@
  * https://github.com/jar-analyzer/jar-analyzer/blob/master/LICENSE
  */
 
-package me.n1ar4.jar.analyzer.entity;
+package me.n1ar4.jar.analyzer.engine.model;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.annotation.JSONField;
@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
-public class MethodResult {
+public class MethodView {
     private String className;
     private String jarName;
     private String methodName;
@@ -29,7 +29,6 @@ public class MethodResult {
     private int accessInt;
     @JSONField(serialize = false)
     private Path classPath;
-    // for spring
     @JSONField(serialize = false)
     private String path;
 
@@ -41,14 +40,13 @@ public class MethodResult {
 
     private int jarId;
 
-    // for string search
     @JSONField(serialize = false)
     private String strValue;
 
-    public MethodResult() {
+    public MethodView() {
     }
 
-    public MethodResult(String className, String methodName, String methodDesc) {
+    public MethodView(String className, String methodName, String methodDesc) {
         this.className = className;
         this.methodName = methodName;
         this.methodDesc = methodDesc;

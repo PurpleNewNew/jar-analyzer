@@ -1,6 +1,6 @@
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +20,7 @@ class DatabaseManagerMethodStateTest {
             DatabaseManager.addFav(method(i));
         }
 
-        List<MethodResult> favorites = DatabaseManager.getAllFavMethods();
+        List<MethodView> favorites = DatabaseManager.getAllFavMethods();
         assertEquals(256, favorites.size());
         assertEquals("demo/Fav44", favorites.get(0).getClassName());
         assertEquals("demo/Fav299", favorites.get(favorites.size() - 1).getClassName());
@@ -39,7 +39,7 @@ class DatabaseManagerMethodStateTest {
             DatabaseManager.insertHistory(method(i));
         }
 
-        List<MethodResult> histories = DatabaseManager.getAllHisMethods();
+        List<MethodView> histories = DatabaseManager.getAllHisMethods();
         assertEquals(512, histories.size());
         assertEquals("demo/Fav88", histories.get(0).getClassName());
         assertEquals("demo/Fav599", histories.get(histories.size() - 1).getClassName());
@@ -53,8 +53,8 @@ class DatabaseManagerMethodStateTest {
         assertEquals("demo/Fav200", histories.get(histories.size() - 1).getClassName());
     }
 
-    private static MethodResult method(int index) {
-        MethodResult result = new MethodResult();
+    private static MethodView method(int index) {
+        MethodView result = new MethodView();
         result.setClassName("demo/Fav" + index);
         result.setMethodName("run");
         result.setMethodDesc("()V");

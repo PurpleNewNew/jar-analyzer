@@ -14,11 +14,11 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.entity.ConfigItem;
 import me.n1ar4.jar.analyzer.entity.ConfigUsageResult;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
@@ -114,12 +114,12 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             result.setItems(items);
             result.setResourceCount(items.size());
 
-            ArrayList<MethodResult> methods = engine.getMethodsByStr(key, jarId, null, maxPerKey, "auto");
+            ArrayList<MethodView> methods = engine.getMethodsByStr(key, jarId, null, maxPerKey, "auto");
             methods = new ArrayList<>(filterMethods(methods, includeJdk));
             result.setMethodCount(methods.size());
 
             List<ConfigUsageResult.Usage> usages = new ArrayList<>();
-            for (MethodResult method : methods) {
+            for (MethodView method : methods) {
                 ConfigUsageResult.Usage usage = new ConfigUsageResult.Usage();
                 usage.setMethod(method);
 
@@ -211,7 +211,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
     }
 
     private static class EntryIndex {
-        private final Map<String, MethodResult> springMap = new HashMap<>();
+        private final Map<String, MethodView> springMap = new HashMap<>();
         private final Set<String> servletClasses = new HashSet<>();
         private final Set<String> filterClasses = new HashSet<>();
         private final Set<String> listenerClasses = new HashSet<>();
@@ -226,28 +226,28 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
 
         EntryIndex(CoreEngine engine, Integer jarId, int mappingLimit) {
             this.engine = engine;
-            List<MethodResult> mappings = engine.getSpringMappingsAll(jarId, null, 0, mappingLimit);
-            for (MethodResult m : mappings) {
+            List<MethodView> mappings = engine.getSpringMappingsAll(jarId, null, 0, mappingLimit);
+            for (MethodView m : mappings) {
                 springMap.put(methodKey(m.getClassName(), m.getMethodName(), m.getMethodDesc(), m.getJarId()), m);
             }
-            for (ClassResult c : engine.getAllServlets()) {
+            for (ClassView c : engine.getAllServlets()) {
                 if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     servletClasses.add(c.getClassName());
                 }
             }
-            for (ClassResult c : engine.getAllFilters()) {
+            for (ClassView c : engine.getAllFilters()) {
                 if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     filterClasses.add(c.getClassName());
                 }
             }
-            for (ClassResult c : engine.getAllListeners()) {
+            for (ClassView c : engine.getAllListeners()) {
                 if (!CommonFilterUtil.isFilteredClass(c.getClassName())) {
                     listenerClasses.add(c.getClassName());
                 }
             }
         }
 
-        List<ConfigUsageResult.EntryPoint> resolve(MethodResult method, int maxDepth, int maxEntrypoints) {
+        List<ConfigUsageResult.EntryPoint> resolve(MethodView method, int maxDepth, int maxEntrypoints) {
             List<ConfigUsageResult.EntryPoint> out = new ArrayList<>();
             if (method == null) {
                 return out;
@@ -270,8 +270,8 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
                     if (node == null) {
                         continue;
                     }
-                    List<MethodCallResult> edges = loadCallerEdges(node.method);
-                    for (MethodCallResult edge : edges) {
+                    List<CallEdgeView> edges = loadCallerEdges(node.method);
+                    for (CallEdgeView edge : edges) {
                         MethodKey caller = new MethodKey(edge.getCallerClassName(),
                                 edge.getCallerMethodName(),
                                 edge.getCallerMethodDesc(),
@@ -287,7 +287,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
                         trace.add(new ConfigUsageResult.MethodTrace(
                                 caller.className, caller.methodName, caller.methodDesc));
                         trace.addAll(node.trace);
-                        MethodResult callerMethod = toMethod(edge);
+                        MethodView callerMethod = toMethod(edge);
                         if (addIfEntryPoint(callerMethod, caller, depth, trace, out)) {
                             if (out.size() >= maxEntrypoints) {
                                 break;
@@ -304,14 +304,14 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return out;
         }
 
-        private List<MethodCallResult> loadCallerEdges(MethodKey method) {
-            List<MethodCallResult> out = new ArrayList<>();
+        private List<CallEdgeView> loadCallerEdges(MethodKey method) {
+            List<CallEdgeView> out = new ArrayList<>();
             if (method == null) {
                 return out;
             }
             int offset = 0;
             while (true) {
-                List<MethodCallResult> batch = engine.getCallEdgesByCallee(
+                List<CallEdgeView> batch = engine.getCallEdgesByCallee(
                         method.className,
                         method.methodName,
                         method.methodDesc,
@@ -331,7 +331,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return out;
         }
 
-        private boolean addIfEntryPoint(MethodResult method,
+        private boolean addIfEntryPoint(MethodView method,
                                         MethodKey key,
                                         int depth,
                                         List<ConfigUsageResult.MethodTrace> trace,
@@ -348,7 +348,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             ep.setJarId(method.getJarId());
             ep.setJarName(method.getJarName());
             if ("spring".equals(type)) {
-                MethodResult mapping = springMap.get(key.key());
+                MethodView mapping = springMap.get(key.key());
                 if (mapping != null) {
                     ep.setPath(mapping.getActualPath());
                     ep.setRestfulType(mapping.getRestfulType());
@@ -362,7 +362,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return true;
         }
 
-        private String entryType(MethodResult method) {
+        private String entryType(MethodView method) {
             if (method == null) {
                 return null;
             }
@@ -385,8 +385,8 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return null;
         }
 
-        private MethodResult toMethod(MethodCallResult edge) {
-            MethodResult m = new MethodResult();
+        private MethodView toMethod(CallEdgeView edge) {
+            MethodView m = new MethodView();
             m.setClassName(edge.getCallerClassName());
             m.setMethodName(edge.getCallerMethodName());
             m.setMethodDesc(edge.getCallerMethodDesc());
@@ -395,7 +395,7 @@ public class GetConfigUsageHandler extends ApiBaseHandler implements HttpHandler
             return m;
         }
 
-        private ConfigUsageResult.MethodTrace toTrace(MethodResult m) {
+        private ConfigUsageResult.MethodTrace toTrace(MethodView m) {
             return new ConfigUsageResult.MethodTrace(m.getClassName(), m.getMethodName(), m.getMethodDesc());
         }
 

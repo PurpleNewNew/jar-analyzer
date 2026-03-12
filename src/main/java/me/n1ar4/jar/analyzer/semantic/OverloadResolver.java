@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.semantic;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import org.objectweb.asm.Type;
 
 import java.util.ArrayList;
@@ -489,7 +489,7 @@ public final class OverloadResolver {
             if (solver == null || !solver.isFunctionalInterface(param.getInternalName())) {
                 return Conversion.incompatible();
             }
-            MethodResult sam = solver.resolveSamMethodPublic(param.getInternalName());
+            MethodView sam = solver.resolveSamMethodPublic(param.getInternalName());
             if (sam != null && sam.getMethodDesc() != null && arg.lambdaParamCount >= 0) {
                 int samArgs = solver.argCountFromDesc(sam.getMethodDesc());
                 if (samArgs != arg.lambdaParamCount) {

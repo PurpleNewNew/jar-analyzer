@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -47,11 +47,11 @@ public class MethodsImplsHandler extends ApiBaseHandler implements HttpHandler {
         int offset = normalizeOffset(getIntParam(session, "offset", 0));
         int limit = normalizeLimit(getIntParam(session, "limit", DEFAULT_LIMIT), DEFAULT_LIMIT, MAX_LIMIT);
 
-        List<MethodResult> results = superImpls
+        List<MethodView> results = superImpls
                 ? engine.getSuperImpls(className, methodName, methodDesc)
                 : engine.getImpls(className, methodName, methodDesc);
         results = filterMethods(results, includeJdk);
-        List<MethodResult> page = applyLimitOffset(results, offset, limit);
+        List<MethodView> page = applyLimitOffset(results, offset, limit);
         Map<String, Object> meta = pageMeta(offset, limit, page.size(), results.size());
         meta.put("direction", superImpls ? "super" : "impls");
         return ok(page, meta);

@@ -15,7 +15,7 @@ import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.graph.query.QueryErrorClassifier;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
@@ -43,12 +43,12 @@ public class BaseHandler {
         return data.get(0);
     }
 
-    protected ArrayList<MethodResult> filterJdkMethods(List<MethodResult> results) {
+    protected ArrayList<MethodView> filterJdkMethods(List<MethodView> results) {
         if (results == null) {
             return new ArrayList<>();
         }
-        ArrayList<MethodResult> out = new ArrayList<>();
-        for (MethodResult m : results) {
+        ArrayList<MethodView> out = new ArrayList<>();
+        for (MethodView m : results) {
             if (m == null) {
                 continue;
             }

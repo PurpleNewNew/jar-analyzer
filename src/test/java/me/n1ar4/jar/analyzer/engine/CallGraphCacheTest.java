@@ -10,8 +10,8 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -30,63 +30,63 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class CallGraphCacheTest {
     @Test
     public void shouldKeepDistinctCallersAcrossDifferentJarIds() {
-        MethodCallResult edge1 = edge(
+        CallEdgeView edge1 = edge(
                 "a/Caller", "run", "()V", 11,
                 "a/Sink", "sink", "()V", 1
         );
-        MethodCallResult edge2 = edge(
+        CallEdgeView edge2 = edge(
                 "a/Caller", "run", "()V", 22,
                 "a/Sink", "sink", "()V", 1
         );
 
         CallGraphCache cache = CallGraphCache.build(Arrays.asList(edge1, edge2));
-        ArrayList<MethodResult> callers = cache.getCallers("a/Sink", "sink", "()V");
+        ArrayList<MethodView> callers = cache.getCallers("a/Sink", "sink", "()V");
 
         assertEquals(2, callers.size(), "caller variants from different jars should be preserved");
         Set<Integer> callerJarIds = new HashSet<>();
-        for (MethodResult caller : callers) {
+        for (MethodView caller : callers) {
             callerJarIds.add(caller.getJarId());
         }
         assertTrue(callerJarIds.contains(11));
         assertTrue(callerJarIds.contains(22));
 
-        MethodResult scopedCallee = new MethodResult();
+        MethodView scopedCallee = new MethodView();
         scopedCallee.setClassName("a/Sink");
         scopedCallee.setMethodName("sink");
         scopedCallee.setMethodDesc("()V");
         scopedCallee.setJarId(1);
-        ArrayList<MethodResult> scopedCallers = cache.getCallers(scopedCallee);
+        ArrayList<MethodView> scopedCallers = cache.getCallers(scopedCallee);
         assertEquals(2, scopedCallers.size());
     }
 
     @Test
     public void shouldKeepDistinctCalleesAcrossDifferentJarIdsAndCountScopedEdges() {
-        MethodCallResult edge1 = edge(
+        CallEdgeView edge1 = edge(
                 "a/Entry", "go", "()V", 9,
                 "a/Target", "hit", "()V", 101
         );
-        MethodCallResult edge2 = edge(
+        CallEdgeView edge2 = edge(
                 "a/Entry", "go", "()V", 9,
                 "a/Target", "hit", "()V", 202
         );
 
         CallGraphCache cache = CallGraphCache.build(Arrays.asList(edge1, edge2));
-        ArrayList<MethodResult> callees = cache.getCallees("a/Entry", "go", "()V");
+        ArrayList<MethodView> callees = cache.getCallees("a/Entry", "go", "()V");
 
         assertEquals(2, callees.size(), "callee variants from different jars should be preserved");
         Set<Integer> calleeJarIds = new HashSet<>();
-        for (MethodResult callee : callees) {
+        for (MethodView callee : callees) {
             calleeJarIds.add(callee.getJarId());
         }
         assertTrue(calleeJarIds.contains(101));
         assertTrue(calleeJarIds.contains(202));
 
-        MethodResult scopedCaller = new MethodResult();
+        MethodView scopedCaller = new MethodView();
         scopedCaller.setClassName("a/Entry");
         scopedCaller.setMethodName("go");
         scopedCaller.setMethodDesc("()V");
         scopedCaller.setJarId(9);
-        ArrayList<MethodResult> scopedCallees = cache.getCallees(scopedCaller);
+        ArrayList<MethodView> scopedCallees = cache.getCallees(scopedCaller);
         assertEquals(2, scopedCallees.size());
 
         assertEquals(2, cache.getEdgeCount(), "edge count should use jar-scoped edge identity");
@@ -94,20 +94,20 @@ public class CallGraphCacheTest {
 
     @Test
     public void shouldIndexCallEdgeRowsWithoutScanningWholeGraphAgain() {
-        MethodCallResult edge1 = edge(
+        CallEdgeView edge1 = edge(
                 "a/Entry", "go", "()V", 9,
                 "a/Target", "hit", "()V", 101
         );
-        MethodCallResult edge2 = edge(
+        CallEdgeView edge2 = edge(
                 "a/Entry", "go", "()V", 9,
                 "a/Target", "miss", "()V", 202
         );
 
         CallGraphCache cache = CallGraphCache.build(Arrays.asList(edge1, edge2));
 
-        ArrayList<MethodCallResult> callerEdges = cache.getCallEdgesByCaller("a/Entry", "go", "()V", 9);
-        ArrayList<MethodCallResult> calleeEdges = cache.getCallEdgesByCallee("a/Target", "hit", "()V", 101);
-        ArrayList<MethodCallResult> wildcardEdges = cache.getCallEdgesByCaller("a/Entry", "go", "*", null);
+        ArrayList<CallEdgeView> callerEdges = cache.getCallEdgesByCaller("a/Entry", "go", "()V", 9);
+        ArrayList<CallEdgeView> calleeEdges = cache.getCallEdgesByCallee("a/Target", "hit", "()V", 101);
+        ArrayList<CallEdgeView> wildcardEdges = cache.getCallEdgesByCaller("a/Entry", "go", "*", null);
 
         assertEquals(2, callerEdges.size());
         assertEquals(1, calleeEdges.size());
@@ -149,7 +149,7 @@ public class CallGraphCacheTest {
         assertEquals("pta", cache.getCallEdgesByCallee("a/Target", "miss", "()V", 202).get(0).getEdgeType());
     }
 
-    private static MethodCallResult edge(String callerClass,
+    private static CallEdgeView edge(String callerClass,
                                          String callerMethod,
                                          String callerDesc,
                                          int callerJarId,
@@ -157,7 +157,7 @@ public class CallGraphCacheTest {
                                          String calleeMethod,
                                          String calleeDesc,
                                          int calleeJarId) {
-        MethodCallResult edge = new MethodCallResult();
+        CallEdgeView edge = new CallEdgeView();
         edge.setCallerClassName(callerClass);
         edge.setCallerMethodName(callerMethod);
         edge.setCallerMethodDesc(callerDesc);

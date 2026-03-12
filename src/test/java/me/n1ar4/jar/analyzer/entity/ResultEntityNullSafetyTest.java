@@ -4,6 +4,8 @@
 
 package me.n1ar4.jar.analyzer.entity;
 
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -12,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ResultEntityNullSafetyTest {
     @Test
     void methodResultGetPathShouldHandleNull() {
-        MethodResult result = new MethodResult();
+        MethodView result = new MethodView();
         assertEquals("path: none", result.getPath());
     }
 
@@ -26,7 +28,7 @@ class ResultEntityNullSafetyTest {
 
     @Test
     void resultJarIdShouldNormalizeNullToZero() {
-        AnnoMethodResult anno = new AnnoMethodResult();
+        AnnoMethodView anno = new AnnoMethodView();
         anno.setJarId((Integer) null);
         assertEquals(0, anno.getJarId());
 

@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
@@ -66,7 +66,7 @@ public class GetCallEdgesHandler extends ApiBaseHandler implements HttpHandler {
         }
 
         boolean includeJdk = includeJdk(session);
-        CoreEngine.PageSlice<MethodCallResult> page = byCallee
+        CoreEngine.PageSlice<CallEdgeView> page = byCallee
                 ? engine.getCallEdgesPageByCallee(clazz, method, desc, null, offset, limit, includeJdk)
                 : engine.getCallEdgesPageByCaller(clazz, method, desc, null, offset, limit, includeJdk);
         Map<String, Object> meta = pageMeta(offset, limit, page.items().size(), page.total(), page.truncated());

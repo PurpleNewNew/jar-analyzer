@@ -31,8 +31,8 @@ import com.github.javaparser.ast.expr.TypeExpr;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.RuntimeClassResolver;
 import me.n1ar4.log.LogManager;
@@ -135,13 +135,13 @@ public final class CallResolver {
         if (name == null || name.isBlank()) {
             return false;
         }
-        List<MethodResult> methods = engine.getMethod(ownerClass, name, null);
+        List<MethodView> methods = engine.getMethod(ownerClass, name, null);
         if (methods == null || methods.isEmpty()) {
             return false;
         }
         boolean hasStatic = false;
         boolean hasInstance = false;
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null || method.getMethodDesc() == null) {
                 continue;
             }
@@ -180,15 +180,15 @@ public final class CallResolver {
         if (cached != null) {
             return cached.isEmpty() ? null : cached;
         }
-        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
+        List<MethodView> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
-        List<MethodResult> filtered = filterByArgCount(candidates, argCount);
-        List<MethodResult> pool = (filtered != null && !filtered.isEmpty())
+        List<MethodView> filtered = filterByArgCount(candidates, argCount);
+        List<MethodView> pool = (filtered != null && !filtered.isEmpty())
                 ? filtered
                 : candidates;
-        MethodResult picked = pickDescByBridgePolicy(pool);
+        MethodView picked = pickDescByBridgePolicy(pool);
         if (picked != null) {
             String desc = picked.getMethodDesc();
             cacheMethodDesc(cacheKey, desc);
@@ -218,7 +218,7 @@ public final class CallResolver {
         if (cached != null) {
             return cached.isEmpty() ? null : cached;
         }
-        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
+        List<MethodView> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -255,7 +255,7 @@ public final class CallResolver {
             return null;
         }
         String normalized = normalizeClassName(className);
-        List<MethodResult> candidates = resolveMethodCandidates(normalized, methodName);
+        List<MethodView> candidates = resolveMethodCandidates(normalized, methodName);
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -638,7 +638,7 @@ public final class CallResolver {
         }
         if (receiver != null && owner != null && !receiver.equals(owner)
                 && engine != null) {
-            List<MethodResult> methods = engine
+            List<MethodView> methods = engine
                     .getMethod(receiver, site.getCalleeMethodName(), site.getCalleeMethodDesc());
             if (methods != null && !methods.isEmpty()) {
                 return receiver;
@@ -648,14 +648,14 @@ public final class CallResolver {
     }
 
     private List<MethodCandidate> buildMethodCandidates(String className,
-                                                        List<MethodResult> candidates,
+                                                        List<MethodView> candidates,
                                                         TypeRef scopeType,
                                                         List<TypeRef> argTypes) {
         List<MethodCandidate> out = new ArrayList<>();
         if (candidates == null || candidates.isEmpty()) {
             return out;
         }
-        for (MethodResult candidate : candidates) {
+        for (MethodView candidate : candidates) {
             if (candidate == null || candidate.getMethodDesc() == null) {
                 continue;
             }
@@ -711,7 +711,7 @@ public final class CallResolver {
     }
 
     private List<TypeRef> resolveCandidateParamTypes(String className,
-                                                     MethodResult candidate,
+                                                     MethodView candidate,
                                                      TypeRef scopeType,
                                                      Type[] descParams,
                                                      List<TypeRef> argTypes) {
@@ -763,15 +763,15 @@ public final class CallResolver {
         return null;
     }
 
-    private List<MethodResult> filterByArgCount(List<MethodResult> candidates, int argCount) {
+    private List<MethodView> filterByArgCount(List<MethodView> candidates, int argCount) {
         if (argCount == TypeSolver.ARG_COUNT_UNKNOWN) {
             return candidates;
         }
         if (candidates == null || candidates.isEmpty()) {
             return candidates;
         }
-        List<MethodResult> filtered = new ArrayList<>();
-        for (MethodResult result : candidates) {
+        List<MethodView> filtered = new ArrayList<>();
+        for (MethodView result : candidates) {
             if (result == null) {
                 continue;
             }
@@ -791,12 +791,12 @@ public final class CallResolver {
         return filtered;
     }
 
-    private MethodResult pickDescByBridgePolicy(List<MethodResult> candidates) {
+    private MethodView pickDescByBridgePolicy(List<MethodView> candidates) {
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
-        List<MethodResult> usable = new ArrayList<>();
-        for (MethodResult candidate : candidates) {
+        List<MethodView> usable = new ArrayList<>();
+        for (MethodView candidate : candidates) {
             if (candidate == null || candidate.getMethodDesc() == null || candidate.getMethodDesc().isBlank()) {
                 continue;
             }
@@ -808,8 +808,8 @@ public final class CallResolver {
         if (usable.size() == 1) {
             return usable.get(0);
         }
-        MethodResult nonBridge = null;
-        for (MethodResult item : usable) {
+        MethodView nonBridge = null;
+        for (MethodView item : usable) {
             boolean bridge = (item.getAccessInt() & Opcodes.ACC_BRIDGE) != 0;
             if (!bridge) {
                 if (nonBridge != null) {
@@ -821,7 +821,7 @@ public final class CallResolver {
         return nonBridge;
     }
 
-    private List<MethodResult> resolveMethodCandidates(String className, String methodName) {
+    private List<MethodView> resolveMethodCandidates(String className, String methodName) {
         if (engine == null || className == null || methodName == null || methodName.isBlank()) {
             return List.of();
         }
@@ -829,17 +829,17 @@ public final class CallResolver {
         if (owner == null) {
             return List.of();
         }
-        List<MethodResult> direct = engine.getMethod(owner, methodName, null);
+        List<MethodView> direct = engine.getMethod(owner, methodName, null);
         if (direct != null && !direct.isEmpty()) {
             return direct;
         }
-        LinkedHashMap<String, MethodResult> merged = new LinkedHashMap<>();
+        LinkedHashMap<String, MethodView> merged = new LinkedHashMap<>();
         for (String candidateOwner : collectHierarchyOwners(owner)) {
-            List<MethodResult> methods = engine.getMethod(candidateOwner, methodName, null);
+            List<MethodView> methods = engine.getMethod(candidateOwner, methodName, null);
             if (methods == null || methods.isEmpty()) {
                 continue;
             }
-            for (MethodResult method : methods) {
+            for (MethodView method : methods) {
                 if (method == null) {
                     continue;
                 }
@@ -870,7 +870,7 @@ public final class CallResolver {
             if (current == null || !ordered.add(current)) {
                 continue;
             }
-            ClassResult owner = engine.getClassByClass(current);
+            ClassView owner = engine.getClassByClass(current);
             if (owner != null && owner.getSuperClassName() != null && !owner.getSuperClassName().isBlank()) {
                 queue.add(owner.getSuperClassName());
             }

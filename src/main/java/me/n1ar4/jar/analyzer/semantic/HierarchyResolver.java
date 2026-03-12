@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.semantic;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,7 +80,7 @@ public final class HierarchyResolver {
             if (parent.equals(cur)) {
                 return true;
             }
-            ClassResult result = engine.getClassByClass(cur);
+            ClassView result = engine.getClassByClass(cur);
             if (result != null && result.getSuperClassName() != null
                     && !result.getSuperClassName().trim().isEmpty()) {
                 String sup = result.getSuperClassName();
@@ -125,7 +125,7 @@ public final class HierarchyResolver {
             if (curDepth > 20) {
                 continue;
             }
-            ClassResult result = engine.getClassByClass(cur);
+            ClassView result = engine.getClassByClass(cur);
             if (result != null && result.getSuperClassName() != null
                     && !result.getSuperClassName().trim().isEmpty()) {
                 String sup = result.getSuperClassName();

@@ -18,7 +18,7 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
@@ -985,8 +985,8 @@ public final class GlobalSearchDialog extends JDialog {
                 if (engine == null || !engine.isEnabled()) {
                     return 0;
                 }
-                List<MethodCallResult> edges = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
-                for (MethodCallResult row : edges) {
+                List<CallEdgeView> edges = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
+                for (CallEdgeView row : edges) {
                     if (row == null) {
                         continue;
                     }
@@ -1312,11 +1312,11 @@ public final class GlobalSearchDialog extends JDialog {
                 if (engine == null || !engine.isEnabled()) {
                     return TableFingerprint.ZERO;
                 }
-                List<MethodCallResult> rows = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
+                List<CallEdgeView> rows = engine.getCallEdgesByCaller(null, null, null, 0, Integer.MAX_VALUE);
                 long count = 0L;
                 long max = 0L;
                 long signature = 0L;
-                for (MethodCallResult row : rows) {
+                for (CallEdgeView row : rows) {
                     if (row == null) {
                         continue;
                     }

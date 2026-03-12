@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -36,8 +36,8 @@ public class SpringMappingsHandler extends ApiBaseHandler implements HttpHandler
         Integer jarId = getIntParamNullable(session, "jarId");
         String keyword = getStringParam(session, "keyword", "q");
 
-        List<MethodResult> results;
-        List<MethodResult> filtered;
+        List<MethodView> results;
+        List<MethodView> filtered;
         int offset = 0;
         int limit = DEFAULT_LIMIT;
         if (!StringUtil.isNull(className)) {
@@ -46,7 +46,7 @@ public class SpringMappingsHandler extends ApiBaseHandler implements HttpHandler
         } else {
             offset = normalizeOffset(getIntParam(session, "offset", 0));
             limit = normalizeLimit(getIntParam(session, "limit", DEFAULT_LIMIT), DEFAULT_LIMIT, MAX_LIMIT);
-            CoreEngine.PageSlice<MethodResult> page = engine.getSpringMappingsPage(
+            CoreEngine.PageSlice<MethodView> page = engine.getSpringMappingsPage(
                     jarId, keyword, offset, limit, includeJdk);
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.putAll(pageMeta(offset, limit, page.items().size(), page.total(), page.truncated()));

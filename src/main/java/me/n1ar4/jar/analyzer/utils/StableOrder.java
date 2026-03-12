@@ -12,10 +12,10 @@ package me.n1ar4.jar.analyzer.utils;
 
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
@@ -31,15 +31,15 @@ public final class StableOrder {
     private StableOrder() {
     }
 
-    public static final Comparator<ClassResult> CLASS_RESULT =
-            Comparator.comparingInt((ClassResult r) -> r == null ? Integer.MAX_VALUE : r.getJarId())
+    public static final Comparator<ClassView> CLASS_RESULT =
+            Comparator.comparingInt((ClassView r) -> r == null ? Integer.MAX_VALUE : r.getJarId())
                     .thenComparing(r -> n(r == null ? null : r.getClassName()))
                     .thenComparing(r -> n(r == null ? null : r.getJarName()))
                     .thenComparing(r -> n(r == null ? null : r.getSuperClassName()))
                     .thenComparingInt(r -> r == null ? Integer.MAX_VALUE : r.getIsInterfaceInt());
 
-    public static final Comparator<MethodResult> METHOD_RESULT =
-            Comparator.comparingInt((MethodResult r) -> r == null ? Integer.MAX_VALUE : r.getJarId())
+    public static final Comparator<MethodView> METHOD_RESULT =
+            Comparator.comparingInt((MethodView r) -> r == null ? Integer.MAX_VALUE : r.getJarId())
                     .thenComparing(r -> n(r == null ? null : r.getClassName()))
                     .thenComparing(r -> n(r == null ? null : r.getMethodName()))
                     .thenComparing(r -> n(r == null ? null : r.getMethodDesc()))
@@ -56,8 +56,8 @@ public final class StableOrder {
                     .thenComparingLong(r -> r == null ? Long.MAX_VALUE : r.getFileSize())
                     .thenComparingInt(r -> r == null ? Integer.MAX_VALUE : r.getRid());
 
-    public static final Comparator<AnnoMethodResult> ANNO_METHOD_RESULT =
-            Comparator.comparingInt((AnnoMethodResult r) -> r == null || r.getJarId() <= 0
+    public static final Comparator<AnnoMethodView> ANNO_METHOD_RESULT =
+            Comparator.comparingInt((AnnoMethodView r) -> r == null || r.getJarId() <= 0
                             ? Integer.MAX_VALUE
                             : r.getJarId())
                     .thenComparing(r -> n(r == null ? null : r.getClassName()))
@@ -67,8 +67,8 @@ public final class StableOrder {
                     .thenComparing(r -> n(r == null ? null : r.getAnnoName()))
                     .thenComparing(r -> n(r == null ? null : r.getAnnoScope()));
 
-    public static final Comparator<MethodCallResult> METHOD_CALL_RESULT =
-            Comparator.comparingInt((MethodCallResult r) -> r == null || r.getCallerJarId() == null
+    public static final Comparator<CallEdgeView> METHOD_CALL_RESULT =
+            Comparator.comparingInt((CallEdgeView r) -> r == null || r.getCallerJarId() == null
                             ? Integer.MAX_VALUE
                             : r.getCallerJarId())
                     .thenComparing(r -> n(r == null ? null : r.getCallerClassName()))

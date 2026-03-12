@@ -18,9 +18,9 @@ import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
@@ -213,7 +213,7 @@ public final class EditorDeclarationResolver {
         }
 
         String exactDesc = safe(exactTarget == null ? null : exactTarget.methodDesc);
-        List<MethodResult> methods = exactDesc.isBlank()
+        List<MethodView> methods = exactDesc.isBlank()
                 ? engine.getMethod(owner, methodName, null)
                 : engine.getMethod(owner, methodName, exactDesc);
         if ((methods == null || methods.isEmpty()) && !exactDesc.isBlank()) {
@@ -222,14 +222,14 @@ public final class EditorDeclarationResolver {
         if (methods == null || methods.isEmpty()) {
             return;
         }
-        List<MethodResult> filtered = filterMethodsByArgCount(methods, argCount);
+        List<MethodView> filtered = filterMethodsByArgCount(methods, argCount);
         if (!filtered.isEmpty() && exactDesc.isBlank()) {
             methods = filtered;
         }
         if (exactDesc.isBlank()) {
             exactDesc = resolveExactMethodDesc(cu, pos, owner, methodName, argCount, doc, typeSolver);
         }
-        for (MethodResult method : methods) {
+        for (MethodView method : methods) {
             if (method == null) {
                 continue;
             }
@@ -304,9 +304,9 @@ public final class EditorDeclarationResolver {
         if (normalized == null) {
             return;
         }
-        List<ClassResult> classes = engine.getClassesByClass(normalized);
+        List<ClassView> classes = engine.getClassesByClass(normalized);
         if (classes == null || classes.isEmpty()) {
-            ClassResult item = engine.getClassByClass(normalized);
+            ClassView item = engine.getClassByClass(normalized);
             if (item == null) {
                 out.add(new EditorDeclarationTargetDto(
                         normalized,
@@ -322,7 +322,7 @@ public final class EditorDeclarationResolver {
             }
             classes = List.of(item);
         }
-        for (ClassResult item : classes) {
+        for (ClassView item : classes) {
             if (item == null) {
                 continue;
             }
@@ -349,8 +349,8 @@ public final class EditorDeclarationResolver {
         List<EditorDeclarationTargetDto> out = new ArrayList<>();
         String currentClass = normalizeClassName(doc == null ? "" : doc.className());
         if (currentClass != null) {
-            List<MethodResult> methods = engine.getMethod(currentClass, word, null);
-            for (MethodResult method : methods) {
+            List<MethodView> methods = engine.getMethod(currentClass, word, null);
+            for (MethodView method : methods) {
                 if (method == null) {
                     continue;
                 }
@@ -518,12 +518,12 @@ public final class EditorDeclarationResolver {
         );
     }
 
-    private static List<MethodResult> filterMethodsByArgCount(List<MethodResult> methods, int argCount) {
+    private static List<MethodView> filterMethodsByArgCount(List<MethodView> methods, int argCount) {
         if (methods == null || methods.isEmpty() || argCount == TypeSolver.ARG_COUNT_UNKNOWN) {
             return List.of();
         }
-        List<MethodResult> out = new ArrayList<>();
-        for (MethodResult method : methods) {
+        List<MethodView> out = new ArrayList<>();
+        for (MethodView method : methods) {
             if (method == null) {
                 continue;
             }

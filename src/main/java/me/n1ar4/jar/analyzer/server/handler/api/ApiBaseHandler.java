@@ -12,10 +12,10 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 
 import com.alibaba.fastjson2.JSON;
 import fi.iki.elonen.NanoHTTPD;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.server.handler.base.BaseHandler;
 import me.n1ar4.jar.analyzer.utils.CommonFilterUtil;
 import me.n1ar4.jar.analyzer.utils.StableOrder;
@@ -210,13 +210,13 @@ public class ApiBaseHandler extends BaseHandler {
         return new ArrayList<>(items.subList(start, end));
     }
 
-    protected List<MethodResult> filterMethods(List<MethodResult> results, boolean includeJdk) {
+    protected List<MethodView> filterMethods(List<MethodView> results, boolean includeJdk) {
         if (results == null || results.isEmpty()) {
             return new ArrayList<>();
         }
         if (includeJdk) {
-            List<MethodResult> out = new ArrayList<>();
-            for (MethodResult r : results) {
+            List<MethodView> out = new ArrayList<>();
+            for (MethodView r : results) {
                 if (r == null) {
                     continue;
                 }
@@ -228,18 +228,18 @@ public class ApiBaseHandler extends BaseHandler {
             out.sort(StableOrder.METHOD_RESULT);
             return out;
         }
-        List<MethodResult> out = filterJdkMethods(results);
+        List<MethodView> out = filterJdkMethods(results);
         out.sort(StableOrder.METHOD_RESULT);
         return out;
     }
 
-    protected List<AnnoMethodResult> filterAnnoMethods(List<AnnoMethodResult> results, boolean includeJdk) {
-        List<AnnoMethodResult> out = new ArrayList<>();
+    protected List<AnnoMethodView> filterAnnoMethods(List<AnnoMethodView> results, boolean includeJdk) {
+        List<AnnoMethodView> out = new ArrayList<>();
         if (results == null || results.isEmpty()) {
             return out;
         }
         if (includeJdk) {
-            for (AnnoMethodResult r : results) {
+            for (AnnoMethodView r : results) {
                 if (r == null) {
                     continue;
                 }
@@ -251,7 +251,7 @@ public class ApiBaseHandler extends BaseHandler {
             out.sort(StableOrder.ANNO_METHOD_RESULT);
             return out;
         }
-        for (AnnoMethodResult r : results) {
+        for (AnnoMethodView r : results) {
             if (r == null) {
                 continue;
             }
@@ -265,13 +265,13 @@ public class ApiBaseHandler extends BaseHandler {
         return out;
     }
 
-    protected List<MethodCallResult> filterEdges(List<MethodCallResult> items, boolean includeJdk, boolean byCallee) {
-        List<MethodCallResult> out = new ArrayList<>();
+    protected List<CallEdgeView> filterEdges(List<CallEdgeView> items, boolean includeJdk, boolean byCallee) {
+        List<CallEdgeView> out = new ArrayList<>();
         if (items == null || items.isEmpty()) {
             return out;
         }
         if (includeJdk) {
-            for (MethodCallResult r : items) {
+            for (CallEdgeView r : items) {
                 if (r == null) {
                     continue;
                 }
@@ -284,7 +284,7 @@ public class ApiBaseHandler extends BaseHandler {
             out.sort(StableOrder.METHOD_CALL_RESULT);
             return out;
         }
-        for (MethodCallResult r : items) {
+        for (CallEdgeView r : items) {
             if (r == null) {
                 continue;
             }
@@ -298,13 +298,13 @@ public class ApiBaseHandler extends BaseHandler {
         return out;
     }
 
-    protected List<ClassResult> filterClasses(List<ClassResult> items, boolean includeJdk) {
-        List<ClassResult> out = new ArrayList<>();
+    protected List<ClassView> filterClasses(List<ClassView> items, boolean includeJdk) {
+        List<ClassView> out = new ArrayList<>();
         if (items == null || items.isEmpty()) {
             return out;
         }
         if (includeJdk) {
-            for (ClassResult r : items) {
+            for (ClassView r : items) {
                 if (r == null) {
                     continue;
                 }
@@ -316,7 +316,7 @@ public class ApiBaseHandler extends BaseHandler {
             out.sort(StableOrder.CLASS_RESULT);
             return out;
         }
-        for (ClassResult r : items) {
+        for (ClassView r : items) {
             if (r == null) {
                 continue;
             }

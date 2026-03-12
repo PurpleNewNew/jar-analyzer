@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler.api;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
 import me.n1ar4.jar.analyzer.utils.StringUtil;
 
@@ -56,12 +56,12 @@ public class EntryPointsHandler extends ApiBaseHandler implements HttpHandler {
         }
 
         for (String type : normalizedTypes) {
-            List<ClassResult> items = resolveType(engine, type);
+            List<ClassView> items = resolveType(engine, type);
             if (items == null) {
                 warnings.add("unknown type: " + type);
                 continue;
             }
-            List<ClassResult> filtered = filterClasses(items, includeJdk);
+            List<ClassView> filtered = filterClasses(items, includeJdk);
             if (limit > 0 && filtered.size() > limit) {
                 filtered = new ArrayList<>(filtered.subList(0, limit));
             }
@@ -81,7 +81,7 @@ public class EntryPointsHandler extends ApiBaseHandler implements HttpHandler {
         return ok(data, meta, warnings);
     }
 
-    private List<ClassResult> resolveType(CoreEngine engine, String type) {
+    private List<ClassView> resolveType(CoreEngine engine, String type) {
         return switch (type) {
             case "spring_controller" -> engine.getAllSpringC();
             case "spring_interceptor" -> engine.getAllSpringI();

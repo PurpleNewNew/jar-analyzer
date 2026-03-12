@@ -12,8 +12,8 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.SemanticHintResult;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
@@ -53,10 +53,10 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
             LinkedHashMap<String, SemanticHintResult.HintMethod> dedup = new LinkedHashMap<>();
 
             if (category.annotations != null && !category.annotations.isEmpty()) {
-                ArrayList<AnnoMethodResult> annos = engine.getMethodsByAnno(
+                ArrayList<AnnoMethodView> annos = engine.getMethodsByAnno(
                         category.annotations, "contains", "any", jarId, 0, limit);
-                for (AnnoMethodResult ar : annos) {
-                    MethodResult method = toMethodResult(ar);
+                for (AnnoMethodView ar : annos) {
+                    MethodView method = toMethodView(ar);
                     if (isNoisy(method, includeJdk)) {
                         continue;
                     }
@@ -77,10 +77,10 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
                     if (StringUtil.isNull(kw)) {
                         continue;
                     }
-                    ArrayList<MethodResult> hits = engine.getMethodsByStr(
+                    ArrayList<MethodView> hits = engine.getMethodsByStr(
                             kw, jarId, null, strLimit, "auto");
-                    List<MethodResult> filtered = filterMethods(hits, includeJdk);
-                    for (MethodResult method : filtered) {
+                    List<MethodView> filtered = filterMethods(hits, includeJdk);
+                    for (MethodView method : filtered) {
                         String key = methodKey(method);
                         if (dedup.containsKey(key)) {
                             continue;
@@ -111,7 +111,7 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
         return ok(out, meta);
     }
 
-    private boolean isNoisy(MethodResult method, boolean includeJdk) {
+    private boolean isNoisy(MethodView method, boolean includeJdk) {
         if (method == null) {
             return true;
         }
@@ -124,8 +124,8 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
         return false;
     }
 
-    private MethodResult toMethodResult(AnnoMethodResult ar) {
-        MethodResult m = new MethodResult();
+    private MethodView toMethodView(AnnoMethodView ar) {
+        MethodView m = new MethodView();
         m.setClassName(ar.getClassName());
         m.setMethodName(ar.getMethodName());
         m.setMethodDesc(ar.getMethodDesc());
@@ -135,7 +135,7 @@ public class GetSemanticHintsHandler extends ApiBaseHandler implements HttpHandl
         return m;
     }
 
-    private String methodKey(MethodResult method) {
+    private String methodKey(MethodView method) {
         if (method == null) {
             return "";
         }

@@ -19,16 +19,16 @@ import me.n1ar4.jar.analyzer.core.MethodCallMeta;
 import me.n1ar4.jar.analyzer.core.reference.AnnoReference;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -137,39 +137,39 @@ public class CoreEngine {
         return cache;
     }
 
-    public ArrayList<MethodResult> getMethodsByClass(String className) {
-        ArrayList<MethodResult> results = new ArrayList<>();
+    public ArrayList<MethodView> getMethodsByClass(String className) {
+        ArrayList<MethodView> results = new ArrayList<>();
         for (MethodReference method : DatabaseManager.getMethodReferencesByClass(className)) {
-            results.add(toMethodResult(method));
+            results.add(toMethodView(method));
         }
-        results.sort(Comparator.comparing(MethodResult::getMethodName)
-                .thenComparing(MethodResult::getMethodDesc)
-                .thenComparingInt(MethodResult::getJarId));
+        results.sort(Comparator.comparing(MethodView::getMethodName)
+                .thenComparing(MethodView::getMethodDesc)
+                .thenComparingInt(MethodView::getJarId));
         return results;
     }
 
-    public ClassResult getClassByClass(String className) {
+    public ClassView getClassByClass(String className) {
         if (CommonFilterUtil.isModuleInfoClassName(className)) {
             return null;
         }
-        ArrayList<ClassResult> results = getClassesByClass(className);
+        ArrayList<ClassView> results = getClassesByClass(className);
         return results.isEmpty() ? null : results.get(0);
     }
 
-    public ArrayList<ClassResult> getClassesByClass(String className) {
+    public ArrayList<ClassView> getClassesByClass(String className) {
         if (CommonFilterUtil.isModuleInfoClassName(className)) {
             return new ArrayList<>();
         }
         List<ClassReference> rows = DatabaseManager.getClassReferencesByName(className);
-        ArrayList<ClassResult> results = new ArrayList<>();
+        ArrayList<ClassView> results = new ArrayList<>();
         for (ClassReference row : rows) {
-            ClassResult result = toClassResult(row);
+            ClassView result = toClassView(row);
             if (result != null) {
                 results.add(result);
             }
         }
-        results.sort(Comparator.comparingInt(ClassResult::getJarId)
-                .thenComparing(ClassResult::getJarName, Comparator.nullsLast(String::compareTo)));
+        results.sort(Comparator.comparingInt(ClassView::getJarId)
+                .thenComparing(ClassView::getJarName, Comparator.nullsLast(String::compareTo)));
         return results;
     }
 
@@ -214,26 +214,26 @@ public class CoreEngine {
         return row.resolvePathStr();
     }
 
-    public ArrayList<MethodResult> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {
+    public ArrayList<MethodView> getCallers(String calleeClass, String calleeMethod, String calleeDesc) {
         return getCallers(calleeClass, calleeMethod, calleeDesc, null);
     }
 
-    public ArrayList<MethodResult> getCallers(String calleeClass,
+    public ArrayList<MethodView> getCallers(String calleeClass,
                                               String calleeMethod,
                                               String calleeDesc,
                                               Integer calleeJarId) {
         return getCallGraphCache().getCallers(calleeClass, calleeMethod, calleeDesc, normalizeJarId(calleeJarId));
     }
 
-    public ArrayList<MethodResult> getCallersLike(String calleeClass, String calleeMethod, String calleeDesc) {
+    public ArrayList<MethodView> getCallersLike(String calleeClass, String calleeMethod, String calleeDesc) {
         String cls = normalizeClassName(calleeClass);
         String method = safe(calleeMethod);
         String desc = safe(calleeDesc);
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         GraphSnapshot snapshot = loadQuerySnapshotOrThrow();
-        Map<Long, MethodResult> methods = methodNodeMap(snapshot);
-        for (Map.Entry<Long, MethodResult> entry : methods.entrySet()) {
-            MethodResult callee = entry.getValue();
+        Map<Long, MethodView> methods = methodNodeMap(snapshot);
+        for (Map.Entry<Long, MethodView> entry : methods.entrySet()) {
+            MethodView callee = entry.getValue();
             if (!matchesLike(callee.getClassName(), cls)
                     || !matchesLike(callee.getMethodName(), method)
                     || !matchesLike(callee.getMethodDesc(), desc)) {
@@ -249,18 +249,18 @@ public class CoreEngine {
         return dedupMethods(out);
     }
 
-    public ArrayList<MethodResult> getCallee(String callerClass, String callerMethod, String callerDesc) {
+    public ArrayList<MethodView> getCallee(String callerClass, String callerMethod, String callerDesc) {
         return getCallee(callerClass, callerMethod, callerDesc, null);
     }
 
-    public ArrayList<MethodResult> getCallee(String callerClass,
+    public ArrayList<MethodView> getCallee(String callerClass,
                                              String callerMethod,
                                              String callerDesc,
                                              Integer callerJarId) {
         return getCallGraphCache().getCallees(callerClass, callerMethod, callerDesc, normalizeJarId(callerJarId));
     }
 
-    public ArrayList<MethodCallResult> getCallEdgesByCallee(String calleeClass,
+    public ArrayList<CallEdgeView> getCallEdgesByCallee(String calleeClass,
                                                             String calleeMethod,
                                                             String calleeDesc,
                                                             Integer offset,
@@ -268,7 +268,7 @@ public class CoreEngine {
         return getCallEdgesByCallee(calleeClass, calleeMethod, calleeDesc, null, offset, limit);
     }
 
-    public ArrayList<MethodCallResult> getCallEdgesByCallee(String calleeClass,
+    public ArrayList<CallEdgeView> getCallEdgesByCallee(String calleeClass,
                                                             String calleeMethod,
                                                             String calleeDesc,
                                                             Integer calleeJarId,
@@ -277,7 +277,7 @@ public class CoreEngine {
         return filterCallEdges(false, calleeClass, calleeMethod, calleeDesc, calleeJarId, offset, limit);
     }
 
-    public ArrayList<MethodCallResult> getCallEdgesByCaller(String callerClass,
+    public ArrayList<CallEdgeView> getCallEdgesByCaller(String callerClass,
                                                             String callerMethod,
                                                             String callerDesc,
                                                             Integer offset,
@@ -285,7 +285,7 @@ public class CoreEngine {
         return getCallEdgesByCaller(callerClass, callerMethod, callerDesc, null, offset, limit);
     }
 
-    public ArrayList<MethodCallResult> getCallEdgesByCaller(String callerClass,
+    public ArrayList<CallEdgeView> getCallEdgesByCaller(String callerClass,
                                                             String callerMethod,
                                                             String callerDesc,
                                                             Integer callerJarId,
@@ -301,22 +301,22 @@ public class CoreEngine {
         return getCallGraphCache().getEdgeMeta(caller, callee);
     }
 
-    public PageSlice<MethodCallResult> getCallEdgesPageByCallee(String calleeClass,
+    public PageSlice<CallEdgeView> getCallEdgesPageByCallee(String calleeClass,
                                                                 String calleeMethod,
                                                                 String calleeDesc,
                                                                 Integer calleeJarId,
                                                                 int offset,
                                                                 int limit,
                                                                 boolean includeJdk) {
-        List<MethodCallResult> rows = getCallGraphCache().viewCallEdgesByCallee(
+        List<CallEdgeView> rows = getCallGraphCache().viewCallEdgesByCallee(
                 normalizeClassName(calleeClass),
                 safe(calleeMethod).trim(),
                 safe(calleeDesc).trim(),
                 calleeJarId
         );
-        OrderedPageCollector<MethodCallResult> collector =
+        OrderedPageCollector<CallEdgeView> collector =
                 new OrderedPageCollector<>(StableOrder.METHOD_CALL_RESULT, offset, limit);
-        for (MethodCallResult row : rows) {
+        for (CallEdgeView row : rows) {
             if (isVisibleCallEdge(row, includeJdk, true)) {
                 collector.accept(row);
             }
@@ -324,22 +324,22 @@ public class CoreEngine {
         return collector.finish();
     }
 
-    public PageSlice<MethodCallResult> getCallEdgesPageByCaller(String callerClass,
+    public PageSlice<CallEdgeView> getCallEdgesPageByCaller(String callerClass,
                                                                 String callerMethod,
                                                                 String callerDesc,
                                                                 Integer callerJarId,
                                                                 int offset,
                                                                 int limit,
                                                                 boolean includeJdk) {
-        List<MethodCallResult> rows = getCallGraphCache().viewCallEdgesByCaller(
+        List<CallEdgeView> rows = getCallGraphCache().viewCallEdgesByCaller(
                 normalizeClassName(callerClass),
                 safe(callerMethod).trim(),
                 safe(callerDesc).trim(),
                 callerJarId
         );
-        OrderedPageCollector<MethodCallResult> collector =
+        OrderedPageCollector<CallEdgeView> collector =
                 new OrderedPageCollector<>(StableOrder.METHOD_CALL_RESULT, offset, limit);
-        for (MethodCallResult row : rows) {
+        for (CallEdgeView row : rows) {
             if (isVisibleCallEdge(row, includeJdk, false)) {
                 collector.accept(row);
             }
@@ -373,10 +373,10 @@ public class CoreEngine {
         return out;
     }
 
-    public ArrayList<MethodResult> getMethod(String className, String methodName, String methodDesc) {
-        ArrayList<MethodResult> out = new ArrayList<>();
+    public ArrayList<MethodView> getMethod(String className, String methodName, String methodDesc) {
+        ArrayList<MethodView> out = new ArrayList<>();
         for (MethodReference ref : getMethodReferences(className, methodName, methodDesc)) {
-            out.add(toMethodResult(ref));
+            out.add(toMethodView(ref));
         }
         return out;
     }
@@ -429,11 +429,11 @@ public class CoreEngine {
         return new ArrayList<>(DatabaseManager.getLocalVarsByMethod(className, methodName, methodDesc));
     }
 
-    public ArrayList<MethodResult> getMethodLike(String className, String methodName, String methodDesc) {
+    public ArrayList<MethodView> getMethodLike(String className, String methodName, String methodDesc) {
         String cls = normalizeClassName(className);
         String method = safe(methodName).trim();
         String desc = safe(methodDesc).trim();
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         for (MethodReference ref : DatabaseManager.getMethodReferences()) {
             if (ref == null || ref.getClassReference() == null) {
                 continue;
@@ -448,21 +448,21 @@ public class CoreEngine {
             if (!desc.isEmpty() && !safe(ref.getDesc()).contains(desc)) {
                 continue;
             }
-            out.add(toMethodResult(ref));
+            out.add(toMethodView(ref));
         }
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
     }
 
-    public ArrayList<MethodResult> getMethodsByStr(String val) {
+    public ArrayList<MethodView> getMethodsByStr(String val) {
         return getMethodsByStr(val, null, null, null, "auto");
     }
 
-    public ArrayList<MethodResult> getMethodsByStrEqual(String val) {
+    public ArrayList<MethodView> getMethodsByStrEqual(String val) {
         return getMethodsByStr(val, null, null, null, "equal");
     }
 
-    public ArrayList<MethodResult> getMethodsByStr(String val,
+    public ArrayList<MethodView> getMethodsByStr(String val,
                                                    Integer jarId,
                                                    String classLike,
                                                    Integer limit,
@@ -478,7 +478,7 @@ public class CoreEngine {
         }
         int max = (limit == null || limit <= 0) ? 1000 : limit;
 
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (MethodReference ref : DatabaseManager.getMethodReferences()) {
             if (ref == null || ref.getClassReference() == null) {
@@ -504,7 +504,7 @@ public class CoreEngine {
             if (matched == null) {
                 continue;
             }
-            MethodResult result = toMethodResult(ref);
+            MethodView result = toMethodView(ref);
             result.setStrValue(matched);
             String key = methodKey(result.getClassName(), result.getMethodName(), result.getMethodDesc(), result.getJarId());
             if (!seen.add(key)) {
@@ -519,7 +519,7 @@ public class CoreEngine {
         return out;
     }
 
-    public PageSlice<MethodResult> searchMethodsByStr(String val,
+    public PageSlice<MethodView> searchMethodsByStr(String val,
                                                       Integer jarId,
                                                       String classLike,
                                                       String mode,
@@ -536,7 +536,7 @@ public class CoreEngine {
             m = "auto";
         }
 
-        OrderedPageCollector<MethodResult> collector =
+        OrderedPageCollector<MethodView> collector =
                 new OrderedPageCollector<>(StableOrder.METHOD_RESULT, offset, limit);
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (MethodReference ref : DatabaseManager.getMethodReferences()) {
@@ -562,9 +562,9 @@ public class CoreEngine {
             if (matched == null) {
                 continue;
             }
-            MethodResult result = toMethodResult(ref);
+            MethodView result = toMethodView(ref);
             result.setStrValue(matched);
-            if (!isVisibleMethodResult(result, includeJdk)) {
+            if (!isVisibleMethodView(result, includeJdk)) {
                 continue;
             }
             String key = methodKey(result.getClassName(), result.getMethodName(), result.getMethodDesc(), result.getJarId());
@@ -624,13 +624,13 @@ public class CoreEngine {
         return new ArrayList<>(DatabaseManager.getJarsMeta());
     }
 
-    public ArrayList<MethodResult> getImpls(String className,
+    public ArrayList<MethodView> getImpls(String className,
                                             String methodName,
                                             String methodDesc) {
         return getImpls(className, methodName, methodDesc, null);
     }
 
-    public ArrayList<MethodResult> getImpls(String className,
+    public ArrayList<MethodView> getImpls(String className,
                                             String methodName,
                                             String methodDesc,
                                             Integer classJarId) {
@@ -639,7 +639,7 @@ public class CoreEngine {
             return new ArrayList<>();
         }
         Set<String> candidates = collectSubClasses(owner);
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         for (MethodReference ref : DatabaseManager.getMethodReferences()) {
             if (ref == null || ref.getClassReference() == null) {
                 continue;
@@ -657,17 +657,17 @@ public class CoreEngine {
             if (classJarId != null && classJarId >= 0 && normalizeJarId(ref.getJarId()) != classJarId) {
                 continue;
             }
-            out.add(toMethodResult(ref));
+            out.add(toMethodView(ref));
         }
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
     }
 
-    public ArrayList<MethodResult> getSuperImpls(String className, String methodName, String methodDesc) {
+    public ArrayList<MethodView> getSuperImpls(String className, String methodName, String methodDesc) {
         return getSuperImpls(className, methodName, methodDesc, null);
     }
 
-    public ArrayList<MethodResult> getSuperImpls(String className,
+    public ArrayList<MethodView> getSuperImpls(String className,
                                                  String methodName,
                                                  String methodDesc,
                                                  Integer classJarId) {
@@ -676,7 +676,7 @@ public class CoreEngine {
             return new ArrayList<>();
         }
         Set<String> candidates = collectSuperClasses(owner);
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         for (MethodReference ref : DatabaseManager.getMethodReferences()) {
             if (ref == null || ref.getClassReference() == null) {
                 continue;
@@ -694,7 +694,7 @@ public class CoreEngine {
             if (classJarId != null && classJarId >= 0 && normalizeJarId(ref.getJarId()) != classJarId) {
                 continue;
             }
-            out.add(toMethodResult(ref));
+            out.add(toMethodView(ref));
         }
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
@@ -769,8 +769,8 @@ public class CoreEngine {
         return jar == null ? null : jar.getJarName();
     }
 
-    public ArrayList<ClassResult> getAllSpringC() {
-        ArrayList<ClassResult> out = new ArrayList<>();
+    public ArrayList<ClassView> getAllSpringC() {
+        ArrayList<ClassView> out = new ArrayList<>();
         for (SpringController controller : DatabaseManager.getSpringControllers()) {
             if (controller == null || controller.getClassName() == null) {
                 continue;
@@ -779,9 +779,9 @@ public class CoreEngine {
             if (className.isEmpty()) {
                 continue;
             }
-            ClassResult result = getClassByClass(className);
+            ClassView result = getClassByClass(className);
             if (result == null) {
-                result = new ClassResult();
+                result = new ClassView();
                 result.setClassName(className);
                 result.setJarId(normalizeJarId(controller.getClassName().getJarId()));
                 result.setJarName(getJarNameById(result.getJarId()));
@@ -793,28 +793,28 @@ public class CoreEngine {
         return filterWebClasses(out);
     }
 
-    public ArrayList<ClassResult> getAllSpringI() {
+    public ArrayList<ClassView> getAllSpringI() {
         return filterWebClasses(classesFromNames(DatabaseManager.getSpringInterceptors()));
     }
 
-    public ArrayList<ClassResult> getAllServlets() {
+    public ArrayList<ClassView> getAllServlets() {
         return filterWebClasses(classesFromNames(DatabaseManager.getServlets()));
     }
 
-    public ArrayList<ClassResult> getAllFilters() {
+    public ArrayList<ClassView> getAllFilters() {
         return filterWebClasses(classesFromNames(DatabaseManager.getFilters()));
     }
 
-    public ArrayList<ClassResult> getAllListeners() {
+    public ArrayList<ClassView> getAllListeners() {
         return filterWebClasses(classesFromNames(DatabaseManager.getListeners()));
     }
 
-    public ArrayList<MethodResult> getSpringM(String className) {
+    public ArrayList<MethodView> getSpringM(String className) {
         if (CommonFilterUtil.isFilteredClass(className)) {
             return new ArrayList<>();
         }
         String target = normalizeClassName(className);
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         for (SpringController controller : DatabaseManager.getSpringControllers()) {
             if (controller == null || controller.getClassName() == null) {
                 continue;
@@ -824,7 +824,7 @@ public class CoreEngine {
                 continue;
             }
             for (SpringMapping mapping : controller.getMappings()) {
-                MethodResult item = toSpringMethod(mapping);
+                MethodView item = toSpringMethod(mapping);
                 if (item != null) {
                     out.add(item);
                 }
@@ -833,7 +833,7 @@ public class CoreEngine {
         return filterWebMethods(out);
     }
 
-    public ArrayList<MethodResult> getSpringMappingsAll(Integer jarId,
+    public ArrayList<MethodView> getSpringMappingsAll(Integer jarId,
                                                         String keyword,
                                                         Integer offset,
                                                         Integer limit) {
@@ -841,13 +841,13 @@ public class CoreEngine {
         int begin = offset == null || offset < 0 ? 0 : offset;
         int size = limit == null || limit <= 0 ? 100 : limit;
 
-        ArrayList<MethodResult> all = new ArrayList<>();
+        ArrayList<MethodView> all = new ArrayList<>();
         for (SpringController controller : DatabaseManager.getSpringControllers()) {
             if (controller == null) {
                 continue;
             }
             for (SpringMapping mapping : controller.getMappings()) {
-                MethodResult item = toSpringMethod(mapping);
+                MethodView item = toSpringMethod(mapping);
                 if (item == null) {
                     continue;
                 }
@@ -876,7 +876,7 @@ public class CoreEngine {
                 continue;
             }
             for (SpringMapping mapping : controller.getMappings()) {
-                MethodResult item = toSpringMethod(mapping);
+                MethodView item = toSpringMethod(mapping);
                 if (item == null) {
                     continue;
                 }
@@ -898,20 +898,20 @@ public class CoreEngine {
         return count;
     }
 
-    public PageSlice<MethodResult> getSpringMappingsPage(Integer jarId,
+    public PageSlice<MethodView> getSpringMappingsPage(Integer jarId,
                                                          String keyword,
                                                          int offset,
                                                          int limit,
                                                          boolean includeJdk) {
         String kw = safe(keyword);
-        OrderedPageCollector<MethodResult> collector =
+        OrderedPageCollector<MethodView> collector =
                 new OrderedPageCollector<>(StableOrder.METHOD_RESULT, offset, limit);
         for (SpringController controller : DatabaseManager.getSpringControllers()) {
             if (controller == null) {
                 continue;
             }
             for (SpringMapping mapping : controller.getMappings()) {
-                MethodResult item = toSpringMethod(mapping);
+                MethodView item = toSpringMethod(mapping);
                 if (item == null) {
                     continue;
                 }
@@ -927,7 +927,7 @@ public class CoreEngine {
                         || CommonFilterUtil.isFilteredJar(item.getJarName())) {
                     continue;
                 }
-                if (!isVisibleMethodResult(item, includeJdk)) {
+                if (!isVisibleMethodView(item, includeJdk)) {
                     continue;
                 }
                 collector.accept(item);
@@ -936,12 +936,12 @@ public class CoreEngine {
         return collector.finish();
     }
 
-    private ArrayList<ClassResult> filterWebClasses(List<ClassResult> input) {
-        ArrayList<ClassResult> out = new ArrayList<>();
+    private ArrayList<ClassView> filterWebClasses(List<ClassView> input) {
+        ArrayList<ClassView> out = new ArrayList<>();
         if (input == null || input.isEmpty()) {
             return out;
         }
-        for (ClassResult c : input) {
+        for (ClassView c : input) {
             if (c == null) {
                 continue;
             }
@@ -954,12 +954,12 @@ public class CoreEngine {
         return out;
     }
 
-    private ArrayList<MethodResult> filterWebMethods(List<MethodResult> input) {
-        ArrayList<MethodResult> out = new ArrayList<>();
+    private ArrayList<MethodView> filterWebMethods(List<MethodView> input) {
+        ArrayList<MethodView> out = new ArrayList<>();
         if (input == null || input.isEmpty()) {
             return out;
         }
-        for (MethodResult m : input) {
+        for (MethodView m : input) {
             if (m == null) {
                 continue;
             }
@@ -989,7 +989,7 @@ public class CoreEngine {
         return out;
     }
 
-    public ArrayList<MethodResult> getMethodsByAnnoNames(List<String> annoNames) {
+    public ArrayList<MethodView> getMethodsByAnnoNames(List<String> annoNames) {
         if (annoNames == null || annoNames.isEmpty()) {
             return new ArrayList<>();
         }
@@ -1001,7 +1001,7 @@ public class CoreEngine {
         if (targets.isEmpty()) {
             return new ArrayList<>();
         }
-        ArrayList<MethodResult> out = new ArrayList<>();
+        ArrayList<MethodView> out = new ArrayList<>();
         for (MethodReference method : DatabaseManager.getMethodReferences()) {
             if (method == null || method.getAnnotations() == null || method.getAnnotations().isEmpty()) {
                 continue;
@@ -1014,14 +1014,14 @@ public class CoreEngine {
                 }
             }
             if (matched) {
-                out.add(toMethodResult(method));
+                out.add(toMethodView(method));
             }
         }
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
     }
 
-    public ArrayList<AnnoMethodResult> getMethodsByAnno(List<String> annoNames,
+    public ArrayList<AnnoMethodView> getMethodsByAnno(List<String> annoNames,
                                                         String match,
                                                         String scope,
                                                         Integer jarId,
@@ -1041,7 +1041,7 @@ public class CoreEngine {
         int begin = offset == null || offset < 0 ? 0 : offset;
         int max = limit == null || limit <= 0 ? 100 : limit;
 
-        ArrayList<AnnoMethodResult> out = new ArrayList<>();
+        ArrayList<AnnoMethodView> out = new ArrayList<>();
         for (MethodReference method : DatabaseManager.getMethodReferences()) {
             if (method == null || method.getClassReference() == null) {
                 continue;
@@ -1068,16 +1068,16 @@ public class CoreEngine {
                 appendAnnoMatches(out::add, annoNames, matchMode, "method", methodAnnos, method, methodJarId);
             }
         }
-        out.sort(Comparator.comparing(AnnoMethodResult::getClassName)
-                .thenComparing(AnnoMethodResult::getMethodName)
-                .thenComparing(AnnoMethodResult::getMethodDesc)
-                .thenComparing(AnnoMethodResult::getAnnoName));
+        out.sort(Comparator.comparing(AnnoMethodView::getClassName)
+                .thenComparing(AnnoMethodView::getMethodName)
+                .thenComparing(AnnoMethodView::getMethodDesc)
+                .thenComparing(AnnoMethodView::getAnnoName));
         int from = Math.min(begin, out.size());
         int to = Math.min(from + max, out.size());
         return new ArrayList<>(out.subList(from, to));
     }
 
-    public PageSlice<AnnoMethodResult> getMethodsByAnnoPage(List<String> annoNames,
+    public PageSlice<AnnoMethodView> getMethodsByAnnoPage(List<String> annoNames,
                                                             String match,
                                                             String scope,
                                                             Integer jarId,
@@ -1096,7 +1096,7 @@ public class CoreEngine {
             scopeMode = "any";
         }
 
-        OrderedPageCollector<AnnoMethodResult> collector =
+        OrderedPageCollector<AnnoMethodView> collector =
                 new OrderedPageCollector<>(StableOrder.ANNO_METHOD_RESULT, offset, limit);
         for (MethodReference method : DatabaseManager.getMethodReferences()) {
             if (method == null || method.getClassReference() == null) {
@@ -1119,14 +1119,14 @@ public class CoreEngine {
 
             if (!"method".equals(scopeMode)) {
                 appendAnnoMatches(row -> {
-                    if (isVisibleAnnoMethodResult(row, includeJdk)) {
+                    if (isVisibleAnnoMethodView(row, includeJdk)) {
                         collector.accept(row);
                     }
                 }, annoNames, matchMode, "class", classAnnos, method, methodJarId);
             }
             if (!"class".equals(scopeMode)) {
                 appendAnnoMatches(row -> {
-                    if (isVisibleAnnoMethodResult(row, includeJdk)) {
+                    if (isVisibleAnnoMethodView(row, includeJdk)) {
                         collector.accept(row);
                     }
                 }, annoNames, matchMode, "method", methodAnnos, method, methodJarId);
@@ -1135,7 +1135,7 @@ public class CoreEngine {
         return collector.finish();
     }
 
-    private void appendAnnoMatches(java.util.function.Consumer<AnnoMethodResult> sink,
+    private void appendAnnoMatches(java.util.function.Consumer<AnnoMethodView> sink,
                                    List<String> targets,
                                    String matchMode,
                                    String scope,
@@ -1159,7 +1159,7 @@ public class CoreEngine {
                 if (!ok) {
                     continue;
                 }
-                AnnoMethodResult row = new AnnoMethodResult();
+                AnnoMethodView row = new AnnoMethodView();
                 row.setClassName(normalizeClassName(method.getClassReference().getName()));
                 row.setMethodName(safe(method.getName()));
                 row.setMethodDesc(safe(method.getDesc()));
@@ -1230,10 +1230,10 @@ public class CoreEngine {
         return allStrings().size();
     }
 
-    public ArrayList<MethodResult> getMethodsByClassNoJar(String className) {
-        ArrayList<MethodResult> rows = getMethodsByClass(className);
-        LinkedHashMap<String, MethodResult> unique = new LinkedHashMap<>();
-        for (MethodResult row : rows) {
+    public ArrayList<MethodView> getMethodsByClassNoJar(String className) {
+        ArrayList<MethodView> rows = getMethodsByClass(className);
+        LinkedHashMap<String, MethodView> unique = new LinkedHashMap<>();
+        for (MethodView row : rows) {
             String key = safe(row.getClassName()) + "#" + safe(row.getMethodName()) + "#" + safe(row.getMethodDesc());
             unique.putIfAbsent(key, row);
         }
@@ -1526,15 +1526,15 @@ public class CoreEngine {
         DatabaseManager.cleanFav();
     }
 
-    public void cleanFavItem(MethodResult m) {
+    public void cleanFavItem(MethodView m) {
         DatabaseManager.cleanFavItem(m);
     }
 
-    public void addFav(MethodResult m) {
+    public void addFav(MethodView m) {
         DatabaseManager.addFav(m);
     }
 
-    public void insertHistory(MethodResult m) {
+    public void insertHistory(MethodView m) {
         DatabaseManager.insertHistory(m);
     }
 
@@ -1542,11 +1542,11 @@ public class CoreEngine {
         DatabaseManager.cleanHistory();
     }
 
-    public ArrayList<MethodResult> getAllFavMethods() {
+    public ArrayList<MethodView> getAllFavMethods() {
         return DatabaseManager.getAllFavMethods();
     }
 
-    public ArrayList<MethodResult> getAllHisMethods() {
+    public ArrayList<MethodView> getAllHisMethods() {
         return DatabaseManager.getAllHisMethods();
     }
 
@@ -1558,8 +1558,8 @@ public class CoreEngine {
         return graphStore.loadQuerySnapshot();
     }
 
-    private Map<Long, MethodResult> methodNodeMap(GraphSnapshot snapshot) {
-        Map<Long, MethodResult> methods = new HashMap<>();
+    private Map<Long, MethodView> methodNodeMap(GraphSnapshot snapshot) {
+        Map<Long, MethodView> methods = new HashMap<>();
         if (snapshot == null) {
             return methods;
         }
@@ -1567,12 +1567,12 @@ public class CoreEngine {
             if (node == null) {
                 continue;
             }
-            methods.put(node.getNodeId(), toMethodResult(node));
+            methods.put(node.getNodeId(), toMethodView(node));
         }
         return methods;
     }
 
-    private ArrayList<MethodCallResult> filterCallEdges(boolean byCaller,
+    private ArrayList<CallEdgeView> filterCallEdges(boolean byCaller,
                                                         String className,
                                                         String methodName,
                                                         String methodDesc,
@@ -1580,7 +1580,7 @@ public class CoreEngine {
                                                         Integer offset,
                                                         Integer limit) {
         CallGraphCache cache = getCallGraphCache();
-        ArrayList<MethodCallResult> out = byCaller
+        ArrayList<CallEdgeView> out = byCaller
                 ? cache.getCallEdgesByCaller(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), jarId)
                 : cache.getCallEdgesByCallee(normalizeClassName(className), safe(methodName).trim(), safe(methodDesc).trim(), jarId);
         int begin = offset == null || offset < 0 ? 0 : offset;
@@ -1590,12 +1590,12 @@ public class CoreEngine {
         return new ArrayList<>(out.subList(from, to));
     }
 
-    private MethodResult toMethodResult(GraphNode node) {
+    private MethodView toMethodView(GraphNode node) {
         MethodReference ref = findMethodReference(node.getClassName(), node.getMethodName(), node.getMethodDesc(), node.getJarId());
         if (ref != null) {
-            return toMethodResult(ref);
+            return toMethodView(ref);
         }
-        MethodResult out = new MethodResult();
+        MethodView out = new MethodView();
         out.setClassName(normalizeClassName(node.getClassName()));
         out.setMethodName(safe(node.getMethodName()));
         out.setMethodDesc(safe(node.getMethodDesc()));
@@ -1607,8 +1607,8 @@ public class CoreEngine {
         return out;
     }
 
-    private MethodResult toMethodResult(MethodReference ref) {
-        MethodResult out = new MethodResult();
+    private MethodView toMethodView(MethodReference ref) {
+        MethodView out = new MethodView();
         String className = ref.getClassReference() == null ? "" : normalizeClassName(ref.getClassReference().getName());
         out.setClassName(className);
         out.setMethodName(safe(ref.getName()));
@@ -1645,11 +1645,11 @@ public class CoreEngine {
         return null;
     }
 
-    private ClassResult toClassResult(ClassReference row) {
+    private ClassView toClassView(ClassReference row) {
         if (row == null || row.getName() == null || row.getName().isBlank()) {
             return null;
         }
-        ClassResult out = new ClassResult();
+        ClassView out = new ClassView();
         out.setClassName(normalizeClassName(row.getName()));
         out.setSuperClassName(normalizeClassName(row.getSuperClass()));
         out.setIsInterfaceInt(row.isInterface() ? 1 : 0);
@@ -1659,23 +1659,23 @@ public class CoreEngine {
         return out;
     }
 
-    private ArrayList<ClassResult> classesFromNames(Set<String> classNames) {
-        ArrayList<ClassResult> out = new ArrayList<>();
+    private ArrayList<ClassView> classesFromNames(Set<String> classNames) {
+        ArrayList<ClassView> out = new ArrayList<>();
         if (classNames == null || classNames.isEmpty()) {
             return out;
         }
         for (String className : classNames) {
-            ArrayList<ClassResult> rows = getClassesByClass(className);
+            ArrayList<ClassView> rows = getClassesByClass(className);
             if (!rows.isEmpty()) {
                 out.addAll(rows);
             }
         }
-        out.sort(Comparator.comparing(ClassResult::getClassName)
-                .thenComparingInt(ClassResult::getJarId));
+        out.sort(Comparator.comparing(ClassView::getClassName)
+                .thenComparingInt(ClassView::getJarId));
         return out;
     }
 
-    private MethodResult toSpringMethod(SpringMapping mapping) {
+    private MethodView toSpringMethod(SpringMapping mapping) {
         if (mapping == null) {
             return null;
         }
@@ -1683,7 +1683,7 @@ public class CoreEngine {
         if (method == null) {
             return null;
         }
-        MethodResult out = toMethodResult(method);
+        MethodView out = toMethodView(method);
         String path = safe(mapping.getPathRestful());
         if (path.isEmpty()) {
             path = safe(mapping.getPath());
@@ -1789,10 +1789,10 @@ public class CoreEngine {
         return out;
     }
 
-    private ArrayList<MethodResult> dedupMethods(List<MethodResult> input) {
-        LinkedHashMap<String, MethodResult> map = new LinkedHashMap<>();
+    private ArrayList<MethodView> dedupMethods(List<MethodView> input) {
+        LinkedHashMap<String, MethodView> map = new LinkedHashMap<>();
         if (input != null) {
-            for (MethodResult row : input) {
+            for (MethodView row : input) {
                 if (row == null) {
                     continue;
                 }
@@ -1800,7 +1800,7 @@ public class CoreEngine {
                 map.putIfAbsent(key, row);
             }
         }
-        ArrayList<MethodResult> out = new ArrayList<>(map.values());
+        ArrayList<MethodView> out = new ArrayList<>(map.values());
         out.sort(METHOD_RESULT_COMPARATOR);
         return out;
     }
@@ -1923,7 +1923,7 @@ public class CoreEngine {
         return value == null ? "" : value;
     }
 
-    private static boolean isVisibleMethodResult(MethodResult result, boolean includeJdk) {
+    private static boolean isVisibleMethodView(MethodView result, boolean includeJdk) {
         if (result == null) {
             return false;
         }
@@ -1937,7 +1937,7 @@ public class CoreEngine {
                 && !CommonFilterUtil.isFilteredJar(result.getJarName());
     }
 
-    private static boolean isVisibleAnnoMethodResult(AnnoMethodResult result, boolean includeJdk) {
+    private static boolean isVisibleAnnoMethodView(AnnoMethodView result, boolean includeJdk) {
         if (result == null) {
             return false;
         }
@@ -1951,7 +1951,7 @@ public class CoreEngine {
                 && !CommonFilterUtil.isFilteredJar(result.getJarName());
     }
 
-    private static boolean isVisibleCallEdge(MethodCallResult result, boolean includeJdk, boolean byCallee) {
+    private static boolean isVisibleCallEdge(CallEdgeView result, boolean includeJdk, boolean byCallee) {
         if (result == null) {
             return false;
         }
@@ -2029,9 +2029,9 @@ public class CoreEngine {
         }
     }
 
-    private static final Comparator<MethodResult> METHOD_RESULT_COMPARATOR = Comparator
-            .comparing(MethodResult::getClassName, Comparator.nullsLast(String::compareTo))
-            .thenComparing(MethodResult::getMethodName, Comparator.nullsLast(String::compareTo))
-            .thenComparing(MethodResult::getMethodDesc, Comparator.nullsLast(String::compareTo))
-            .thenComparingInt(MethodResult::getJarId);
+    private static final Comparator<MethodView> METHOD_RESULT_COMPARATOR = Comparator
+            .comparing(MethodView::getClassName, Comparator.nullsLast(String::compareTo))
+            .thenComparing(MethodView::getMethodName, Comparator.nullsLast(String::compareTo))
+            .thenComparing(MethodView::getMethodDesc, Comparator.nullsLast(String::compareTo))
+            .thenComparingInt(MethodView::getJarId);
 }

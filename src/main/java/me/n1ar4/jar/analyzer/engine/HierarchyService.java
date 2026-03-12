@@ -11,7 +11,7 @@
 package me.n1ar4.jar.analyzer.engine;
 
 import me.n1ar4.jar.analyzer.core.ProjectStateUtil;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.utils.InterruptUtil;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -101,7 +101,7 @@ public final class HierarchyService {
                 continue;
             }
             try {
-                ClassResult clazz = engine.getClassByClass(current);
+                ClassView clazz = engine.getClassByClass(current);
                 if (clazz != null) {
                     String superClass = normalize(clazz.getSuperClassName());
                     if (superClass != null && out.add(superClass) && visited.add(superClass)) {

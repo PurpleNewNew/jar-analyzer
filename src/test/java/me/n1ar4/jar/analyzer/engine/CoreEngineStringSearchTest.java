@@ -8,7 +8,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +44,7 @@ class CoreEngineStringSearchTest {
         );
 
         CoreEngine engine = newEngine();
-        List<MethodResult> results = engine.getMethodsByStr("/api/index", null, null, null, "equal");
+        List<MethodView> results = engine.getMethodsByStr("/api/index", null, null, null, "equal");
 
         assertEquals(1, results.size());
         assertEquals("/api/index", results.get(0).getStrValue());

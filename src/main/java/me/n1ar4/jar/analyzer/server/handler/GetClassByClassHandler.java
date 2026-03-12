@@ -12,7 +12,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.server.handler.api.ApiBaseHandler;
 import me.n1ar4.jar.analyzer.server.handler.base.HttpHandler;
@@ -33,7 +33,7 @@ public class GetClassByClassHandler extends ApiBaseHandler implements HttpHandle
         if (StringUtil.isNull(className)) {
             return needParam("class");
         }
-        ClassResult clazz = engine.getClassByClass(className);
+        ClassView clazz = engine.getClassByClass(className);
         if (clazz != null && CommonFilterUtil.isModuleInfoClassName(clazz.getClassName())) {
             clazz = null;
         }

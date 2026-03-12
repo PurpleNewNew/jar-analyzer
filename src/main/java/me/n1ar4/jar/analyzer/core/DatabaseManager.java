@@ -21,12 +21,12 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import me.n1ar4.jar.analyzer.entity.AnnoMethodResult;
+import me.n1ar4.jar.analyzer.engine.model.AnnoMethodView;
 import me.n1ar4.jar.analyzer.entity.CallSiteEntity;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.JarEntity;
 import me.n1ar4.jar.analyzer.entity.LocalVarEntity;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.entity.ResourceEntity;
 import me.n1ar4.jar.analyzer.entity.VulReportEntity;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
@@ -69,8 +69,8 @@ public class DatabaseManager {
     private static final Map<String, String> SEMANTIC_CACHE = new ConcurrentHashMap<>();
     private static final int MAX_FAVORITES = 256;
     private static final int MAX_HISTORIES = 512;
-    private static final List<MethodResult> FAVORITES = new ArrayList<>();
-    private static final List<MethodResult> HISTORIES = new ArrayList<>();
+    private static final List<MethodView> FAVORITES = new ArrayList<>();
+    private static final List<MethodView> HISTORIES = new ArrayList<>();
     private static final List<VulReportEntity> VUL_REPORTS = Collections.synchronizedList(new ArrayList<>());
     private static final List<ClassFileEntity> CLASS_FILES = Collections.synchronizedList(new ArrayList<>());
     private static final Map<String, List<ClassFileEntity>> CLASS_FILES_BY_NAME = new ConcurrentHashMap<>();
@@ -526,21 +526,21 @@ public class DatabaseManager {
         withWriteLock(FAVORITES::clear);
     }
 
-    public static void cleanFavItem(MethodResult m) {
+    public static void cleanFavItem(MethodView m) {
         if (m == null) {
             return;
         }
         withWriteLock(() -> FAVORITES.removeIf(item -> sameMethod(item, m)));
     }
 
-    public static void addFav(MethodResult m) {
+    public static void addFav(MethodView m) {
         if (m == null) {
             return;
         }
         withWriteLock(() -> appendMethodState(FAVORITES, m, MAX_FAVORITES, true));
     }
 
-    public static void insertHistory(MethodResult m) {
+    public static void insertHistory(MethodView m) {
         if (m == null) {
             return;
         }
@@ -551,11 +551,11 @@ public class DatabaseManager {
         withWriteLock(HISTORIES::clear);
     }
 
-    public static ArrayList<MethodResult> getAllFavMethods() {
+    public static ArrayList<MethodView> getAllFavMethods() {
         return withReadLock(() -> new ArrayList<>(FAVORITES));
     }
 
-    public static ArrayList<MethodResult> getAllHisMethods() {
+    public static ArrayList<MethodView> getAllHisMethods() {
         return withReadLock(() -> new ArrayList<>(HISTORIES));
     }
 
@@ -2697,7 +2697,7 @@ public class DatabaseManager {
         return Integer.compare(normalizeJarId(a.getJarId()), normalizeJarId(b.getJarId()));
     };
 
-    private static boolean sameMethod(MethodResult a, MethodResult b) {
+    private static boolean sameMethod(MethodView a, MethodView b) {
         if (a == b) {
             return true;
         }
@@ -2709,8 +2709,8 @@ public class DatabaseManager {
                 && safe(a.getMethodDesc()).equals(safe(b.getMethodDesc()));
     }
 
-    private static void appendMethodState(List<MethodResult> target,
-                                          MethodResult method,
+    private static void appendMethodState(List<MethodView> target,
+                                          MethodView method,
                                           int maxEntries,
                                           boolean deduplicate) {
         if (target == null || method == null || maxEntries <= 0) {

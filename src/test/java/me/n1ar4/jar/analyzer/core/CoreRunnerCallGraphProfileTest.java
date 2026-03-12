@@ -4,7 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.entity.MethodCallResult;
+import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.support.FixtureJars;
@@ -110,7 +110,7 @@ class CoreRunnerCallGraphProfileTest {
         EngineContext.setEngine(null);
         CoreEngine engine = new CoreEngine(config());
         EngineContext.setEngine(engine);
-        ArrayList<MethodCallResult> invokeEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> invokeEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/MyInvocationHandler",
                 "invoke",
                 "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",
@@ -146,7 +146,7 @@ class CoreRunnerCallGraphProfileTest {
         EngineContext.setEngine(null);
         CoreEngine engine = new CoreEngine(config());
         EngineContext.setEngine(engine);
-        ArrayList<MethodCallResult> invokeEdges = engine.getCallEdgesByCaller(
+        ArrayList<CallEdgeView> invokeEdges = engine.getCallEdgesByCaller(
                 "me/n1ar4/cb/MyInvocationHandler",
                 "invoke",
                 "(Ljava/lang/Object;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object;",

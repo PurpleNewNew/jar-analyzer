@@ -19,11 +19,11 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
-import me.n1ar4.jar.analyzer.entity.ClassResult;
+import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.entity.ClassFileEntity;
 import me.n1ar4.jar.analyzer.entity.LeakResult;
 import me.n1ar4.jar.analyzer.entity.MemberEntity;
-import me.n1ar4.jar.analyzer.entity.MethodResult;
+import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.exporter.LeakCsvExporter;
 import me.n1ar4.jar.analyzer.gadget.GadgetAnalyzer;
 import me.n1ar4.jar.analyzer.gadget.GadgetInfo;
@@ -697,7 +697,7 @@ public final class RuntimeFacades {
             }
             Integer ownerJarId = positiveJarId(jarId);
             try {
-                ClassResult classResult = engine.getClassByClass(ownerClass);
+                ClassView classResult = engine.getClassByClass(ownerClass);
                 if (ownerJarId == null && classResult != null && classResult.getJarId() > 0) {
                     ownerJarId = classResult.getJarId();
                 }
@@ -848,13 +848,13 @@ public final class RuntimeFacades {
                                    Integer ownerJarId,
                                    String ownerJarName,
                                    List<StructureItemDto> items) {
-            List<MethodResult> methods = engine.getMethodsByClass(ownerClass);
+            List<MethodView> methods = engine.getMethodsByClass(ownerClass);
             if (methods == null || methods.isEmpty()) {
                 return;
             }
-            List<MethodResult> filtered = new ArrayList<>();
+            List<MethodView> filtered = new ArrayList<>();
             Set<String> seen = new LinkedHashSet<>();
-            for (MethodResult method : methods) {
+            for (MethodView method : methods) {
                 if (method == null) {
                     continue;
                 }
@@ -869,7 +869,7 @@ public final class RuntimeFacades {
                 filtered.add(method);
             }
             filtered.sort(Comparator
-                    .comparing((MethodResult item) -> safe(item.getMethodName()))
+                    .comparing((MethodView item) -> safe(item.getMethodName()))
                     .thenComparing(item -> safe(item.getMethodDesc())));
             boolean truncated = filtered.size() > MAX_METHOD_COUNT;
             if (truncated) {
@@ -877,7 +877,7 @@ public final class RuntimeFacades {
             }
 
             items.add(new StructureItemDto("section", 0, "methods (" + filtered.size() + (truncated ? "+" : "") + ")", "", "", "", null, "", false));
-            for (MethodResult method : filtered) {
+            for (MethodView method : filtered) {
                 items.add(new StructureItemDto(
                         "method",
                         1,
@@ -909,15 +909,15 @@ public final class RuntimeFacades {
         private void appendOverrideRelations(CoreEngine engine,
                                              String ownerClass,
                                              Integer ownerJarId,
-                                             MethodResult ownerMethod,
+                                             MethodView ownerMethod,
                                              List<StructureItemDto> items) {
-            List<MethodResult> supers = dedupeMethodRelations(engine.getSuperImpls(
+            List<MethodView> supers = dedupeMethodRelations(engine.getSuperImpls(
                     ownerClass,
                     ownerMethod.getMethodName(),
                     ownerMethod.getMethodDesc(),
                     ownerJarId
             ));
-            List<MethodResult> impls = dedupeMethodRelations(engine.getImpls(
+            List<MethodView> impls = dedupeMethodRelations(engine.getImpls(
                     ownerClass,
                     ownerMethod.getMethodName(),
                     ownerMethod.getMethodDesc(),
@@ -929,7 +929,7 @@ public final class RuntimeFacades {
 
             if (!supers.isEmpty()) {
                 int total = supers.size();
-                List<MethodResult> limited = trimMethodRelations(supers);
+                List<MethodView> limited = trimMethodRelations(supers);
                 items.add(new StructureItemDto(
                         "relation",
                         2,
@@ -941,7 +941,7 @@ public final class RuntimeFacades {
                         "",
                         false
                 ));
-                for (MethodResult target : limited) {
+                for (MethodView target : limited) {
                     items.add(new StructureItemDto(
                             "override-up",
                             3,
@@ -970,7 +970,7 @@ public final class RuntimeFacades {
             }
             if (!impls.isEmpty()) {
                 int total = impls.size();
-                List<MethodResult> limited = trimMethodRelations(impls);
+                List<MethodView> limited = trimMethodRelations(impls);
                 items.add(new StructureItemDto(
                         "relation",
                         2,
@@ -982,7 +982,7 @@ public final class RuntimeFacades {
                         "",
                         false
                 ));
-                for (MethodResult target : limited) {
+                for (MethodView target : limited) {
                     items.add(new StructureItemDto(
                             "override-down",
                             3,
@@ -1095,13 +1095,13 @@ public final class RuntimeFacades {
             return out;
         }
 
-        private List<MethodResult> dedupeMethodRelations(List<MethodResult> raw) {
+        private List<MethodView> dedupeMethodRelations(List<MethodView> raw) {
             if (raw == null || raw.isEmpty()) {
                 return List.of();
             }
-            List<MethodResult> out = new ArrayList<>();
+            List<MethodView> out = new ArrayList<>();
             Set<String> seen = new LinkedHashSet<>();
-            for (MethodResult item : raw) {
+            for (MethodView item : raw) {
                 if (item == null) {
                     continue;
                 }
@@ -1115,14 +1115,14 @@ public final class RuntimeFacades {
                 out.add(item);
             }
             out.sort(Comparator
-                    .comparing((MethodResult item) -> safe(item.getClassName()))
+                    .comparing((MethodView item) -> safe(item.getClassName()))
                     .thenComparing(item -> safe(item.getMethodName()))
                     .thenComparing(item -> safe(item.getMethodDesc()))
-                    .thenComparingInt(MethodResult::getJarId));
+                    .thenComparingInt(MethodView::getJarId));
             return out;
         }
 
-        private List<MethodResult> trimMethodRelations(List<MethodResult> input) {
+        private List<MethodView> trimMethodRelations(List<MethodView> input) {
             if (input == null || input.isEmpty()) {
                 return List.of();
             }
@@ -1132,7 +1132,7 @@ public final class RuntimeFacades {
             return new ArrayList<>(input.subList(0, MAX_OVERRIDE_RELATIONS));
         }
 
-        private boolean sameMethod(MethodResult candidate,
+        private boolean sameMethod(MethodView candidate,
                                    String className,
                                    String methodName,
                                    String methodDesc,
@@ -1155,7 +1155,7 @@ public final class RuntimeFacades {
             return candidate.getJarId() == jarId;
         }
 
-        private String buildClassLabel(String className, ClassResult result) {
+        private String buildClassLabel(String className, ClassView result) {
             if (result == null) {
                 return "class " + className;
             }
@@ -1188,7 +1188,7 @@ public final class RuntimeFacades {
             return sb.toString();
         }
 
-        private String buildMethodLabel(MethodResult method) {
+        private String buildMethodLabel(MethodView method) {
             String access = formatAccess(method.getAccessInt());
             String signature = formatMethodSignature(method.getMethodName(), method.getMethodDesc());
             StringBuilder sb = new StringBuilder("M ");
@@ -1199,7 +1199,7 @@ public final class RuntimeFacades {
             return sb.toString();
         }
 
-        private String buildRelationLabel(MethodResult method) {
+        private String buildRelationLabel(MethodView method) {
             return "M " + safe(method.getClassName()) + "#" +
                     formatMethodSignature(method.getMethodName(), method.getMethodDesc()) +
                     formatJarSuffix(method.getJarName(), method.getJarId());
@@ -1298,7 +1298,7 @@ public final class RuntimeFacades {
             return String.join(" ", parts);
         }
 
-        private String resolveJarName(CoreEngine engine, ClassResult result, Integer jarId) {
+        private String resolveJarName(CoreEngine engine, ClassView result, Integer jarId) {
             if (result != null && jarId != null && jarId == result.getJarId()) {
                 return safe(result.getJarName());
             }
@@ -1360,62 +1360,92 @@ public final class RuntimeFacades {
             List<MethodNavDto> impl = new ArrayList<>();
             List<MethodNavDto> superImpl = new ArrayList<>();
             if (!safe(className).isEmpty()) {
-                List<MethodResult> allMethods = engine.getMethodsByClass(normalizeClass(className));
+                List<MethodView> allMethods = engine.getMethodsByClass(normalizeClass(className));
                 if (allMethods.isEmpty()) {
                     allMethods = engine.getMethodsByClassNoJar(normalizeClass(className));
                 }
-                for (MethodResult item : allMethods) {
+                for (MethodView item : allMethods) {
                     if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
-                    all.add(toMethodNav(item));
+                    all.add(new MethodNavDto(
+                            safe(item.getClassName()),
+                            safe(item.getMethodName()),
+                            safe(item.getMethodDesc()),
+                            safe(item.getJarName()),
+                            item.getJarId()
+                    ));
                 }
             }
             if (current != null) {
                 Integer jarId = current.jarId() <= 0 ? null : current.jarId();
-                List<MethodResult> callers = engine.getCallers(
+                List<MethodView> callers = engine.getCallers(
                         normalizeClass(current.className()),
                         current.methodName(),
                         current.methodDesc(),
                         jarId);
-                List<MethodResult> callees = engine.getCallee(
+                List<MethodView> callees = engine.getCallee(
                         normalizeClass(current.className()),
                         current.methodName(),
                         current.methodDesc(),
                         jarId);
-                List<MethodResult> impls = engine.getImpls(
+                List<MethodView> impls = engine.getImpls(
                         normalizeClass(current.className()),
                         current.methodName(),
                         current.methodDesc(),
                         jarId);
-                List<MethodResult> superImpls = engine.getSuperImpls(
+                List<MethodView> superImpls = engine.getSuperImpls(
                         normalizeClass(current.className()),
                         current.methodName(),
                         current.methodDesc(),
                         jarId);
-                for (MethodResult item : callers) {
+                for (MethodView item : callers) {
                     if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
-                    caller.add(toMethodNav(item));
+                    caller.add(new MethodNavDto(
+                            safe(item.getClassName()),
+                            safe(item.getMethodName()),
+                            safe(item.getMethodDesc()),
+                            safe(item.getJarName()),
+                            item.getJarId()
+                    ));
                 }
-                for (MethodResult item : callees) {
+                for (MethodView item : callees) {
                     if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
-                    callee.add(toMethodNav(item));
+                    callee.add(new MethodNavDto(
+                            safe(item.getClassName()),
+                            safe(item.getMethodName()),
+                            safe(item.getMethodDesc()),
+                            safe(item.getJarName()),
+                            item.getJarId()
+                    ));
                 }
-                for (MethodResult item : impls) {
+                for (MethodView item : impls) {
                     if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
-                    impl.add(toMethodNav(item));
+                    impl.add(new MethodNavDto(
+                            safe(item.getClassName()),
+                            safe(item.getMethodName()),
+                            safe(item.getMethodDesc()),
+                            safe(item.getJarName()),
+                            item.getJarId()
+                    ));
                 }
-                for (MethodResult item : superImpls) {
+                for (MethodView item : superImpls) {
                     if (!isAccepted(item, scope, localResolver)) {
                         continue;
                     }
-                    superImpl.add(toMethodNav(item));
+                    superImpl.add(new MethodNavDto(
+                            safe(item.getClassName()),
+                            safe(item.getMethodName()),
+                            safe(item.getMethodDesc()),
+                            safe(item.getJarName()),
+                            item.getJarId()
+                    ));
                 }
             }
 
@@ -1453,7 +1483,7 @@ public final class RuntimeFacades {
             STATE.callGraphScope = CallGraphScope.fromValue(scope).value();
         }
 
-        private boolean isAccepted(MethodResult method, CallGraphScope scope, ProjectJarOriginResolver resolver) {
+        private boolean isAccepted(MethodView method, CallGraphScope scope, ProjectJarOriginResolver resolver) {
             if (method == null) {
                 return false;
             }
@@ -1520,18 +1550,86 @@ public final class RuntimeFacades {
                 );
             }
 
-            List<ClassNavDto> controllers = mapClasses(engine.getAllSpringC());
-            List<ClassNavDto> interceptors = mapClasses(engine.getAllSpringI());
-            List<ClassNavDto> servlets = mapClasses(engine.getAllServlets());
-            List<ClassNavDto> filters = mapClasses(engine.getAllFilters());
-            List<ClassNavDto> listeners = mapClasses(engine.getAllListeners());
+            List<ClassNavDto> controllers = new ArrayList<>();
+            for (ClassView item : engine.getAllSpringC()) {
+                if (item == null) {
+                    continue;
+                }
+                controllers.add(new ClassNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            controllers.sort(Comparator.comparing(ClassNavDto::className));
+            List<ClassNavDto> interceptors = new ArrayList<>();
+            for (ClassView item : engine.getAllSpringI()) {
+                if (item == null) {
+                    continue;
+                }
+                interceptors.add(new ClassNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            interceptors.sort(Comparator.comparing(ClassNavDto::className));
+            List<ClassNavDto> servlets = new ArrayList<>();
+            for (ClassView item : engine.getAllServlets()) {
+                if (item == null) {
+                    continue;
+                }
+                servlets.add(new ClassNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            servlets.sort(Comparator.comparing(ClassNavDto::className));
+            List<ClassNavDto> filters = new ArrayList<>();
+            for (ClassView item : engine.getAllFilters()) {
+                if (item == null) {
+                    continue;
+                }
+                filters.add(new ClassNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            filters.sort(Comparator.comparing(ClassNavDto::className));
+            List<ClassNavDto> listeners = new ArrayList<>();
+            for (ClassView item : engine.getAllListeners()) {
+                if (item == null) {
+                    continue;
+                }
+                listeners.add(new ClassNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            listeners.sort(Comparator.comparing(ClassNavDto::className));
             String keyword = safe(STATE.webPathKeyword);
-            List<MethodNavDto> mappings = mapMethods(engine.getSpringMappingsAll(
+            List<MethodNavDto> mappings = new ArrayList<>();
+            for (MethodView item : engine.getSpringMappingsAll(
                     null,
                     keyword.isEmpty() ? null : keyword,
                     null,
                     2000
-            ));
+            )) {
+                if (item == null) {
+                    continue;
+                }
+                mappings.add(new MethodNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getMethodName()),
+                        safe(item.getMethodDesc()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            mappings.sort(Comparator.comparing(MethodNavDto::className).thenComparing(MethodNavDto::methodName));
             return new WebSnapshotDto(
                     keyword,
                     controllers,
@@ -1562,10 +1660,35 @@ public final class RuntimeFacades {
             if (engine == null || !engine.isEnabled()) {
                 return new NoteSnapshotDto(List.of(), List.of());
             }
-            return new NoteSnapshotDto(
-                    mapMethods(engine.getAllHisMethods()),
-                    mapMethods(engine.getAllFavMethods())
-            );
+            List<MethodNavDto> histories = new ArrayList<>();
+            for (MethodView item : engine.getAllHisMethods()) {
+                if (item == null) {
+                    continue;
+                }
+                histories.add(new MethodNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getMethodName()),
+                        safe(item.getMethodDesc()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            histories.sort(Comparator.comparing(MethodNavDto::className).thenComparing(MethodNavDto::methodName));
+            List<MethodNavDto> favorites = new ArrayList<>();
+            for (MethodView item : engine.getAllFavMethods()) {
+                if (item == null) {
+                    continue;
+                }
+                favorites.add(new MethodNavDto(
+                        safe(item.getClassName()),
+                        safe(item.getMethodName()),
+                        safe(item.getMethodDesc()),
+                        safe(item.getJarName()),
+                        item.getJarId()
+                ));
+            }
+            favorites.sort(Comparator.comparing(MethodNavDto::className).thenComparing(MethodNavDto::methodName));
+            return new NoteSnapshotDto(histories, favorites);
         }
 
         @Override
@@ -2505,7 +2628,7 @@ public final class RuntimeFacades {
             if (safe(current.className()).isBlank() || safe(current.methodName()).isBlank()) {
                 return false;
             }
-            MethodResult fav = new MethodResult();
+            MethodView fav = new MethodView();
             fav.setClassName(normalizeClass(current.className()));
             fav.setMethodName(safe(current.methodName()));
             fav.setMethodDesc(safe(current.methodDesc()));
@@ -2727,7 +2850,7 @@ public final class RuntimeFacades {
             );
             CoreEngine engine = EngineContext.getEngine();
             if (engine != null && engine.isEnabled() && isEditorOpenTicketActive(ticket)) {
-                MethodResult history = new MethodResult();
+                MethodView history = new MethodView();
                 history.setClassName(normalizedClass);
                 history.setMethodName(safe(methodName));
                 history.setMethodDesc(safe(methodDesc));
@@ -3825,52 +3948,6 @@ public final class RuntimeFacades {
             return null;
         }
         return jarId;
-    }
-
-    private static MethodNavDto toMethodNav(MethodResult m) {
-        return new MethodNavDto(
-                safe(m.getClassName()),
-                safe(m.getMethodName()),
-                safe(m.getMethodDesc()),
-                safe(m.getJarName()),
-                m.getJarId()
-        );
-    }
-
-    private static ClassNavDto toClassNav(ClassResult c) {
-        return new ClassNavDto(
-                safe(c.getClassName()),
-                safe(c.getJarName()),
-                c.getJarId()
-        );
-    }
-
-    private static List<MethodNavDto> mapMethods(List<MethodResult> list) {
-        if (list == null || list.isEmpty()) {
-            return List.of();
-        }
-        List<MethodNavDto> out = new ArrayList<>();
-        for (MethodResult m : list) {
-            if (m != null) {
-                out.add(toMethodNav(m));
-            }
-        }
-        out.sort(Comparator.comparing(MethodNavDto::className).thenComparing(MethodNavDto::methodName));
-        return out;
-    }
-
-    private static List<ClassNavDto> mapClasses(List<ClassResult> list) {
-        if (list == null || list.isEmpty()) {
-            return List.of();
-        }
-        List<ClassNavDto> out = new ArrayList<>();
-        for (ClassResult c : list) {
-            if (c != null) {
-                out.add(toClassNav(c));
-            }
-        }
-        out.sort(Comparator.comparing(ClassNavDto::className));
-        return out;
     }
 
     private static String formatCurrentMethod() {
