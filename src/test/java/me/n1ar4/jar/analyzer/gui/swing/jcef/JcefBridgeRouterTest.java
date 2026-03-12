@@ -18,9 +18,9 @@ class JcefBridgeRouterTest {
             router.close();
             AtomicReference<String> payload = new AtomicReference<>();
             CountDownLatch latch = new CountDownLatch(1);
+            RecordingCallback callback = new RecordingCallback(payload, latch);
 
-            boolean accepted = router.dispatchQuery("{\"channel\":\"ja.query.execute\",\"payload\":{}}",
-                    callback(payload, latch));
+            boolean accepted = router.dispatchQuery("{\"channel\":\"ja.query.execute\",\"payload\":{}}", callback);
 
             Assertions.assertTrue(accepted);
             Assertions.assertTrue(latch.await(2, TimeUnit.SECONDS));
@@ -41,9 +41,9 @@ class JcefBridgeRouterTest {
             });
             AtomicReference<String> payload = new AtomicReference<>();
             CountDownLatch latch = new CountDownLatch(1);
+            RecordingCallback callback = new RecordingCallback(payload, latch);
 
-            boolean accepted = router.dispatchQuery("{\"channel\":\"ja.query.execute\",\"payload\":{}}",
-                    callback(payload, latch));
+            boolean accepted = router.dispatchQuery("{\"channel\":\"ja.query.execute\",\"payload\":{}}", callback);
 
             Assertions.assertTrue(accepted);
             Assertions.assertTrue(latch.await(2, TimeUnit.SECONDS));
@@ -56,20 +56,56 @@ class JcefBridgeRouterTest {
         }
     }
 
-    private static CefQueryCallback callback(AtomicReference<String> payload, CountDownLatch latch) {
-        return new CefQueryCallback() {
-            @Override
-            public void success(String response) {
-                payload.set(response);
-                latch.countDown();
-            }
+    @Test
+    void shouldDropLateReplyAfterClose() throws Exception {
+        JcefBridgeRouter router = new JcefBridgeRouter();
+        try {
+            CountDownLatch handlerStarted = new CountDownLatch(1);
+            CountDownLatch releaseHandler = new CountDownLatch(1);
+            AtomicReference<String> payload = new AtomicReference<>();
+            CountDownLatch callbackLatch = new CountDownLatch(1);
+            RecordingCallback callback = new RecordingCallback(payload, callbackLatch);
+            router.register("ja.query.execute", ignored -> {
+                handlerStarted.countDown();
+                releaseHandler.await(2, TimeUnit.SECONDS);
+                JSONObject result = new JSONObject();
+                result.put("ok", true);
+                return result;
+            });
 
-            @Override
-            public void failure(int errorCode, String errorMessage) {
-                payload.set("{\"ok\":false,\"code\":\"native_failure\",\"message\":\""
-                        + errorCode + ":" + errorMessage + "\"}");
-                latch.countDown();
-            }
-        };
+            boolean accepted = router.dispatchQuery("{\"channel\":\"ja.query.execute\",\"payload\":{}}", callback);
+
+            Assertions.assertTrue(accepted);
+            Assertions.assertTrue(handlerStarted.await(2, TimeUnit.SECONDS));
+            router.close();
+            releaseHandler.countDown();
+            Assertions.assertFalse(callbackLatch.await(300, TimeUnit.MILLISECONDS));
+            Assertions.assertNull(payload.get());
+        } finally {
+            router.close();
+        }
+    }
+
+    private static final class RecordingCallback implements CefQueryCallback {
+        private final AtomicReference<String> payload;
+        private final CountDownLatch latch;
+
+        private RecordingCallback(AtomicReference<String> payload, CountDownLatch latch) {
+            this.payload = payload;
+            this.latch = latch;
+        }
+
+        @Override
+        public void success(String response) {
+            payload.set(response);
+            latch.countDown();
+        }
+
+        @Override
+        public void failure(int errorCode, String errorMessage) {
+            payload.set("{\"ok\":false,\"code\":\"native_failure\",\"message\":\""
+                    + errorCode + ":" + errorMessage + "\"}");
+            latch.countDown();
+        }
     }
 }
