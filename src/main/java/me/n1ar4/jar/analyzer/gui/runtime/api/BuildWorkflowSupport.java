@@ -98,11 +98,7 @@ final class BuildWorkflowSupport {
         }
         String raw = safe(settings.sdkPath()).trim();
         if (raw.isEmpty()) {
-            Path auto = detectSdkFromEnv();
-            if (auto == null) {
-                return SdkResolution.none();
-            }
-            raw = auto.toString();
+            return SdkResolution.none();
         }
         Path sdk = Paths.get(raw).toAbsolutePath().normalize();
         if (Files.notExists(sdk)) {
@@ -243,24 +239,6 @@ final class BuildWorkflowSupport {
     String formatDatabaseSize(long bytes) {
         double sizeMb = (double) bytes / (1024 * 1024);
         return String.format(Locale.ROOT, "%.2f MB", sizeMb);
-    }
-
-    private Path detectSdkFromEnv() {
-        String javaHome = safe(System.getProperty("java.home")).trim();
-        if (!javaHome.isEmpty()) {
-            Path home = Paths.get(javaHome).toAbsolutePath().normalize();
-            if (Files.exists(home)) {
-                return home;
-            }
-        }
-        String envJavaHome = safe(System.getenv("JAVA_HOME")).trim();
-        if (!envJavaHome.isEmpty()) {
-            Path home = Paths.get(envJavaHome).toAbsolutePath().normalize();
-            if (Files.exists(home)) {
-                return home;
-            }
-        }
-        return null;
     }
 
     private boolean hasAnalyzableBytecode(Path root) {

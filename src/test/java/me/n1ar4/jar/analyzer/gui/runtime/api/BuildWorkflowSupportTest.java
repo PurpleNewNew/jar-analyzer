@@ -48,4 +48,14 @@ class BuildWorkflowSupportTest {
         assertTrue(result.projectLayout());
         assertFalse(result.extraClasspath().isEmpty());
     }
+
+    @Test
+    void resolveSdkShouldStayEmptyWhenSettingsDoNotProvideIt() {
+        BuildWorkflowSupport.SdkResolution result = support.resolveSdk(
+                new BuildSettingsDto(tempDir.toString(), "", true, false)
+        );
+
+        assertTrue(result.error().isBlank());
+        assertNull(result.sdkPath());
+    }
 }

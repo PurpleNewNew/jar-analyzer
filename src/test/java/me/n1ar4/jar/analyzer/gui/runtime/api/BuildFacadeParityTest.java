@@ -11,6 +11,7 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -25,8 +26,11 @@ import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -131,6 +135,55 @@ class BuildFacadeParityTest {
             assertTrue(state.statusText().contains("-Xms2g -Xmx6g"));
             assertTrue(state.statusText().contains("-Xms4g -Xmx8g"));
             assertEquals(0, state.buildProgress());
+        } finally {
+            java.nio.file.Files.deleteIfExists(input);
+        }
+    }
+
+    @Test
+    void blankSdkShouldNotInjectRuntimeIntoBuildExecutor() throws Exception {
+        Path input = java.nio.file.Files.createTempFile("build-facade-no-sdk", ".jar");
+        AtomicReference<Path> runtimeArchive = new AtomicReference<>(Path.of("sentinel"));
+        try {
+            TestBuildState state = new TestBuildState(new BuildSettingsDto(input.toString(), "", true, false));
+            BuildRuntimeFacade facade = new BuildRuntimeFacade(
+                    state,
+                    new BuildWorkflowSupport((zh, en) -> en),
+                    () -> null,
+                    (zh, en) -> en,
+                    () -> "CLOSED",
+                    (jar, runtimePath, fixClassPath, progressConsumer, resolveNestedJars) -> {
+                        runtimeArchive.set(runtimePath);
+                        progressConsumer.accept(100);
+                        return new CoreRunner.BuildResult(
+                                1L,
+                                1,
+                                1,
+                                1,
+                                1,
+                                0,
+                                0L,
+                                0L,
+                                "0.00 MB",
+                                "bytecode-mainline",
+                                "balanced",
+                                "balanced",
+                                1,
+                                0,
+                                0,
+                                0L,
+                                0L,
+                                0L,
+                                0L,
+                                Map.of()
+                        );
+                    }
+            );
+
+            facade.startBuild();
+            assertTrue(state.awaitFinish(), "build did not finish in time");
+            assertNull(runtimeArchive.get());
+            assertEquals("build finished", state.statusText());
         } finally {
             java.nio.file.Files.deleteIfExists(input);
         }

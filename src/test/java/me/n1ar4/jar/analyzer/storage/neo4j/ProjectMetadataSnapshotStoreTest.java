@@ -256,6 +256,51 @@ class ProjectMetadataSnapshotStoreTest {
     }
 
     @Test
+    void shouldSanitizeMalformedStringsWhenPersistingSnapshot() {
+        ProjectModel model = ProjectModel.artifact(
+                Path.of("/tmp/jar-analyzer/malformed.jar"),
+                null,
+                List.of(Path.of("/tmp/jar-analyzer/malformed.jar")),
+                false
+        );
+        ProjectRuntimeSnapshot snapshot = new ProjectRuntimeSnapshot(
+                ProjectRuntimeSnapshot.CURRENT_SCHEMA_VERSION,
+                66L,
+                new ProjectRuntimeSnapshot.ProjectModelData(
+                        model.buildMode().name(),
+                        model.primaryInputPath().toString(),
+                        "",
+                        List.of(),
+                        List.of(model.primaryInputPath().toString()),
+                        false
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Map.of("demo/Bad#value#()V", List.of("\uD800broken", "ok")),
+                java.util.Map.of("demo/Bad#anno#()V", List.of("anno", "\uDC00tail")),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                Set.of(),
+                Set.of(),
+                Set.of(),
+                Set.of()
+        );
+
+        ProjectMetadataSnapshotStoreTestHook.write(projectKey, snapshot);
+        ProjectRuntimeSnapshot restored = store.read(projectKey);
+
+        assertNotNull(restored);
+        assertEquals(List.of("\uFFFDbroken", "ok"),
+                restored.methodStrings().get("demo/Bad#value#()V"));
+        assertEquals(List.of("anno", "\uFFFDtail"),
+                restored.methodAnnoStrings().get("demo/Bad#anno#()V"));
+    }
+
+    @Test
     void unavailableMarkerShouldKeepOldSnapshotUnreadable() {
         ProjectModel model = ProjectModel.artifact(
                 Path.of("/tmp/jar-analyzer/marker.jar"),

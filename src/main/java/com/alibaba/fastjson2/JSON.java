@@ -13,17 +13,22 @@ package com.alibaba.fastjson2;
 import com.alibaba.fastjson2.annotation.JSONField;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.AnnotationIntrospector;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyName;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.introspect.Annotated;
 import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
 import com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdScalarSerializer;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -240,7 +245,71 @@ public interface JSON {
         AnnotationIntrospector ser = new FastjsonAnnotationIntrospector(true);
         AnnotationIntrospector deser = new FastjsonAnnotationIntrospector(false);
         mapper.setAnnotationIntrospectors(ser, deser);
+        SimpleModule stringSanitizerModule = new SimpleModule();
+        stringSanitizerModule.addSerializer(String.class, new SanitizingStringSerializer());
+        stringSanitizerModule.addKeySerializer(String.class, new SanitizingStringKeySerializer());
+        mapper.registerModule(stringSanitizerModule);
         return mapper;
+    }
+
+    private static String sanitizeStringValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        StringBuilder sanitized = null;
+        int length = value.length();
+        int index = 0;
+        while (index < length) {
+            char ch = value.charAt(index);
+            if (Character.isHighSurrogate(ch)) {
+                if (index + 1 < length && Character.isLowSurrogate(value.charAt(index + 1))) {
+                    if (sanitized != null) {
+                        sanitized.append(ch).append(value.charAt(index + 1));
+                    }
+                    index += 2;
+                    continue;
+                }
+                if (sanitized == null) {
+                    sanitized = new StringBuilder(length);
+                    sanitized.append(value, 0, index);
+                }
+                sanitized.append('\uFFFD');
+                index++;
+                continue;
+            }
+            if (Character.isLowSurrogate(ch)) {
+                if (sanitized == null) {
+                    sanitized = new StringBuilder(length);
+                    sanitized.append(value, 0, index);
+                }
+                sanitized.append('\uFFFD');
+                index++;
+                continue;
+            }
+            if (sanitized != null) {
+                sanitized.append(ch);
+            }
+            index++;
+        }
+        return sanitized == null ? value : sanitized.toString();
+    }
+
+    final class SanitizingStringSerializer extends StdScalarSerializer<String> {
+        private SanitizingStringSerializer() {
+            super(String.class);
+        }
+
+        @Override
+        public void serialize(String value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+            gen.writeString(sanitizeStringValue(value));
+        }
+    }
+
+    final class SanitizingStringKeySerializer extends JsonSerializer<Object> {
+        @Override
+        public void serialize(Object value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            gen.writeFieldName(sanitizeStringValue(value == null ? null : value.toString()));
+        }
     }
 
     final class FastjsonAnnotationIntrospector extends JacksonAnnotationIntrospector {
