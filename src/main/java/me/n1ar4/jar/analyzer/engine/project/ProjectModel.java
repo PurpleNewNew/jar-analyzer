@@ -10,6 +10,7 @@
 
 package me.n1ar4.jar.analyzer.engine.project;
 
+import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
 
 import java.nio.file.Path;
@@ -29,7 +30,8 @@ public record ProjectModel(
         Path runtimePath,
         List<ProjectRoot> roots,
         List<Path> analyzedArchives,
-        boolean resolveInnerJars
+        boolean resolveInnerJars,
+        String jdkModules
 ) {
     public ProjectModel {
         buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
@@ -37,6 +39,17 @@ public record ProjectModel(
         runtimePath = normalizeNullablePath(runtimePath);
         roots = immutableRoots(roots);
         analyzedArchives = immutablePaths(analyzedArchives);
+        jdkModules = normalizeJdkModules(jdkModules);
+    }
+
+    public ProjectModel(ProjectBuildMode buildMode,
+                        Path primaryInputPath,
+                        Path runtimePath,
+                        List<ProjectRoot> roots,
+                        List<Path> analyzedArchives,
+                        boolean resolveInnerJars) {
+        this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY);
     }
 
     public static ProjectModel empty() {
@@ -46,7 +59,8 @@ public record ProjectModel(
                 null,
                 List.of(),
                 List.of(),
-                false
+                false,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY
         );
     }
 
@@ -54,11 +68,21 @@ public record ProjectModel(
                                         Path runtimePath,
                                         List<Path> analyzedArchives,
                                         boolean resolveInnerJars) {
+        return artifact(inputPath, runtimePath, analyzedArchives, resolveInnerJars,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+    }
+
+    public static ProjectModel artifact(Path inputPath,
+                                        Path runtimePath,
+                                        List<Path> analyzedArchives,
+                                        boolean resolveInnerJars,
+                                        String jdkModules) {
         Builder builder = builder()
                 .buildMode(ProjectBuildMode.ARTIFACT)
                 .primaryInputPath(inputPath)
                 .runtimePath(runtimePath)
                 .resolveInnerJars(resolveInnerJars)
+                .jdkModules(jdkModules)
                 .analyzedArchives(analyzedArchives);
         if (inputPath != null) {
             builder.addRoot(new ProjectRoot(
@@ -172,6 +196,10 @@ public record ProjectModel(
         return ProjectPathNormalizer.normalizeNullablePath(path);
     }
 
+    private static String normalizeJdkModules(String value) {
+        return JdkArchiveResolver.normalizePolicy(value);
+    }
+
     public static final class Builder {
         private ProjectBuildMode buildMode = ProjectBuildMode.ARTIFACT;
         private Path primaryInputPath;
@@ -179,6 +207,7 @@ public record ProjectModel(
         private final List<ProjectRoot> roots = new ArrayList<>();
         private final List<Path> analyzedArchives = new ArrayList<>();
         private boolean resolveInnerJars;
+        private String jdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
 
         public Builder buildMode(ProjectBuildMode buildMode) {
             this.buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
@@ -234,6 +263,11 @@ public record ProjectModel(
             return this;
         }
 
+        public Builder jdkModules(String jdkModules) {
+            this.jdkModules = normalizeJdkModules(jdkModules);
+            return this;
+        }
+
         public ProjectModel build() {
             return new ProjectModel(
                     Objects.requireNonNullElse(buildMode, ProjectBuildMode.ARTIFACT),
@@ -241,7 +275,8 @@ public record ProjectModel(
                     runtimePath,
                     roots,
                     analyzedArchives,
-                    resolveInnerJars
+                    resolveInnerJars,
+                    jdkModules
             );
         }
     }

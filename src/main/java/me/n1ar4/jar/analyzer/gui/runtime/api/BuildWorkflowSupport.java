@@ -118,8 +118,9 @@ final class BuildWorkflowSupport {
         }
         String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
         boolean nested = settings != null && settings.resolveNestedJars();
+        String jdkModules = settings == null ? "" : settings.jdkModules();
         ProjectRegistryService service = services.projectRegistryService();
-        service.upsertActiveProjectBuildSettings("", inputPath, runtime, nested);
+        service.upsertActiveProjectBuildSettings("", inputPath, runtime, nested, jdkModules);
         if (inputResolution == null) {
             return;
         }
@@ -148,7 +149,8 @@ final class BuildWorkflowSupport {
                     normalized,
                     workspaceSdkPath,
                     List.of(normalized),
-                    nested
+                    nested,
+                    jdkModules
             ));
         }
     }
@@ -385,7 +387,8 @@ final class BuildWorkflowSupport {
                 .buildMode(ProjectBuildMode.PROJECT)
                 .primaryInputPath(normalizedAnalysisInput)
                 .runtimePath(workspaceSdkPath)
-                .resolveInnerJars(settings != null && settings.resolveNestedJars());
+                .resolveInnerJars(settings != null && settings.resolveNestedJars())
+                .jdkModules(settings == null ? "" : settings.jdkModules());
         if (normalizedProjectRoot != null) {
             builder.addRoot(new ProjectRoot(
                     ProjectRootKind.CONTENT_ROOT,

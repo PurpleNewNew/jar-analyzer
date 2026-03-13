@@ -15,7 +15,6 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
-import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -82,15 +81,18 @@ public class ProjectContextModelTest {
         ProjectRegistryEntry sameConfig = service.register("same", "/tmp/demo/app.jar", "/tmp/jdk-21", false);
         ProjectRegistryEntry otherRuntime = service.register("runtime", "/tmp/demo/app.jar", "/tmp/jdk-17", false);
         ProjectRegistryEntry nested = service.register("nested", "/tmp/demo/app.jar", "/tmp/jdk-21", true);
+        ProjectRegistryEntry otherModules = service.register("modules", "/tmp/demo/app.jar", "/tmp/jdk-21", false, "web");
         try {
             assertEquals(base.projectKey(), sameConfig.projectKey());
             assertNotEquals(base.projectKey(), otherRuntime.projectKey());
             assertNotEquals(base.projectKey(), nested.projectKey());
+            assertNotEquals(base.projectKey(), otherModules.projectKey());
         } finally {
             service.activateTemporaryProject();
             service.remove(base.projectKey(), true);
             service.remove(otherRuntime.projectKey(), true);
             service.remove(nested.projectKey(), true);
+            service.remove(otherModules.projectKey(), true);
         }
     }
 
@@ -380,12 +382,13 @@ public class ProjectContextModelTest {
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
                     () -> service.switchActive(created.projectKey()));
-            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals("project_runtime_snapshot_corrupt", ex.getMessage());
             assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
             assertEquals(515L, DatabaseManager.getProjectBuildSeq());
             assertEquals(1, DatabaseManager.getMethodReferences().size());
             assertEquals("demo/CurrentController",
                     DatabaseManager.getMethodReferences().get(0).getClassReference().getName());
+            assertTrue(metadataStore.readAvailability(created.projectKey()).corrupt());
         } finally {
             service.activateTemporaryProject();
             service.remove(created.projectKey(), true);
@@ -408,7 +411,7 @@ public class ProjectContextModelTest {
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
                     () -> service.register("updated-alias", "/tmp/demo/existing-corrupt.jar", "", false));
-            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals("project_runtime_snapshot_corrupt", ex.getMessage());
             assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
             assertEquals(616L, DatabaseManager.getProjectBuildSeq());
             ProjectRegistryEntry restored = service.list().stream()
@@ -417,6 +420,7 @@ public class ProjectContextModelTest {
                     .orElse(null);
             assertNotNull(restored);
             assertEquals(existing.alias(), restored.alias());
+            assertTrue(metadataStore.readAvailability(existing.projectKey()).corrupt());
         } finally {
             service.activateTemporaryProject();
             service.remove(existing.projectKey(), true);
@@ -440,10 +444,11 @@ public class ProjectContextModelTest {
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
                     () -> service.remove(current.projectKey(), false));
-            assertEquals("project_runtime_snapshot_restore_failed", ex.getMessage());
+            assertEquals("project_runtime_snapshot_corrupt", ex.getMessage());
             assertEquals(originalProjectKey, ActiveProjectContext.getActiveProjectKey());
             assertEquals(717L, DatabaseManager.getProjectBuildSeq());
             assertTrue(service.list().stream().anyMatch(entry -> entry.projectKey().equals(current.projectKey())));
+            assertTrue(metadataStore.readAvailability(broken.projectKey()).corrupt());
         } finally {
             service.activateTemporaryProject();
             service.remove(current.projectKey(), true);

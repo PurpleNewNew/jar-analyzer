@@ -17,6 +17,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.PrunedFlowFixture;
@@ -42,9 +43,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphTaintEngineTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
 
     @TempDir
     Path tempDir;
@@ -53,6 +51,7 @@ class GraphTaintEngineTest {
     void cleanup() {
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
@@ -193,18 +192,12 @@ class GraphTaintEngineTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -243,9 +236,7 @@ class GraphTaintEngineTest {
             assertTrue(after.stream().anyMatch(result ->
                     result.getTaintText() != null && result.getTaintText().contains("search backend: graph-pruned")));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -256,18 +247,12 @@ class GraphTaintEngineTest {
         Path model = tempDir.resolve("model-dsl.json");
         Path source = tempDir.resolve("source-dsl.json");
         Path sink = tempDir.resolve("sink-dsl.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[],\"dsl\":{\"rules\":[]}}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -323,9 +308,7 @@ class GraphTaintEngineTest {
             assertTrue(after.stream().anyMatch(result ->
                     result.getTaintText() != null && result.getTaintText().contains("search backend: graph-pruned")));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -336,10 +319,6 @@ class GraphTaintEngineTest {
         Path model = tempDir.resolve("model-web-remove.json");
         Path source = tempDir.resolve("source-web-remove.json");
         Path sink = tempDir.resolve("sink-web-remove.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -347,9 +326,7 @@ class GraphTaintEngineTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"taint-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -388,9 +365,7 @@ class GraphTaintEngineTest {
                     .build(), null).results();
             assertFalse(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -485,13 +460,5 @@ class GraphTaintEngineTest {
                 List.of()
         );
         DatabaseManager.restoreProjectRuntime(snapshot);
-    }
-
-    private static void restoreProperty(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
     }
 }

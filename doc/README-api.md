@@ -23,6 +23,7 @@
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
   - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）
+  - 项目级 `jdkModules` 通过正式配置面传入：GUI `jdk modules`、`POST /api/projects/register` 的 `jdkModules`、CLI `build --jdk-modules`
 
 ## 统一响应格式
 成功:
@@ -290,9 +291,13 @@
     "alias": "demo",
     "inputPath": "/abs/path/app.jar",
     "runtimePath": "/abs/path/jdk",
-    "resolveNestedJars": true
+    "resolveNestedJars": true,
+    "jdkModules": "core"
   }
   ```
+  说明：
+  - `jdkModules` 为可选字段，默认 `core`
+  - 运行时快照损坏时，切换/注册会返回显式的 `project_runtime_snapshot_corrupt`，区别于普通恢复失败
 - `POST /api/projects/switch`
   Body:
   ```json

@@ -250,6 +250,7 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 
 1. `--del-cache`：删除临时缓存目录
 2. `--inner-jars`：解析 jar in jar（fatjar 内嵌依赖）
+3. `--jdk-modules <policy>`：显式指定 JDK 模块策略，默认 `core`
 
 默认行为：
 1. 若未设置 `jar.analyzer.callgraph.profile`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`
@@ -261,8 +262,13 @@ java -Xms4g -Xmx8g -jar target/jar-analyzer-*-jar-with-dependencies.jar build --
 
 常用系统属性：
 1. `jar.analyzer.callgraph.profile`: `fast|balanced|precision`
-2. `jar.analyzer.jdk.modules`: 默认 `core`（JDK9+ 为 `java.base,java.desktop,java.logging`）
-3. 调用图主链完全由字节码前端、语义补边与选择性 PTA 提供
+2. 调用图主链完全由字节码前端、语义补边与选择性 PTA 提供
+
+JDK 依赖策略：
+1. GUI：`Start` 面板和项目结构对话框里的 `jdk modules`
+2. HTTP API：`POST /api/projects/register` 的 `jdkModules`
+3. CLI：`build --jdk-modules <policy>`
+4. 默认值仍为 `core`（JDK9+ 展开为 `java.base,java.desktop,java.logging`），不再通过隐藏系统属性传递项目级输入
 
 ### 启动 GUI + API
 

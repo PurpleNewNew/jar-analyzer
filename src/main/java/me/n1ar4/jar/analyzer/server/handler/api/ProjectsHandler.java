@@ -90,13 +90,14 @@ public final class ProjectsHandler extends ApiBaseHandler implements HttpHandler
         String alias = safe(body.getString("alias"));
         String inputPath = safe(body.getString("inputPath"));
         String runtimePath = safe(body.getString("runtimePath"));
+        String jdkModules = safe(body.getString("jdkModules"));
         boolean resolveNested = body.getBooleanValue("resolveNestedJars");
         if (inputPath.isBlank()) {
             return needParam("inputPath");
         }
         try {
             ProjectRegistryEntry entry = ProjectRegistryService.getInstance()
-                    .register(alias, inputPath, runtimePath, resolveNested);
+                    .register(alias, inputPath, runtimePath, resolveNested, jdkModules);
             return ok(entry);
         } catch (IllegalArgumentException ex) {
             return buildError(NanoHTTPD.Response.Status.BAD_REQUEST, "project_register_invalid", safe(ex.getMessage()));

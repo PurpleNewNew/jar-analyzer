@@ -63,7 +63,7 @@ public final class SwingGuiLauncher implements GuiLauncher {
             try {
                 ProjectRegistryService.getInstance().cleanupTemporaryProject();
             } catch (Throwable ex) {
-                logger.debug("shutdown cleanup temporary project fail: {}", ex.toString());
+                logger.warn("shutdown cleanup temporary project fail: {}", ex.toString(), ex);
             }
         }, "jar-analyzer-temp-project-cleanup"));
     }

@@ -67,7 +67,8 @@ public record ProjectRuntimeState(
                 normalizePath(current.runtimePath()),
                 current.roots(),
                 toImmutablePathList(archives),
-                current.resolveInnerJars()
+                current.resolveInnerJars(),
+                current.jdkModules()
         ));
     }
 
@@ -79,17 +80,22 @@ public record ProjectRuntimeState(
                 normalizePath(current.runtimePath()),
                 current.roots(),
                 toImmutablePathList(current.analyzedArchives()),
-                enabled
+                enabled,
+                current.jdkModules()
         ));
     }
 
-    public ProjectRuntimeState ensureArtifactProjectModel(Path inputPath, Path rtJarPath, boolean resolveInnerJars) {
+    public ProjectRuntimeState ensureArtifactProjectModel(Path inputPath,
+                                                          Path rtJarPath,
+                                                          boolean resolveInnerJars,
+                                                          String jdkModules) {
         ProjectModel current = projectModel == null ? ProjectModel.empty() : projectModel;
         ProjectModel artifact = ProjectModel.artifact(
                 normalizePath(inputPath),
                 normalizePath(rtJarPath),
                 current.analyzedArchives(),
-                resolveInnerJars
+                resolveInnerJars,
+                jdkModules
         );
         return new ProjectRuntimeState(projectKey, buildSeq, artifact);
     }
@@ -104,7 +110,8 @@ public record ProjectRuntimeState(
                 normalizePath(model.runtimePath()),
                 model.roots(),
                 toImmutablePathList(model.analyzedArchives()),
-                model.resolveInnerJars()
+                model.resolveInnerJars(),
+                model.jdkModules()
         );
     }
 

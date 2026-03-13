@@ -22,6 +22,8 @@ public class BuildCmd {
     private boolean delCache;
     @Parameter(names = {"--inner-jars"}, description = "resolve jars in jar")
     private boolean innerJars;
+    @Parameter(names = {"--jdk-modules"}, description = "jdk modules policy: core|web|all|csv")
+    private String jdkModules = "core";
 
     public BuildCmd() {
 
@@ -37,5 +39,9 @@ public class BuildCmd {
 
     public boolean enableInnerJars() {
         return innerJars;
+    }
+
+    public String getJdkModules() {
+        return jdkModules;
     }
 }

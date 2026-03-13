@@ -14,6 +14,7 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.TaintGuardRule;
 import me.n1ar4.jar.analyzer.taint.TaintModelRule;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,12 +32,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RuleRegistryReloadTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
-
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void cleanup() {
+        RuleRegistryTestSupport.clearRuleFiles();
+    }
 
     @Test
     void shouldHotReloadModelAndSinkRulesWhenFilesChange() throws Exception {
@@ -44,9 +46,6 @@ class RuleRegistryReloadTest {
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -54,12 +53,9 @@ class RuleRegistryReloadTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, buildSinkJson("jndi"), StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
-            long sinkV1 = SinkRuleRegistry.reload();
-            long modelV1 = ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
+            long sinkV1 = SinkRuleRegistry.getVersion();
+            long modelV1 = ModelRegistry.getVersion();
             assertTrue(sinkV1 > 0);
             assertTrue(modelV1 > 0);
             assertTrue(ModelRegistry.getSourceAnnotations().contains("Ldemo/Old;"));
@@ -89,11 +85,7 @@ class RuleRegistryReloadTest {
             assertEquals("sql", ModelRegistry.resolveSinkKind(sinkHandle()));
             assertTrue(fp2 != null && !fp2.isBlank() && !fp2.equals(fp1));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -103,9 +95,6 @@ class RuleRegistryReloadTest {
         Path source = tempDir.resolve("source-dsl.json");
         Path sink = tempDir.resolve("sink-dsl.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, """
                     {
@@ -163,12 +152,7 @@ class RuleRegistryReloadTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dsl-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
 
             TaintModelRule summaryRule = ModelRegistry.getSummaryModelRule();
             assertEquals(1, summaryRule.getRules().size());
@@ -191,11 +175,7 @@ class RuleRegistryReloadTest {
             assertEquals(0, sanitizer.getParamIndex());
             assertEquals("sql", sanitizer.getKind());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -205,9 +185,6 @@ class RuleRegistryReloadTest {
         Path source = tempDir.resolve("source-guard-dsl.json");
         Path sink = tempDir.resolve("sink-guard-dsl.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, """
                     {
@@ -253,12 +230,7 @@ class RuleRegistryReloadTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dsl-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
 
             assertEquals(1, ModelRegistry.getGuardRules().size());
             TaintGuardRule guardRule = ModelRegistry.getGuardRules().get(0);
@@ -280,11 +252,7 @@ class RuleRegistryReloadTest {
             assertTrue(validation.toMap().toString().contains("unsupported_dsl_kind"));
             assertTrue(validation.toMap().toString().contains("pruning_hint_invalid"));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -294,9 +262,6 @@ class RuleRegistryReloadTest {
         Path source = tempDir.resolve("source-scope.json");
         Path sink = tempDir.resolve("sink-scope.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, """
                     {
@@ -332,12 +297,7 @@ class RuleRegistryReloadTest {
                     """, StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"scope-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
 
             Map<String, Object> combined = RuleValidationViews.combinedValidationMap();
             assertTrue(combined.containsKey("model"));
@@ -361,11 +321,7 @@ class RuleRegistryReloadTest {
 
             assertThrows(IllegalArgumentException.class, () -> RuleValidationViews.issueMaps("bogus"));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -394,11 +350,4 @@ class RuleRegistryReloadTest {
         );
     }
 
-    private static void restore(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
 }

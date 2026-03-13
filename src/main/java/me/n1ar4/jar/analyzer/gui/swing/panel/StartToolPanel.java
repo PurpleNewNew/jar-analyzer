@@ -89,6 +89,7 @@ public final class StartToolPanel extends JPanel {
 
     private final JTextField inputPathText = new JTextField();
     private final JTextField runtimePathText = new JTextField();
+    private final JTextField jdkModulesText = new JTextField();
     private final JButton inputBrowseButton = new JButton();
     private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
@@ -119,9 +120,10 @@ public final class StartToolPanel extends JPanel {
         JPanel settingsPanel = new JPanel(new BorderLayout(6, 6));
         settingsPanel.setBorder(BorderFactory.createTitledBorder("Build Settings"));
 
-        JPanel pathPanel = new JPanel(new GridLayout(2, 1, 6, 6));
+        JPanel pathPanel = new JPanel(new GridLayout(3, 1, 6, 6));
         pathPanel.add(createPathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
         pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
+        pathPanel.add(createTextRow("jdk modules", jdkModulesText));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
         JPanel optionsPanel = new JPanel(new GridLayout(1, 2, 4, 4));
@@ -313,6 +315,7 @@ public final class StartToolPanel extends JPanel {
         if (settings != null) {
             setTextIfIdle(inputPathText, settings.activeInputPath());
             setTextIfIdle(runtimePathText, settings.sdkPath());
+            setTextIfIdle(jdkModulesText, settings.jdkModules());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
             fixClassPathBox.setSelected(settings.fixClassPath());
         }
@@ -378,7 +381,8 @@ public final class StartToolPanel extends JPanel {
                     inputPath,
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
-                    fixClassPathBox.isSelected()
+                    fixClassPathBox.isSelected(),
+                    safe(jdkModulesText.getText())
             );
             RuntimeFacades.build().apply(next);
         } catch (Throwable ex) {
@@ -400,6 +404,7 @@ public final class StartToolPanel extends JPanel {
         root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
         JTextField sdkField = new JTextField(safe(runtimePathText.getText()));
+        JTextField jdkModulesField = new JTextField(safe(jdkModulesText.getText()));
         JButton browseButton = new JButton();
         SwingI18n.setupBrowseButton(browseButton, sdkField, "选择 JDK 路径", "Browse JDK path");
         browseButton.addActionListener(e -> chooseSdkPathForDialog(sdkField));
@@ -421,6 +426,18 @@ public final class StartToolPanel extends JPanel {
         gbc.insets = new Insets(0, 0, 0, 0);
         form.add(browseButton, gbc);
 
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.insets = new Insets(6, 0, 0, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+        form.add(new JLabel("JDK Modules"), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridwidth = 2;
+        form.add(jdkModulesField, gbc);
+        gbc.gridwidth = 1;
+
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         JButton cancel = new JButton(SwingI18n.tr("取消", "Cancel"));
         JButton apply = new JButton(SwingI18n.tr("应用", "Apply"));
@@ -430,6 +447,7 @@ public final class StartToolPanel extends JPanel {
         cancel.addActionListener(e -> dialog.dispose());
         apply.addActionListener(e -> {
             runtimePathText.setText(safe(sdkField.getText()));
+            jdkModulesText.setText(safe(jdkModulesField.getText()));
             applySettings();
             dialog.dispose();
         });
@@ -437,9 +455,16 @@ public final class StartToolPanel extends JPanel {
         root.add(form, BorderLayout.CENTER);
         root.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(root);
-        dialog.setSize(620, 170);
+        dialog.setSize(620, 220);
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
+    }
+
+    private JPanel createTextRow(String label, JTextField textField) {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.add(new JLabel(label), BorderLayout.WEST);
+        row.add(textField, BorderLayout.CENTER);
+        return row;
     }
 
     private void chooseSdkPathForDialog(JTextField targetField) {

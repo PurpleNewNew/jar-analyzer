@@ -19,6 +19,7 @@ import me.n1ar4.jar.analyzer.storage.neo4j.procedure.ApocWhitelist;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jGraphSnapshotLoader;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
+import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectMetadataSnapshotStoreTestHook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
@@ -49,7 +50,11 @@ class QueryApiHandlersTest {
             System.setProperty(ApocWhitelist.APOC_WHITELIST_PROP, originalApocWhitelist);
         }
         for (String projectKey : projectKeys) {
-            Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
+            try {
+                ProjectRegistryService.getInstance().remove(projectKey, true);
+            } catch (Exception ignored) {
+                Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
+            }
             Neo4jGraphSnapshotLoader.invalidate(projectKey);
         }
         projectKeys.clear();
@@ -162,6 +167,25 @@ class QueryApiHandlersTest {
         JSONObject data = json.getJSONObject("data");
         assertTrue(data.containsKey("registryState"));
         assertTrue(data.containsKey("registryMessage"));
+    }
+
+    @Test
+    void registerProjectShouldAcceptExplicitJdkModules() throws Exception {
+        JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
+        JSONObject body = new JSONObject();
+        body.put("alias", "api-jdk-modules");
+        body.put("inputPath", "/tmp/demo/api-jdk-modules.jar");
+        body.put("runtimePath", "/tmp/jdk-21");
+        body.put("resolveNestedJars", false);
+        body.put("jdkModules", "web");
+
+        JSONObject json = JSON.parseObject(api.postJson("/api/projects/register", body.toJSONString()));
+
+        assertEquals(true, json.getBoolean("ok"));
+        JSONObject data = json.getJSONObject("data");
+        assertEquals("web", data.getString("jdkModules"));
+        projectKeys.add(data.getString("projectKey"));
+        ProjectRegistryService.getInstance().activateTemporaryProject();
     }
 
     @Test

@@ -11,6 +11,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
@@ -36,9 +37,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphDfsEngineTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
 
     @TempDir
     Path tempDir;
@@ -46,6 +44,7 @@ class GraphDfsEngineTest {
     @AfterEach
     void cleanup() {
         DatabaseManager.clearAllData();
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
@@ -53,10 +52,6 @@ class GraphDfsEngineTest {
         Path model = tempDir.resolve("model-incoming.json");
         Path source = tempDir.resolve("source-incoming.json");
         Path sink = tempDir.resolve("sink-incoming.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -64,9 +59,7 @@ class GraphDfsEngineTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -92,9 +85,7 @@ class GraphDfsEngineTest {
             assertFalse(results.isEmpty());
             assertTrue(hasSource(results, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -203,18 +194,12 @@ class GraphDfsEngineTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -251,9 +236,7 @@ class GraphDfsEngineTest {
                     .build(), null).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -264,18 +247,12 @@ class GraphDfsEngineTest {
         Path model = tempDir.resolve("model-web.json");
         Path source = tempDir.resolve("source-web.json");
         Path sink = tempDir.resolve("sink-web.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -315,9 +292,7 @@ class GraphDfsEngineTest {
                     .build(), null).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -328,10 +303,6 @@ class GraphDfsEngineTest {
         Path model = tempDir.resolve("model-remove.json");
         Path source = tempDir.resolve("source-remove.json");
         Path sink = tempDir.resolve("sink-remove.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -339,9 +310,7 @@ class GraphDfsEngineTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -376,9 +345,7 @@ class GraphDfsEngineTest {
                     .build(), null).results();
             assertFalse(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -389,10 +356,6 @@ class GraphDfsEngineTest {
         Path model = tempDir.resolve("model-web-remove.json");
         Path source = tempDir.resolve("source-web-remove.json");
         Path sink = tempDir.resolve("sink-web-remove.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -400,9 +363,7 @@ class GraphDfsEngineTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"dfs-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -441,9 +402,7 @@ class GraphDfsEngineTest {
                     .build(), null).results();
             assertFalse(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restoreProperty(MODEL_PROP, oldModelProp);
-            restoreProperty(SOURCE_PROP, oldSourceProp);
-            restoreProperty(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
         }
@@ -528,13 +487,5 @@ class GraphDfsEngineTest {
                 List.of()
         );
         DatabaseManager.restoreProjectRuntime(snapshot);
-    }
-
-    private static void restoreProperty(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
     }
 }

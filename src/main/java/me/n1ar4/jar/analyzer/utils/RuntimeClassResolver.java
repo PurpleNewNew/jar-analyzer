@@ -426,16 +426,17 @@ public final class RuntimeClassResolver {
 
     private static List<Path> resolveRuntimeArchives() {
         Set<Path> result = new LinkedHashSet<>();
+        String modules = ProjectRuntimeContext.jdkModules();
         String rtPath = safeGetRtPath();
         if (!StringUtil.isNull(rtPath)) {
             Path rt = Paths.get(rtPath);
-            result.addAll(JdkArchiveResolver.resolve(rt).archives());
+            result.addAll(JdkArchiveResolver.resolve(rt, modules).archives());
             if (result.isEmpty()) {
                 addRuntimeCandidate(result, rt);
             }
         }
         if (result.isEmpty()) {
-            result.addAll(JdkArchiveResolver.resolve((Path) null).archives());
+            result.addAll(JdkArchiveResolver.resolve((Path) null, modules).archives());
         }
         return new ArrayList<>(result);
     }

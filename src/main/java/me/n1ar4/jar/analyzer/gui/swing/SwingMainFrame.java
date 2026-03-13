@@ -1142,7 +1142,8 @@ public final class SwingMainFrame extends JFrame {
                 input,
                 old.sdkPath(),
                 old.resolveNestedJars(),
-                old.fixClassPath()
+                old.fixClassPath(),
+                old.jdkModules()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
@@ -3415,7 +3416,8 @@ public final class SwingMainFrame extends JFrame {
                 file.toAbsolutePath().toString(),
                 old.sdkPath(),
                 old.resolveNestedJars(),
-                old.fixClassPath()
+                old.fixClassPath(),
+                old.jdkModules()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
@@ -4020,7 +4022,14 @@ public final class SwingMainFrame extends JFrame {
             ProjectRegistryService.getInstance().cleanupTemporaryProject();
             logger.info("temporary project cleaned up on exit");
         } catch (Throwable ex) {
-            logger.debug("cleanup temporary project failed: {}", ex.toString());
+            logger.warn("cleanup temporary project failed on exit: {}", ex.toString(), ex);
+            JOptionPane.showMessageDialog(
+                    this,
+                    tr("临时项目清理失败，磁盘上可能残留旧项目库：", "temporary project cleanup failed; old project data may remain on disk: ")
+                            + safe(ex.getMessage()),
+                    tr("退出警告", "Exit Warning"),
+                    JOptionPane.WARNING_MESSAGE
+            );
         }
     }
 

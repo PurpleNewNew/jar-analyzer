@@ -12,6 +12,7 @@ package me.n1ar4.jar.analyzer.rules;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.taint.TaintAnalysisProfile;
 import me.n1ar4.jar.analyzer.taint.TaintSemanticSummary;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -24,12 +25,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TaintSemanticSummaryReloadTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
-
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void cleanup() {
+        DatabaseManager.clearAllData();
+        RuleRegistryTestSupport.clearRuleFiles();
+    }
 
     @Test
     void shouldInvalidateSemanticSummaryCachesWhenRulesReload() throws Exception {
@@ -37,9 +40,6 @@ class TaintSemanticSummaryReloadTest {
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, buildModelJson(true), StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -47,13 +47,8 @@ class TaintSemanticSummaryReloadTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"reload-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
             DatabaseManager.clearAllData();
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
 
             TaintSemanticSummary.ReturnFlowSummary firstSummary = TaintSemanticSummary.resolveReturnFlow(
                     ModelRegistry.getSummaryModelRule(),
@@ -96,11 +91,7 @@ class TaintSemanticSummaryReloadTest {
             assertFalse(secondGate.isKnown());
         } finally {
             DatabaseManager.clearAllData();
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -110,9 +101,6 @@ class TaintSemanticSummaryReloadTest {
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
 
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, "{\"summaryModel\":[],\"additionalStepHints\":[]}", StandardCharsets.UTF_8);
             Files.writeString(source,
@@ -120,12 +108,7 @@ class TaintSemanticSummaryReloadTest {
                     StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"reload-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
-
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             assertFalse(TaintAnalysisProfile.current().isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.CONTAINER));
 
             Files.writeString(model,
@@ -135,11 +118,7 @@ class TaintSemanticSummaryReloadTest {
 
             assertTrue(TaintAnalysisProfile.current().isAdditionalEnabled(TaintAnalysisProfile.AdditionalStep.CONTAINER));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -166,11 +145,4 @@ class TaintSemanticSummaryReloadTest {
                 + "}";
     }
 
-    private static void restore(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
 }

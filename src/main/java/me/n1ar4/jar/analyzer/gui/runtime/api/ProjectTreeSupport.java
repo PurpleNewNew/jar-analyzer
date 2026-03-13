@@ -145,6 +145,7 @@ final class ProjectTreeSupport {
         TreeSettings safeSettings = settings == null ? TreeSettings.defaults() : settings;
         Map<Integer, String> jarNameById = new HashMap<>();
         Map<Integer, Path> jarPathById = new HashMap<>();
+        Map<Integer, ProjectOrigin> jarOriginById = new HashMap<>();
         for (JarEntity row : jarRows) {
             if (row == null) {
                 continue;
@@ -158,8 +159,12 @@ final class ProjectTreeSupport {
             if (jarPath != null) {
                 jarPathById.put(jarId, jarPath);
             }
+            ProjectOrigin exactOrigin = row.getOrigin();
+            if (exactOrigin != null && exactOrigin != ProjectOrigin.UNKNOWN) {
+                jarOriginById.put(jarId, exactOrigin);
+            }
         }
-        SemanticOriginResolver resolver = new SemanticOriginResolver(snapshot, jarPathById, services);
+        SemanticOriginResolver resolver = new SemanticOriginResolver(snapshot, jarPathById, jarOriginById, services);
         Map<ProjectOrigin, MutableTreeNode> categories = new EnumMap<>(ProjectOrigin.class);
         categories.put(ProjectOrigin.APP, new MutableTreeNode("App", CATEGORY_ORIGIN_APP, true));
         categories.put(ProjectOrigin.LIBRARY, new MutableTreeNode("Libraries", CATEGORY_ORIGIN_LIBRARY, true));
@@ -1116,14 +1121,17 @@ final class ProjectTreeSupport {
 
     private static final class SemanticOriginResolver {
         private final Map<Integer, Path> jarPathById;
+        private final Map<Integer, ProjectOrigin> jarOriginById;
         private final Map<String, ProjectOrigin> exactPathOrigins = new HashMap<>();
         private final List<OriginPathRule> pathRules = new ArrayList<>();
         private final Services services;
 
         private SemanticOriginResolver(ProjectModelSnapshot snapshot,
                                        Map<Integer, Path> jarPathById,
+                                       Map<Integer, ProjectOrigin> jarOriginById,
                                        Services services) {
             this.jarPathById = jarPathById == null ? Map.of() : jarPathById;
+            this.jarOriginById = jarOriginById == null ? Map.of() : jarOriginById;
             this.services = services == null ? Services.system() : services;
             if (snapshot == null) {
                 return;
@@ -1162,6 +1170,10 @@ final class ProjectTreeSupport {
 
         private ProjectOrigin resolve(Integer jarId, String pathText) {
             if (jarId != null && jarId > 0) {
+                ProjectOrigin exact = jarOriginById.get(jarId);
+                if (exact != null && exact != ProjectOrigin.UNKNOWN) {
+                    return exact;
+                }
                 Path jarPath = jarPathById.get(jarId);
                 ProjectOrigin byJarName = resolveByJarName(jarPath);
                 if (byJarName != ProjectOrigin.UNKNOWN) {

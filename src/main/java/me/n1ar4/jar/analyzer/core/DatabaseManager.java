@@ -207,6 +207,7 @@ public class DatabaseManager {
             long buildSeq,
             ProjectModel projectModel,
             List<String> jarPaths,
+            Map<Integer, ProjectOrigin> jarOriginsById,
             Set<ClassFileEntity> classFiles,
             Set<ClassReference> classReferences,
             Set<MethodReference> methodReferences,
@@ -223,7 +224,7 @@ public class DatabaseManager {
         return buildProjectRuntimeSnapshotInternal(
                 buildSeq,
                 projectModel,
-                snapshotJarData(jarPaths),
+                snapshotJarData(jarPaths, jarOriginsById),
                 snapshotClassFileData(classFiles),
                 snapshotClassReferenceData(classReferences),
                 snapshotMethodReferenceData(methodReferences),
@@ -237,6 +238,44 @@ public class DatabaseManager {
                 snapshotClassNameSet(servlets),
                 snapshotClassNameSet(filters),
                 snapshotClassNameSet(listeners)
+        );
+    }
+
+    public static ProjectRuntimeSnapshot buildProjectRuntimeSnapshot(
+            long buildSeq,
+            ProjectModel projectModel,
+            List<String> jarPaths,
+            Set<ClassFileEntity> classFiles,
+            Set<ClassReference> classReferences,
+            Set<MethodReference> methodReferences,
+            Map<MethodReference.Handle, List<String>> methodStrings,
+            Map<MethodReference.Handle, List<String>> methodAnnoStrings,
+            List<ResourceEntity> resources,
+            List<CallSiteEntity> callSites,
+            List<LocalVarEntity> localVars,
+            List<SpringController> springControllers,
+            List<String> springInterceptors,
+            List<String> servlets,
+            List<String> filters,
+            List<String> listeners) {
+        return buildProjectRuntimeSnapshot(
+                buildSeq,
+                projectModel,
+                jarPaths,
+                Map.of(),
+                classFiles,
+                classReferences,
+                methodReferences,
+                methodStrings,
+                methodAnnoStrings,
+                resources,
+                callSites,
+                localVars,
+                springControllers,
+                springInterceptors,
+                servlets,
+                filters,
+                listeners
         );
     }
 
@@ -1313,6 +1352,7 @@ public class DatabaseManager {
         entity.setJid(row.jid());
         entity.setJarName(row.jarName());
         entity.setJarAbsPath(row.jarAbsPath());
+        entity.setOrigin(ProjectOrigin.fromValue(row.origin()));
         return entity;
     }
 
@@ -1679,7 +1719,8 @@ public class DatabaseManager {
         );
     }
 
-    private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData(List<String> jarPaths) {
+    private static List<ProjectRuntimeSnapshot.JarData> snapshotJarData(List<String> jarPaths,
+                                                                        Map<Integer, ProjectOrigin> jarOriginsById) {
         if (jarPaths == null || jarPaths.isEmpty()) {
             return List.of();
         }
@@ -1690,10 +1731,13 @@ public class DatabaseManager {
             if (normalized.isEmpty()) {
                 continue;
             }
+            int jarId = nextJarId++;
+            ProjectOrigin origin = jarOriginsById == null ? null : jarOriginsById.get(jarId);
             out.add(new ProjectRuntimeSnapshot.JarData(
-                    nextJarId++,
+                    jarId,
                     resolveJarName(normalized),
-                    normalized
+                    normalized,
+                    origin == null ? ProjectOrigin.UNKNOWN.value() : origin.value()
             ));
         }
         return out.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(out);
@@ -1873,6 +1917,7 @@ public class DatabaseManager {
             entity.setJid(row.jid());
             entity.setJarName(row.jarName());
             entity.setJarAbsPath(row.jarAbsPath());
+            entity.setOrigin(ProjectOrigin.fromValue(row.origin()));
             String key = safe(row.jarAbsPath());
             if (key.isBlank()) {
                 key = row.jid() + ":" + safe(row.jarName());
@@ -2089,7 +2134,8 @@ public class DatabaseManager {
                 model.runtimePath() == null ? "" : model.runtimePath().toString(),
                 roots.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(roots),
                 archives.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(archives),
-                model.resolveInnerJars()
+                model.resolveInnerJars(),
+                model.jdkModules()
         );
     }
 
@@ -2133,7 +2179,8 @@ public class DatabaseManager {
                 toPath(data.runtimePath()),
                 roots,
                 archives,
-                data.resolveInnerJars()
+                data.resolveInnerJars(),
+                data.jdkModules()
         );
     }
 

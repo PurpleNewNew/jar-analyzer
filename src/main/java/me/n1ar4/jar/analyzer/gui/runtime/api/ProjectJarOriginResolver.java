@@ -41,6 +41,11 @@ final class ProjectJarOriginResolver {
             if (jar == null) {
                 continue;
             }
+            ProjectOrigin exactOrigin = jar.getOrigin();
+            if (exactOrigin != null && exactOrigin != ProjectOrigin.UNKNOWN) {
+                out.put(jar.getJid(), exactOrigin);
+                continue;
+            }
             Path jarPath = normalizePath(jar.getJarAbsPath());
             ProjectOrigin origin = resolveOriginByJarName(jarPath);
             if (origin == ProjectOrigin.UNKNOWN) {

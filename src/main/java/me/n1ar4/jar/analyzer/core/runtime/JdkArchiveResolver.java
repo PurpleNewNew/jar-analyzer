@@ -27,8 +27,7 @@ import java.util.Set;
 
 public final class JdkArchiveResolver {
     private static final Logger logger = LogManager.getLogger();
-    private static final String MODULES_PROP = "jar.analyzer.jdk.modules";
-    private static final String DEFAULT_MODULE_POLICY = "core";
+    public static final String DEFAULT_MODULE_POLICY = "core";
     private static final List<String> CORE_MODULES = List.of("java.base", "java.desktop", "java.logging");
     private static final List<String> WEB_MODULES = List.of(
             "java.base",
@@ -76,8 +75,7 @@ public final class JdkArchiveResolver {
     }
 
     public static JdkResolution resolve(Path sdkPath) {
-        String policy = System.getProperty(MODULES_PROP, DEFAULT_MODULE_POLICY);
-        return resolve(sdkPath, policy);
+        return resolve(sdkPath, DEFAULT_MODULE_POLICY);
     }
 
     public static JdkResolution resolve(Path sdkPath, String modulePolicy) {
@@ -314,6 +312,10 @@ public final class JdkArchiveResolver {
             return DEFAULT_MODULE_POLICY;
         }
         return policy.trim();
+    }
+
+    public static String normalizePolicy(String policy) {
+        return policyOrDefault(policy);
     }
 
     private record ResolvedModulePolicy(boolean all,

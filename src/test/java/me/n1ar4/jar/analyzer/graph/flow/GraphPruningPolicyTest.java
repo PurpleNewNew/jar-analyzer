@@ -15,6 +15,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import me.n1ar4.support.PruningPolicyFixture;
@@ -38,9 +39,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphPruningPolicyTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
 
     @TempDir
     Path tempDir;
@@ -49,8 +47,7 @@ class GraphPruningPolicyTest {
     void cleanup() {
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
-        SinkRuleRegistry.reload();
-        ModelRegistry.reload();
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
@@ -58,10 +55,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -71,9 +64,7 @@ class GraphPruningPolicyTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -102,9 +93,7 @@ class GraphPruningPolicyTest {
             List<TaintResult> after = new GraphTaintEngine().track(snapshot, options, null).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -113,10 +102,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -135,9 +120,7 @@ class GraphPruningPolicyTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -175,9 +158,7 @@ class GraphPruningPolicyTest {
             ).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -186,10 +167,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -220,9 +197,7 @@ class GraphPruningPolicyTest {
                     }
                     """), StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -258,9 +233,7 @@ class GraphPruningPolicyTest {
             ).results();
             assertTrue(hasSource(after, "app/Controller", "entry"));
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -269,19 +242,13 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             PruningPolicyFixture.FixtureData fixture = PruningPolicyFixture.installSanitizerFixture();
             Files.writeString(model, sanitizerModelJson("hard"), StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -296,9 +263,7 @@ class GraphPruningPolicyTest {
             assertEquals(1, ignore.size());
             assertTrue(ignore.get(0).isSuccess());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -307,19 +272,13 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model-dot.json");
         Path source = tempDir.resolve("source-dot.json");
         Path sink = tempDir.resolve("sink-dot.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             PruningPolicyFixture.FixtureData fixture = PruningPolicyFixture.installSanitizerFixture();
             Files.writeString(model, sanitizerModelJson("hard", true), StandardCharsets.UTF_8);
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -327,9 +286,7 @@ class GraphPruningPolicyTest {
             List<TaintResult> results = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
             assertTrue(results.isEmpty());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -338,10 +295,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             PruningPolicyFixture.FixtureData fixture = PruningPolicyFixture.installAdditionalFixture();
             Files.writeString(model, modelJson("""
@@ -352,9 +305,7 @@ class GraphPruningPolicyTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -373,9 +324,7 @@ class GraphPruningPolicyTest {
             List<TaintResult> blocked = new GraphTaintEngine().track(fixture.snapshot(), options, null).results();
             assertTrue(blocked.isEmpty());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -384,10 +333,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -397,9 +342,7 @@ class GraphPruningPolicyTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -425,9 +368,7 @@ class GraphPruningPolicyTest {
             List<TaintResult> strict = new GraphTaintEngine().track(snapshot, options, null).results();
             assertTrue(strict.isEmpty());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -436,10 +377,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -457,9 +394,7 @@ class GraphPruningPolicyTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"pruning-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -490,9 +425,7 @@ class GraphPruningPolicyTest {
             ).results();
             assertTrue(sql.isEmpty());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -501,10 +434,6 @@ class GraphPruningPolicyTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, modelJson("""
                     {
@@ -543,9 +472,7 @@ class GraphPruningPolicyTest {
                     }
                     """), StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -576,9 +503,7 @@ class GraphPruningPolicyTest {
             ).results();
             assertTrue(hard.isEmpty());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -753,15 +678,5 @@ class GraphPruningPolicyTest {
                                 GraphEdge edge) {
         outgoing.computeIfAbsent(edge.getSrcId(), ignore -> new ArrayList<>()).add(edge);
         incoming.computeIfAbsent(edge.getDstId(), ignore -> new ArrayList<>()).add(edge);
-    }
-
-    private static void restore(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-        SinkRuleRegistry.reload();
-        ModelRegistry.reload();
     }
 }

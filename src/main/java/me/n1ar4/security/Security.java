@@ -10,21 +10,29 @@
 
 package me.n1ar4.security;
 
+import me.n1ar4.log.LogManager;
+import me.n1ar4.log.Logger;
+
 import java.io.ObjectInputFilter;
 
 public class Security {
-    private static final int maxArrayLength = 100000;
-    private static final int maxDepth = 20;
-    private static final int maxRefs = 100000;
-    private static final int maxBytes = 500000000;
+    private static final Logger logger = LogManager.getLogger();
+    private static final int MAX_ARRAY_LENGTH = 100000;
+    private static final int MAX_DEPTH = 20;
+    private static final int MAX_REFS = 100000;
+    private static final int MAX_BYTES = 500000000;
+
+    private Security() {
+    }
 
     public static void setObjectInputFilter() {
         try {
-            ObjectInputFilter filter = new JarAnalyzerInputFilter(maxArrayLength, maxDepth, maxRefs, maxBytes);
+            ObjectInputFilter filter = new JarAnalyzerInputFilter(MAX_ARRAY_LENGTH, MAX_DEPTH, MAX_REFS, MAX_BYTES);
             ObjectInputFilter.Config.setSerialFilter(filter);
-            System.out.println("[*] LOAD OBJECT INPUT FILTER SUCCESS");
-        } catch (Throwable t) {
-            System.out.println("[-] LOAD OBJECT INPUT FILTER FAIL: " + t);
+            logger.info("object input filter installed");
+        } catch (Throwable ex) {
+            logger.error("install object input filter failed: {}", ex.toString(), ex);
+            throw new IllegalStateException("object_input_filter_install_failed", ex);
         }
     }
 }

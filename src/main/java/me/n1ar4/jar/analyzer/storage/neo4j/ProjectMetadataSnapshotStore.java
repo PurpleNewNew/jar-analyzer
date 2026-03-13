@@ -37,6 +37,8 @@ public final class ProjectMetadataSnapshotStore {
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final String SNAPSHOT_FILE = "runtime-metadata.json";
     private static final String UNAVAILABLE_FILE = "runtime-metadata.unavailable";
+    private static final String REASON_BUILD_STARTED = "build_started";
+    private static final String REASON_SNAPSHOT_CORRUPT = "snapshot_corrupt";
     private static final String ASSET_DIR = "runtime-assets";
     private static final String CLASS_ASSET_DIR = "classes";
     private static final String RESOURCE_ASSET_DIR = "resources";
@@ -121,7 +123,25 @@ public final class ProjectMetadataSnapshotStore {
 
     public boolean isUnavailable(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        return Files.exists(resolveUnavailableFile(normalized));
+        return readAvailability(normalized).unavailable();
+    }
+
+    public Availability readAvailability(String projectKey) {
+        String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
+        Path snapshot = resolveSnapshotFile(normalized);
+        MarkerState marker = readMarkerState(normalized);
+        if (marker != null) {
+            String message = buildAvailabilityMessage(normalized, snapshot, marker.reason());
+            if (REASON_SNAPSHOT_CORRUPT.equals(marker.reason())) {
+                return Availability.corrupt(marker.reason(), message, marker.buildSeq());
+            }
+            return Availability.unavailable(marker.reason(), message, marker.buildSeq());
+        }
+        if (!Files.exists(snapshot)) {
+            return Availability.missing("snapshot_missing", "project runtime snapshot file not found: "
+                    + snapshot.toAbsolutePath().normalize());
+        }
+        return Availability.ok();
     }
 
     public void clearUnavailable(String projectKey) {
@@ -380,8 +400,21 @@ public final class ProjectMetadataSnapshotStore {
 
     public ProjectRuntimeSnapshot.ProjectModelData readProjectModelRegardlessOfAvailability(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        ProjectRuntimeSnapshot snapshot = readDirectSnapshot(normalized);
-        return snapshot == null ? null : snapshot.projectModel();
+        Path target = resolveSnapshotFile(normalized);
+        if (!Files.exists(target)) {
+            return null;
+        }
+        Availability availability = readAvailability(normalized);
+        try {
+            ProjectRuntimeSnapshot snapshot = parseSnapshotFile(target, normalized);
+            if (snapshot != null && availability.corrupt()) {
+                clearUnavailable(normalized);
+            }
+            return snapshot == null ? null : snapshot.projectModel();
+        } catch (Exception ex) {
+            markCorrupt(normalized, target, ex);
+            return null;
+        }
     }
 
     public ProjectRuntimeSnapshot.ClassFileData findClassFile(String projectKey,
@@ -469,7 +502,8 @@ public final class ProjectMetadataSnapshotStore {
 
     private CachedSnapshot loadCachedSnapshot(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
-        if (isUnavailable(normalized)) {
+        Availability availability = readAvailability(normalized);
+        if (availability.unavailable() && !availability.corrupt()) {
             snapshotCache.remove(normalized);
             return null;
         }
@@ -489,11 +523,14 @@ public final class ProjectMetadataSnapshotStore {
                 snapshotCache.remove(normalized);
                 return null;
             }
+            if (availability.corrupt()) {
+                clearUnavailable(normalized);
+            }
             CachedSnapshot refreshed = new CachedSnapshot(stamp, snapshot, SnapshotIndex.of(snapshot));
             snapshotCache.put(normalized, refreshed);
             return refreshed;
         } catch (Exception ex) {
-            logger.warn("read project runtime snapshot fail: key={} err={}", normalized, ex.toString());
+            markCorrupt(normalized, target, ex);
             snapshotCache.remove(normalized);
             return null;
         }
@@ -505,10 +542,18 @@ public final class ProjectMetadataSnapshotStore {
         if (target == null || !Files.exists(target)) {
             return null;
         }
+        Availability availability = readAvailability(normalized);
+        if (availability.unavailable() && !availability.corrupt()) {
+            return null;
+        }
         try {
-            return parseSnapshotFile(target, normalized);
+            ProjectRuntimeSnapshot snapshot = parseSnapshotFile(target, normalized);
+            if (snapshot != null && availability.corrupt()) {
+                clearUnavailable(normalized);
+            }
+            return snapshot;
         } catch (Exception ex) {
-            logger.warn("read project runtime snapshot direct fail: key={} err={}", normalized, ex.toString());
+            markCorrupt(normalized, target, ex);
             return null;
         }
     }
@@ -539,6 +584,28 @@ public final class ProjectMetadataSnapshotStore {
                                   SnapshotIndex index) {
     }
 
+    public record Availability(boolean unavailable,
+                               boolean corrupt,
+                               String reason,
+                               String message,
+                               long buildSeq) {
+        private static Availability ok() {
+            return new Availability(false, false, "", "", 0L);
+        }
+
+        private static Availability missing(String reason, String message) {
+            return new Availability(false, false, reason, safe(message), 0L);
+        }
+
+        private static Availability unavailable(String reason, String message, long buildSeq) {
+            return new Availability(true, false, safe(reason), safe(message), Math.max(0L, buildSeq));
+        }
+
+        private static Availability corrupt(String reason, String message, long buildSeq) {
+            return new Availability(true, true, safe(reason), safe(message), Math.max(0L, buildSeq));
+        }
+    }
+
     private record SnapshotFileStamp(long size, long lastModifiedNs, String fileKey) {
         private static SnapshotFileStamp of(Path target) {
             if (target == null || !Files.exists(target)) {
@@ -567,6 +634,59 @@ public final class ProjectMetadataSnapshotStore {
         } catch (Exception ex) {
             logger.debug("clear project runtime unavailable marker fail: {} ({})", projectHome, ex.toString());
         }
+    }
+
+    private MarkerState readMarkerState(String projectKey) {
+        Path marker = resolveUnavailableFile(projectKey);
+        if (!Files.exists(marker)) {
+            return null;
+        }
+        try {
+            String raw = Files.readString(marker, StandardCharsets.UTF_8);
+            if (raw == null || raw.isBlank()) {
+                return new MarkerState(0L, "");
+            }
+            Map<String, Object> payload = JSON.parseObject(raw, new TypeReference<Map<String, Object>>() {
+            });
+            if (payload == null || payload.isEmpty()) {
+                return new MarkerState(0L, "");
+            }
+            Object buildSeq = payload.get("buildSeq");
+            Object reason = payload.get("reason");
+            long seq = buildSeq instanceof Number number ? number.longValue() : 0L;
+            return new MarkerState(seq, safe(String.valueOf(reason)));
+        } catch (Exception ex) {
+            logger.warn("read project runtime marker fail: key={} err={}", projectKey, ex.toString());
+            return new MarkerState(0L, "");
+        }
+    }
+
+    private String buildAvailabilityMessage(String projectKey, Path snapshot, String reason) {
+        String normalizedReason = safe(reason);
+        if (REASON_SNAPSHOT_CORRUPT.equals(normalizedReason)) {
+            return "project runtime snapshot is unreadable: " + snapshot.toAbsolutePath().normalize();
+        }
+        if (REASON_BUILD_STARTED.equals(normalizedReason)) {
+            return "project runtime snapshot is temporarily unavailable during build: "
+                    + snapshot.toAbsolutePath().normalize();
+        }
+        return "project runtime snapshot is unavailable: " + projectKey;
+    }
+
+    private void markCorrupt(String projectKey, Path target, Exception ex) {
+        logger.error("read project runtime snapshot fail: key={} path={} err={}",
+                projectKey,
+                target == null ? "" : target.toAbsolutePath().normalize(),
+                ex.toString(),
+                ex);
+        try {
+            markUnavailable(projectKey, 0L, REASON_SNAPSHOT_CORRUPT);
+        } catch (RuntimeException markerEx) {
+            logger.warn("mark corrupt runtime snapshot fail: key={} err={}", projectKey, markerEx.toString());
+        }
+    }
+
+    private record MarkerState(long buildSeq, String reason) {
     }
 
     private static final class SnapshotIndex {

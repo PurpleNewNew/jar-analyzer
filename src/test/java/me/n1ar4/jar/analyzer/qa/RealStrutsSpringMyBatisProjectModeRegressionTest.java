@@ -19,7 +19,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
-import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.support.FixtureJars;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class RealStrutsSpringMyBatisProjectModeRegressionTest {
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
 
     @TempDir
     Path tempDir;
@@ -50,12 +49,12 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
         GraphStore.invalidateCache();
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
     @SuppressWarnings("all")
     public void projectModeWarFixtureShouldExposeCallGraphAndWebTaintPaths() {
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Path archive = FixtureJars.strutsSpringMyBatisAppArchive();
             Path projectDir = Paths.get("test", "struts-spring-mybatis-app").toAbsolutePath().normalize();
@@ -113,9 +112,7 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
         } catch (Exception ex) {
             fail("ssm project-mode flow regression failed: " + ex);
         } finally {
-            restoreProperty(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
     }
 
@@ -136,8 +133,7 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
                   }
                 }
                 """, StandardCharsets.UTF_8);
-        System.setProperty(SINK_PROP, sinkFile.toString());
-        SinkRuleRegistry.reload();
+        RuleRegistryTestSupport.useSinkFile(sinkFile);
         ModelRegistry.reload();
     }
 
@@ -270,13 +266,5 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
 
     private static String ref(String className, String methodName, String desc) {
         return className + "#" + methodName + "#" + desc;
-    }
-
-    private static void restoreProperty(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
     }
 }

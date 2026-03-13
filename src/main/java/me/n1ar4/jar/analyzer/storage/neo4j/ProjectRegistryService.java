@@ -14,8 +14,9 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
-import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
+import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
+import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -62,6 +63,7 @@ public final class ProjectRegistryService {
     private String tempInputPath = "";
     private String tempRuntimePath = "";
     private boolean tempResolveNestedJars = false;
+    private String tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
     private long tempUpdatedAt = 0L;
 
     private ProjectRegistryService() {
@@ -102,15 +104,24 @@ public final class ProjectRegistryService {
                                          String inputPath,
                                          String runtimePath,
                                          boolean resolveNestedJars) {
+        return register(alias, inputPath, runtimePath, resolveNestedJars, JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+    }
+
+    public ProjectRegistryEntry register(String alias,
+                                         String inputPath,
+                                         String runtimePath,
+                                         boolean resolveNestedJars,
+                                         String jdkModules) {
         ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
             String normalizedRuntime = normalizePath(runtimePath);
+            String normalizedJdkModules = normalizeJdkModules(jdkModules);
             if (normalizedInput.isBlank()) {
                 throw new IllegalArgumentException("project_input_required");
             }
-            String projectKey = buildProjectKey(normalizedInput, normalizedRuntime, resolveNestedJars);
+            String projectKey = buildProjectKey(normalizedInput, normalizedRuntime, resolveNestedJars, normalizedJdkModules);
             String effectiveAlias = normalizeAlias(alias, normalizedInput);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
@@ -123,6 +134,7 @@ public final class ProjectRegistryService {
                         normalizedInput,
                         normalizedRuntime,
                         resolveNestedJars,
+                        normalizedJdkModules,
                         current == null || current.createdAt() <= 0L ? now : current.createdAt(),
                         now
                 );
@@ -201,6 +213,7 @@ public final class ProjectRegistryService {
                 tempInputPath = "";
                 tempRuntimePath = "";
                 tempResolveNestedJars = false;
+                tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
                 tempUpdatedAt = 0L;
                 if (Objects.equals(activeProjectKey, temporaryKey)) {
                     setActiveStateLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
@@ -243,6 +256,7 @@ public final class ProjectRegistryService {
                         "",
                         "",
                         false,
+                        JdkArchiveResolver.DEFAULT_MODULE_POLICY,
                         now,
                         now
                 );
@@ -292,11 +306,26 @@ public final class ProjectRegistryService {
                                                                  String inputPath,
                                                                  String runtimePath,
                                                                  boolean resolveNestedJars) {
+        return upsertActiveProjectBuildSettings(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY
+        );
+    }
+
+    public ProjectRegistryEntry upsertActiveProjectBuildSettings(String alias,
+                                                                 String inputPath,
+                                                                 String runtimePath,
+                                                                 boolean resolveNestedJars,
+                                                                 String jdkModules) {
         ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
             String normalizedRuntime = normalizePath(runtimePath);
+            String normalizedJdkModules = normalizeJdkModules(jdkModules);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
             String currentProjectKey;
@@ -309,10 +338,12 @@ public final class ProjectRegistryService {
                     String previousInputPath = tempInputPath;
                     String previousRuntimePath = tempRuntimePath;
                     boolean previousResolveNested = tempResolveNestedJars;
+                    String previousJdkModules = tempJdkModules;
                     long previousUpdatedAt = tempUpdatedAt;
                     tempInputPath = normalizedInput;
                     tempRuntimePath = normalizedRuntime;
                     tempResolveNestedJars = resolveNestedJars;
+                    tempJdkModules = normalizedJdkModules;
                     tempUpdatedAt = now;
                     try {
                         persistLocked();
@@ -320,6 +351,7 @@ public final class ProjectRegistryService {
                         tempInputPath = previousInputPath;
                         tempRuntimePath = previousRuntimePath;
                         tempResolveNestedJars = previousResolveNested;
+                        tempJdkModules = previousJdkModules;
                         tempUpdatedAt = previousUpdatedAt;
                         throw ex;
                     }
@@ -345,6 +377,7 @@ public final class ProjectRegistryService {
                             normalizedInput,
                             normalizedRuntime,
                             resolveNestedJars,
+                            normalizedJdkModules,
                             current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
                             now
                     );
@@ -533,20 +566,35 @@ public final class ProjectRegistryService {
     }
 
     public static String buildProjectKey(String normalizedInputPath) {
-        return buildProjectKey(normalizedInputPath, "", false);
+        return buildProjectKey(normalizedInputPath, "", false, JdkArchiveResolver.DEFAULT_MODULE_POLICY);
     }
 
     public static String buildProjectKey(String normalizedInputPath,
                                          String normalizedRuntimePath,
                                          boolean resolveNestedJars) {
+        return buildProjectKey(
+                normalizedInputPath,
+                normalizedRuntimePath,
+                resolveNestedJars,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY
+        );
+    }
+
+    public static String buildProjectKey(String normalizedInputPath,
+                                         String normalizedRuntimePath,
+                                         boolean resolveNestedJars,
+                                         String jdkModules) {
         String safeInput = normalizedInputPath == null ? "" : normalizedInputPath.trim();
         if (safeInput.isBlank()) {
             return "";
         }
         String safeRuntime = normalizedRuntimePath == null ? "" : normalizedRuntimePath.trim();
-        String signature = (safeRuntime.isBlank() && !resolveNestedJars)
+        String safeModules = normalizeJdkModules(jdkModules);
+        String signature = (safeRuntime.isBlank()
+                && !resolveNestedJars
+                && JdkArchiveResolver.DEFAULT_MODULE_POLICY.equals(safeModules))
                 ? safeInput
-                : safeInput + "\n" + safeRuntime + "\n" + resolveNestedJars;
+                : safeInput + "\n" + safeRuntime + "\n" + resolveNestedJars + "\n" + safeModules;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(signature.getBytes(StandardCharsets.UTF_8));
@@ -594,6 +642,7 @@ public final class ProjectRegistryService {
                                 safe(item.getString("inputPath")),
                                 safe(item.getString("runtimePath")),
                                 item.getBooleanValue("resolveNestedJars"),
+                                normalizeJdkModules(item.getString("jdkModules")),
                                 item.getLongValue("createdAt"),
                                 item.getLongValue("updatedAt")
                         ));
@@ -624,6 +673,7 @@ public final class ProjectRegistryService {
                 tempInputPath = "";
                 tempRuntimePath = "";
                 tempResolveNestedJars = false;
+                tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
                 tempUpdatedAt = 0L;
                 restoreProjectKey = activeProjectKey;
                 restoreAlias = resolveAlias(activeProjectKey);
@@ -663,6 +713,7 @@ public final class ProjectRegistryService {
                 row.put("inputPath", entry.inputPath());
                 row.put("runtimePath", entry.runtimePath());
                 row.put("resolveNestedJars", entry.resolveNestedJars());
+                row.put("jdkModules", entry.jdkModules());
                 row.put("createdAt", entry.createdAt());
                 row.put("updatedAt", entry.updatedAt());
                 arr.add(row);
@@ -861,11 +912,15 @@ public final class ProjectRegistryService {
     private RuntimeRestorePlan prepareRuntimeRestorePlan(String projectKey) {
         String normalized = ActiveProjectContext.resolveRequestedOrActive(projectKey);
         ProjectMetadataSnapshotStore store = ProjectMetadataSnapshotStore.getInstance();
+        ProjectMetadataSnapshotStore.Availability availability = store.readAvailability(normalized);
         ProjectRuntimeSnapshot.ProjectModelData modelData = toProjectModelData(buildEntryProjectModel(projectEntrySnapshot(normalized)));
-        if (store.isUnavailable(normalized)) {
+        if (availability.unavailable()) {
             modelData = store.readProjectModelRegardlessOfAvailability(normalized);
             if (modelData == null) {
                 modelData = toProjectModelData(buildEntryProjectModel(projectEntrySnapshot(normalized)));
+            }
+            if (availability.corrupt()) {
+                throw new IllegalStateException("project_runtime_snapshot_corrupt");
             }
             return RuntimeRestorePlan.unavailable(emptyRuntimeSnapshot(modelData));
         }
@@ -875,6 +930,10 @@ public final class ProjectRegistryService {
         }
         ProjectRuntimeSnapshot snapshot = store.read(normalized);
         if (snapshot == null) {
+            ProjectMetadataSnapshotStore.Availability refreshed = store.readAvailability(normalized);
+            if (refreshed.corrupt()) {
+                throw new IllegalStateException("project_runtime_snapshot_corrupt");
+            }
             throw new IllegalStateException("project_runtime_snapshot_restore_failed");
         }
         return RuntimeRestorePlan.snapshot(snapshot);
@@ -1027,6 +1086,10 @@ public final class ProjectRegistryService {
     }
 
     private static ProjectModel buildEntryProjectModel(ProjectRegistryEntry entry) {
+        return buildEntryProjectModel(entry, JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+    }
+
+    private static ProjectModel buildEntryProjectModel(ProjectRegistryEntry entry, String fallback) {
         if (entry == null) {
             return ProjectModel.empty();
         }
@@ -1036,7 +1099,11 @@ public final class ProjectRegistryService {
         if (inputPath == null && runtimePath == null) {
             return ProjectModel.empty();
         }
-        return ProjectModel.artifact(inputPath, runtimePath, analyzedArchives, entry.resolveNestedJars());
+        String modules = safe(entry.jdkModules());
+        if (modules.isBlank()) {
+            modules = normalizeJdkModules(fallback);
+        }
+        return ProjectModel.artifact(inputPath, runtimePath, analyzedArchives, entry.resolveNestedJars(), modules);
     }
 
     private static ProjectRuntimeSnapshot.ProjectModelData toProjectModelData(ProjectModel model) {
@@ -1049,7 +1116,8 @@ public final class ProjectRegistryService {
                 model.runtimePath() == null ? "" : model.runtimePath().toString(),
                 List.of(),
                 stringifyPaths(model.analyzedArchives()),
-                model.resolveInnerJars()
+                model.resolveInnerJars(),
+                model.jdkModules()
         );
     }
 
@@ -1109,6 +1177,7 @@ public final class ProjectRegistryService {
                 tempInputPath,
                 tempRuntimePath,
                 tempResolveNestedJars,
+                tempJdkModules,
                 ts,
                 ts
         );
@@ -1172,6 +1241,10 @@ public final class ProjectRegistryService {
                     normalizedInput, ignored.toString());
         }
         return "project";
+    }
+
+    private static String normalizeJdkModules(String value) {
+        return JdkArchiveResolver.normalizePolicy(value);
     }
 
     private String nextProjectKeyLocked() {

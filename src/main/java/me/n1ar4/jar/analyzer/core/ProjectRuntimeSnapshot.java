@@ -38,7 +38,7 @@ public record ProjectRuntimeSnapshot(
         Set<String> filters,
         Set<String> listeners
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int CURRENT_SCHEMA_VERSION = 3;
 
     public ProjectRuntimeSnapshot {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
@@ -65,11 +65,21 @@ public record ProjectRuntimeSnapshot(
             String runtimePath,
             List<ProjectRootData> roots,
             List<String> analyzedArchives,
-            boolean resolveInnerJars
+            boolean resolveInnerJars,
+            String jdkModules
     ) {
         public ProjectModelData {
             roots = immutableList(roots);
             analyzedArchives = immutableList(analyzedArchives);
+        }
+
+        public ProjectModelData(String buildMode,
+                                String primaryInputPath,
+                                String runtimePath,
+                                List<ProjectRootData> roots,
+                                List<String> analyzedArchives,
+                                boolean resolveInnerJars) {
+            this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars, "core");
         }
     }
 
@@ -87,8 +97,12 @@ public record ProjectRuntimeSnapshot(
     public record JarData(
             int jid,
             String jarName,
-            String jarAbsPath
+            String jarAbsPath,
+            String origin
     ) {
+        public JarData(int jid, String jarName, String jarAbsPath) {
+            this(jid, jarName, jarAbsPath, "unknown");
+        }
     }
 
     public record ClassFileData(

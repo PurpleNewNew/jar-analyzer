@@ -36,13 +36,13 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class SinkRuleRegistry {
     private static final Logger logger = LogManager.getLogger();
-    private static final String SINK_JSON_PROP = "jar.analyzer.rules.sink.path";
     private static final String SINK_JSON_PATH = "rules/sink.json";
     private static final AtomicLong VERSION_SEQ = new AtomicLong(0L);
     private static final long CHANGE_CHECK_INTERVAL_MS = 1000L;
 
     private static volatile Snapshot cachedSnapshot;
     private static volatile long nextCheckAfterMs;
+    private static volatile String sinkPathOverrideForTesting;
 
     private SinkRuleRegistry() {
     }
@@ -135,6 +135,22 @@ public final class SinkRuleRegistry {
         return currentSnapshot().version;
     }
 
+    public static void setSinkPathForTesting(String path) {
+        synchronized (SinkRuleRegistry.class) {
+            sinkPathOverrideForTesting = safe(path);
+            cachedSnapshot = null;
+            nextCheckAfterMs = 0L;
+        }
+    }
+
+    public static void clearSinkPathForTesting() {
+        synchronized (SinkRuleRegistry.class) {
+            sinkPathOverrideForTesting = null;
+            cachedSnapshot = null;
+            nextCheckAfterMs = 0L;
+        }
+    }
+
     private static Snapshot currentSnapshot() {
         Snapshot local = cachedSnapshot;
         long now = System.currentTimeMillis();
@@ -188,7 +204,7 @@ public final class SinkRuleRegistry {
     }
 
     private static String resolveSinkPath() {
-        String override = System.getProperty(SINK_JSON_PROP);
+        String override = sinkPathOverrideForTesting;
         if (override == null || override.isBlank()) {
             return SINK_JSON_PATH;
         }

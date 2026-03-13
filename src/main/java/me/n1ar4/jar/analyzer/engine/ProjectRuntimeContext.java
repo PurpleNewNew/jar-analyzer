@@ -61,7 +61,8 @@ public final class ProjectRuntimeContext {
     public static void prepareArtifactBuild(Path inputPath,
                                             Path rtJarPath,
                                             List<Path> archives,
-                                            boolean resolveInnerJars) {
+                                            boolean resolveInnerJars,
+                                            String jdkModules) {
         updateState(currentState -> {
             ProjectRuntimeState next = currentState;
             ProjectModel currentModel = currentState == null ? null : currentState.projectModel();
@@ -70,7 +71,11 @@ public final class ProjectRuntimeContext {
             if (!explicitProjectMode) {
                 Path effectiveInput = inputPath == null ? next.primaryInputPath() : inputPath;
                 Path effectiveRuntime = rtJarPath == null ? next.runtimePath() : rtJarPath;
-                next = next.ensureArtifactProjectModel(effectiveInput, effectiveRuntime, resolveInnerJars);
+                String effectiveModules = jdkModules;
+                if ((effectiveModules == null || effectiveModules.isBlank()) && currentModel != null) {
+                    effectiveModules = currentModel.jdkModules();
+                }
+                next = next.ensureArtifactProjectModel(effectiveInput, effectiveRuntime, resolveInnerJars, effectiveModules);
             }
             if (archives == null) {
                 return next;
@@ -105,6 +110,11 @@ public final class ProjectRuntimeContext {
 
     public static boolean resolveInnerJars() {
         return getState().resolveInnerJars();
+    }
+
+    public static String jdkModules() {
+        ProjectModel model = getProjectModel();
+        return model == null ? "" : model.jdkModules();
     }
 
     public static void clear() {

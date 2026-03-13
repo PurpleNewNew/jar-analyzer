@@ -34,8 +34,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public final class ModelRegistry {
     private static final Logger logger = LogManager.getLogger();
-    private static final String MODEL_PATH_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PATH_PROP = "jar.analyzer.rules.source.path";
     private static final String MODEL_PATH = "rules/model.json";
     private static final String SOURCE_PATH = "rules/source.json";
     private static final AtomicLong VERSION_SEQ = new AtomicLong(0L);
@@ -43,6 +41,8 @@ public final class ModelRegistry {
 
     private static volatile Snapshot cachedSnapshot;
     private static volatile long nextCheckAfterMs;
+    private static volatile String modelPathOverrideForTesting;
+    private static volatile String sourcePathOverrideForTesting;
 
     private ModelRegistry() {
     }
@@ -76,6 +76,24 @@ public final class ModelRegistry {
             nextCheckAfterMs = 0L;
         }
         return currentSnapshot().version;
+    }
+
+    public static void setRulePathsForTesting(String modelPath, String sourcePath) {
+        synchronized (ModelRegistry.class) {
+            modelPathOverrideForTesting = safe(modelPath);
+            sourcePathOverrideForTesting = safe(sourcePath);
+            cachedSnapshot = null;
+            nextCheckAfterMs = 0L;
+        }
+    }
+
+    public static void clearRulePathsForTesting() {
+        synchronized (ModelRegistry.class) {
+            modelPathOverrideForTesting = null;
+            sourcePathOverrideForTesting = null;
+            cachedSnapshot = null;
+            nextCheckAfterMs = 0L;
+        }
     }
 
     public static List<SourceModel> getSourceModels() {
@@ -218,8 +236,8 @@ public final class ModelRegistry {
         if (local != null && now < nextCheckAfterMs) {
             return local;
         }
-        String modelPath = resolvePath(MODEL_PATH_PROP, MODEL_PATH);
-        String sourcePath = resolvePath(SOURCE_PATH_PROP, SOURCE_PATH);
+        String modelPath = resolvePath(modelPathOverrideForTesting, MODEL_PATH);
+        String sourcePath = resolvePath(sourcePathOverrideForTesting, SOURCE_PATH);
         RuleFileStamp modelStamp = RuleFileStamp.of(modelPath);
         RuleFileStamp sourceStamp = RuleFileStamp.of(sourcePath);
         long sinkVersion = SinkRuleRegistry.getVersion();
@@ -233,8 +251,8 @@ public final class ModelRegistry {
             if (latest != null && now < nextCheckAfterMs) {
                 return latest;
             }
-            modelPath = resolvePath(MODEL_PATH_PROP, MODEL_PATH);
-            sourcePath = resolvePath(SOURCE_PATH_PROP, SOURCE_PATH);
+            modelPath = resolvePath(modelPathOverrideForTesting, MODEL_PATH);
+            sourcePath = resolvePath(sourcePathOverrideForTesting, SOURCE_PATH);
             modelStamp = RuleFileStamp.of(modelPath);
             sourceStamp = RuleFileStamp.of(sourcePath);
             sinkVersion = SinkRuleRegistry.getVersion();
@@ -279,8 +297,8 @@ public final class ModelRegistry {
                 && sinkVersion == snapshot.sinkVersion;
     }
 
-    private static String resolvePath(String propKey, String fallback) {
-        String override = System.getProperty(propKey);
+    private static String resolvePath(String overridePath, String fallback) {
+        String override = overridePath;
         if (override == null || override.isBlank()) {
             return fallback;
         }

@@ -184,9 +184,11 @@ public class CoreRunner {
 
         progress.accept(10);
         Path runtimeHint = rtJarPath == null ? ProjectRuntimeContext.runtimePath() : rtJarPath;
+        ProjectModel runtimeModel = ProjectRuntimeContext.getProjectModel();
+        String jdkModules = runtimeModel == null ? JdkResolution.none().modulesPolicy() : runtimeModel.jdkModules();
         JdkResolution jdkResolution = runtimeHint == null
                 ? JdkResolution.none()
-                : JdkArchiveResolver.resolve(runtimeHint);
+                : JdkArchiveResolver.resolve(runtimeHint, jdkModules);
         LinkedHashSet<String> resolvedArchives = new LinkedHashSet<>(ClasspathResolver.resolveInputArchives(
                 jarPath,
                 runtimeArchiveSeed(runtimeHint),
@@ -202,7 +204,8 @@ public class CoreRunner {
                     jarPath,
                     runtimeHint,
                     normalizedArchives,
-                    includeNested
+                    includeNested,
+                    jdkModules
             );
         } catch (Exception ex) {
             logger.debug("update analyzed archives fail: {}", ex.toString());
@@ -731,6 +734,7 @@ public class CoreRunner {
                             buildSeq,
                             projectModel,
                             runtimeSnapshotJarPaths,
+                            inputs.jarOriginsById(),
                             context.classFileList,
                             context.discoveredClasses,
                             context.discoveredMethods,

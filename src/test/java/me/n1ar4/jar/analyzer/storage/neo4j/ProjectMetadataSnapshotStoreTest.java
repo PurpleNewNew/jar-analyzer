@@ -347,6 +347,20 @@ class ProjectMetadataSnapshotStoreTest {
     }
 
     @Test
+    void malformedSnapshotShouldBeMarkedCorrupt() throws Exception {
+        Path snapshotFile = store.resolveSnapshotFile(projectKey);
+        Files.createDirectories(snapshotFile.getParent());
+        Files.writeString(snapshotFile, "{invalid-json", StandardCharsets.UTF_8);
+
+        assertNull(store.read(projectKey));
+        ProjectMetadataSnapshotStore.Availability availability = store.readAvailability(projectKey);
+        assertTrue(availability.unavailable());
+        assertTrue(availability.corrupt());
+        assertEquals("snapshot_corrupt", availability.reason());
+        assertTrue(availability.message().contains(snapshotFile.toAbsolutePath().normalize().toString()));
+    }
+
+    @Test
     void writeShouldInvalidateCachedSnapshotEvenWhenFileStampIsReused() throws Exception {
         ProjectRuntimeSnapshot first = snapshotFor("demo/CachedController", 11L);
         ProjectRuntimeSnapshot second = snapshotFor("demo/CachedController", 22L);

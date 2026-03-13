@@ -595,7 +595,8 @@ public final class RuntimeFacades {
                 "",
                 "",
                 false,
-                false
+                false,
+                ""
         );
         private volatile int buildProgress = 0;
         private volatile String buildStatusText = initialTr("就绪", "ready");
@@ -3311,7 +3312,8 @@ public final class RuntimeFacades {
                     s.inputPath(),
                     s.sdkPath(),
                     s.resolveNestedJars(),
-                    !s.fixClassPath()
+                    !s.fixClassPath(),
+                    s.jdkModules()
             ));
             emitTextWindow("Config", "fix class path: " + STATE.buildSettings.fixClassPath());
         }

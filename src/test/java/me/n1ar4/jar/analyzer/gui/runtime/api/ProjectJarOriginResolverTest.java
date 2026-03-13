@@ -73,6 +73,33 @@ public class ProjectJarOriginResolverTest {
         assertEquals(ProjectOrigin.APP, ProjectJarOriginResolver.empty().resolve(0));
     }
 
+    @Test
+    public void shouldPreferExactJarOriginRecordedDuringBuild() {
+        Path appRoot = tempDir.resolve("app");
+        Path projectJar = appRoot.resolve("primary.jar");
+        ProjectModel model = ProjectModel.builder()
+                .buildMode(ProjectBuildMode.PROJECT)
+                .primaryInputPath(projectJar)
+                .addRoot(new ProjectRoot(
+                        ProjectRootKind.CONTENT_ROOT,
+                        ProjectOrigin.APP,
+                        appRoot,
+                        "",
+                        false,
+                        false,
+                        10
+                ))
+                .addAnalyzedArchive(projectJar)
+                .build();
+
+        JarEntity jar = jar(1, "primary.jar", projectJar);
+        jar.setOrigin(ProjectOrigin.SDK);
+
+        ProjectJarOriginResolver resolver = ProjectJarOriginResolver.fromProjectModel(model, List.of(jar));
+
+        assertEquals(ProjectOrigin.SDK, resolver.resolve(1));
+    }
+
     private static JarEntity jar(int id, String name, Path path) {
         JarEntity jar = new JarEntity();
         jar.setJid(id);

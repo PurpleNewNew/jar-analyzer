@@ -83,7 +83,8 @@ class RuntimeClassResolverTest {
                 tempDir.resolve("a.jar"),
                 null,
                 List.of(tempDir.resolve("a.jar")),
-                false
+                false,
+                "core"
         );
         long version2 = ProjectRuntimeContext.stateVersion();
 

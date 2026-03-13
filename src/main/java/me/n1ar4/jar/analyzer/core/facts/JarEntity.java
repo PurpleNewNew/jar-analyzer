@@ -10,10 +10,13 @@
 
 package me.n1ar4.jar.analyzer.core.facts;
 
+import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
+
 public class JarEntity {
     private int jid;
     private String jarName;
     private String jarAbsPath;
+    private ProjectOrigin origin = ProjectOrigin.UNKNOWN;
 
     public int getJid() {
         return jid;
@@ -39,12 +42,21 @@ public class JarEntity {
         this.jarAbsPath = jarAbsPath;
     }
 
+    public ProjectOrigin getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(ProjectOrigin origin) {
+        this.origin = origin == null ? ProjectOrigin.UNKNOWN : origin;
+    }
+
     @Override
     public String toString() {
         return "JarEntity{" +
                 "jid=" + jid +
                 ", jarName='" + jarName + '\'' +
                 ", jarAbsPath='" + jarAbsPath + '\'' +
+                ", origin=" + origin +
                 '}';
     }
 }

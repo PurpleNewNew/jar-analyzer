@@ -18,6 +18,7 @@ import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -36,9 +37,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class Neo4jBulkImportServiceAliasEdgeTest {
-    private static final String MODEL_PROP = "jar.analyzer.rules.model.path";
-    private static final String SOURCE_PROP = "jar.analyzer.rules.source.path";
-    private static final String SINK_PROP = "jar.analyzer.rules.sink.path";
 
     @TempDir
     Path tempDir;
@@ -49,6 +47,7 @@ class Neo4jBulkImportServiceAliasEdgeTest {
     void cleanup() {
         Neo4jProjectStore.getInstance().deleteProjectStore(projectKey);
         Neo4jGraphSnapshotLoader.invalidate(projectKey);
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
@@ -56,9 +55,6 @@ class Neo4jBulkImportServiceAliasEdgeTest {
         Path model = tempDir.resolve("model.json");
         Path source = tempDir.resolve("source.json");
         Path sink = tempDir.resolve("sink.json");
-        String oldModelProp = System.getProperty(MODEL_PROP);
-        String oldSourceProp = System.getProperty(SOURCE_PROP);
-        String oldSinkProp = System.getProperty(SINK_PROP);
         try {
             Files.writeString(model, """
                     {
@@ -82,9 +78,7 @@ class Neo4jBulkImportServiceAliasEdgeTest {
             Files.writeString(source, "{\"sourceAnnotations\":[],\"sourceModel\":[]}", StandardCharsets.UTF_8);
             Files.writeString(sink, "{\"name\":\"alias-test\",\"levels\":{}}", StandardCharsets.UTF_8);
 
-            System.setProperty(MODEL_PROP, model.toString());
-            System.setProperty(SOURCE_PROP, source.toString());
-            System.setProperty(SINK_PROP, sink.toString());
+            RuleRegistryTestSupport.useRuleFiles(model, source, sink);
             SinkRuleRegistry.reload();
             ModelRegistry.reload();
 
@@ -175,20 +169,8 @@ class Neo4jBulkImportServiceAliasEdgeTest {
             assertEquals("container_wrapper", aliasEdges.get(0).getAliasKind());
             assertFalse(aliasEdges.get(0).getEvidence().isBlank());
         } finally {
-            restore(MODEL_PROP, oldModelProp);
-            restore(SOURCE_PROP, oldSourceProp);
-            restore(SINK_PROP, oldSinkProp);
-            SinkRuleRegistry.reload();
-            ModelRegistry.reload();
+            RuleRegistryTestSupport.clearRuleFiles();
         }
-    }
-
-    private static void restore(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-            return;
-        }
-        System.setProperty(key, value);
     }
 
     private static MethodReference methodRef(String className,

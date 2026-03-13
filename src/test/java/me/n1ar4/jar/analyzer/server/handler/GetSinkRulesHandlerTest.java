@@ -7,6 +7,7 @@ package me.n1ar4.jar.analyzer.server.handler;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import fi.iki.elonen.NanoHTTPD;
+import me.n1ar4.jar.analyzer.rules.RuleRegistryTestSupport;
 import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -20,16 +21,12 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GetSinkRulesHandlerTest {
-    private static final String PROP = "jar.analyzer.rules.sink.path";
-    private String originalSinkPath = System.getProperty(PROP);
-
     @TempDir
     Path tempDir;
 
     @AfterEach
     void cleanup() {
-        restoreProperty(PROP, originalSinkPath);
-        SinkRuleRegistry.reload();
+        RuleRegistryTestSupport.clearRuleFiles();
     }
 
     @Test
@@ -48,8 +45,7 @@ class GetSinkRulesHandlerTest {
                   }
                 }
                 """, StandardCharsets.UTF_8);
-        System.setProperty(PROP, sinkFile.toString());
-        SinkRuleRegistry.reload();
+        RuleRegistryTestSupport.useSinkFile(sinkFile);
 
         NanoHTTPD.Response response = new GetSinkRulesHandler().handle(null);
         JSONObject root = JSON.parseObject(readBody(response));
@@ -93,8 +89,7 @@ class GetSinkRulesHandlerTest {
                   }
                 }
                 """, StandardCharsets.UTF_8);
-        System.setProperty(PROP, sinkFile.toString());
-        SinkRuleRegistry.reload();
+        RuleRegistryTestSupport.useSinkFile(sinkFile);
 
         NanoHTTPD.Response response = new GetSinkRulesHandler().handle(null);
         JSONObject root = JSON.parseObject(readBody(response));
@@ -115,14 +110,6 @@ class GetSinkRulesHandlerTest {
     private static String readBody(NanoHTTPD.Response response) throws Exception {
         try (InputStream in = response.getData()) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private static void restoreProperty(String key, String value) {
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
         }
     }
 }
