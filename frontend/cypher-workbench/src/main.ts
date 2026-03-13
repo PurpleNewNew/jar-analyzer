@@ -40,6 +40,7 @@ declare global {
       updateUiContext: (ctx: UiContext) => void
       setFullscreen: (fullscreen: boolean) => void
       onHostVisibility: (visible: boolean) => void
+      onHostResize: (width: number, height: number) => void
     }
     __JA_BOOT_ERROR?: string
   }
@@ -85,12 +86,14 @@ interface FrameState {
 interface GraphViewController {
   sync: (frame: FrameState, graph: GraphFramePayload, restartSimulation?: boolean) => void
   setVisible: (visible: boolean) => void
+  requestLayoutSync: () => void
   destroy: () => void
 }
 
 interface TableViewController {
   sync: (frame: FrameState) => void
   setVisible: (visible: boolean) => void
+  requestLayoutSync: () => void
   destroy: () => void
 }
 
@@ -98,6 +101,7 @@ interface FrameBodyController {
   element: HTMLElement
   sync: (frame: FrameState, restartSimulation?: boolean) => void
   setHostVisible: (visible: boolean) => void
+  requestLayoutSync: () => void
   destroy: () => void
 }
 
@@ -105,6 +109,7 @@ interface FrameCardController {
   card: HTMLElement
   sync: (frame: FrameState, restartSimulation?: boolean) => void
   setHostVisible: (visible: boolean) => void
+  requestLayoutSync: () => void
   destroy: () => void
 }
 
@@ -222,6 +227,9 @@ const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
 let frameViewportObserver: ResizeObserver | null = null
 let suppressFrameScrollSelection = false
+let frameViewportSyncScheduled = false
+let workbenchLayoutSyncScheduled = false
+let lastFrameViewportHeight = -1
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -319,6 +327,9 @@ window.JA_WORKBENCH = {
   onHostVisibility: (visible: boolean) => {
     state.hostVisible = !!visible
     updateSimulationVisibility()
+  },
+  onHostResize: (_width: number, _height: number) => {
+    requestWorkbenchLayoutSync(3)
   }
 }
 
@@ -327,7 +338,7 @@ void bootstrap()
 function installFatalBootHandlers(): void {
   const report = (message: string): void => {
     const text = (message || '').trim()
-    if (!text) {
+    if (!text || isIgnorableRuntimeMessage(text)) {
       return
     }
     window.__JA_BOOT_ERROR = text
@@ -391,6 +402,7 @@ function applyUiContext(ctx: UiContext): void {
   refreshHeaderLabels()
   renderScripts()
   renderFrames()
+  requestWorkbenchLayoutSync(2)
 }
 
 function refreshHeaderLabels(): void {
@@ -473,14 +485,65 @@ installFrameRailBehavior()
 function installFrameRailBehavior(): void {
   framesEl.addEventListener('scroll', handleFrameRailScroll, { passive: true })
   frameViewportObserver = new ResizeObserver(() => {
-    updateFrameViewportHeight()
+    scheduleFrameViewportHeightSync()
   })
   frameViewportObserver.observe(framesEl)
-  updateFrameViewportHeight()
+  window.addEventListener('resize', handleWorkbenchResize)
+  scheduleFrameViewportHeightSync()
 }
 
 function updateFrameViewportHeight(): void {
-  framesEl.style.setProperty('--frames-viewport-height', `${Math.max(0, framesEl.clientHeight)}px`)
+  const nextHeight = Math.max(0, Math.round(framesEl.clientHeight))
+  if (nextHeight === lastFrameViewportHeight) {
+    return
+  }
+  lastFrameViewportHeight = nextHeight
+  framesEl.style.setProperty('--frames-viewport-height', `${nextHeight}px`)
+}
+
+function scheduleFrameViewportHeightSync(): void {
+  if (frameViewportSyncScheduled) {
+    return
+  }
+  frameViewportSyncScheduled = true
+  requestAnimationFrame(() => {
+    frameViewportSyncScheduled = false
+    updateFrameViewportHeight()
+  })
+}
+
+function requestWorkbenchLayoutSync(passes = 1): void {
+  if (workbenchLayoutSyncScheduled) {
+    return
+  }
+  workbenchLayoutSyncScheduled = true
+  let remainingPasses = Math.max(1, passes)
+  const runPass = (): void => {
+    requestAnimationFrame(() => {
+      scheduleFrameViewportHeightSync()
+      const selectedFrameId = state.selectedFrameId || state.frames.find((item) => !item.collapsed)?.frameId || ''
+      if (selectedFrameId) {
+        frameControllers.get(selectedFrameId)?.requestLayoutSync()
+      }
+      remainingPasses -= 1
+      if (remainingPasses > 0) {
+        runPass()
+        return
+      }
+      workbenchLayoutSyncScheduled = false
+    })
+  }
+  runPass()
+}
+
+function handleWorkbenchResize(): void {
+  requestWorkbenchLayoutSync(2)
+}
+
+function isIgnorableRuntimeMessage(message: string): boolean {
+  const text = message.trim()
+  return text.includes('ResizeObserver loop completed with undelivered notifications')
+    || text.includes('ResizeObserver loop limit exceeded')
 }
 
 function handleFrameRailScroll(): void {
@@ -966,6 +1029,9 @@ function createFrameCardController(initialFrame: FrameState): FrameCardControlle
     setHostVisible: (visible) => {
       bodyController.setHostVisible(visible)
     },
+    requestLayoutSync: () => {
+      bodyController.requestLayoutSync()
+    },
     destroy: () => {
       bodyController.destroy()
       card.remove()
@@ -1244,6 +1310,10 @@ function createFrameBodyController(
       hostVisible = visible
       applyGraphVisibility(getFrame())
     },
+    requestLayoutSync: () => {
+      graphController?.requestLayoutSync()
+      tableController?.requestLayoutSync()
+    },
     destroy
   }
 }
@@ -1281,6 +1351,8 @@ function mountGraphView(
   const initialSize = measureStage()
   let width = initialSize.width
   let height = initialSize.height
+  let resizeScheduled = false
+  let pendingResizeRefit = false
   const controls = document.createElement('div')
   controls.className = 'graph-zoom-controls'
   const zoomReadout = document.createElement('div')
@@ -1689,11 +1761,25 @@ function mountGraphView(
     }
   }
 
+  const scheduleResizeStage = (refit: boolean): void => {
+    pendingResizeRefit = pendingResizeRefit || refit
+    if (resizeScheduled) {
+      return
+    }
+    resizeScheduled = true
+    requestAnimationFrame(() => {
+      resizeScheduled = false
+      const nextRefit = pendingResizeRefit
+      pendingResizeRefit = false
+      resizeStage(nextRefit)
+    })
+  }
+
   const resizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => resizeStage(false))
+    scheduleResizeStage(false)
   })
   resizeObserver.observe(stage)
-  requestAnimationFrame(() => resizeStage(true))
+  scheduleResizeStage(true)
 
   function updateGraphVisualState(): void {
     graphTheme = graphThemeColors()
@@ -1796,7 +1882,11 @@ function mountGraphView(
         simulation.stop()
         return
       }
+      scheduleResizeStage(!currentFrame.graphViewport)
       nudgeSimulation(hasSavedLayout ? 0.08 : 0.22)
+    },
+    requestLayoutSync: () => {
+      scheduleResizeStage(!currentFrame.graphViewport)
     },
     destroy: () => {
       resizeObserver.disconnect()
@@ -1817,6 +1907,8 @@ function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): Ta
   let visible = true
   let columnsKey = ''
   let lastFocusKey = ''
+  let resizeScheduled = false
+  let lastViewportHeight = -1
 
   container.innerHTML = ''
   const header = document.createElement('div')
@@ -1920,12 +2012,28 @@ function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): Ta
     renderWindow()
   }
 
-  scroll.addEventListener('scroll', onScroll)
-  const resizeObserver = new ResizeObserver(() => {
-    if (!visible) {
+  const scheduleRenderWindow = (force = false): void => {
+    if (resizeScheduled) {
       return
     }
-    renderWindow()
+    resizeScheduled = true
+    requestAnimationFrame(() => {
+      resizeScheduled = false
+      if (!visible) {
+        return
+      }
+      const nextViewportHeight = Math.max(0, scroll.clientHeight || 0)
+      if (!force && nextViewportHeight === lastViewportHeight) {
+        return
+      }
+      lastViewportHeight = nextViewportHeight
+      renderWindow()
+    })
+  }
+
+  scroll.addEventListener('scroll', onScroll)
+  const resizeObserver = new ResizeObserver(() => {
+    scheduleRenderWindow()
   })
   resizeObserver.observe(scroll)
   render()
@@ -1938,8 +2046,11 @@ function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): Ta
     setVisible: (nextVisible) => {
       visible = nextVisible
       if (visible) {
-        renderWindow()
+        scheduleRenderWindow(true)
       }
+    },
+    requestLayoutSync: () => {
+      scheduleRenderWindow(true)
     },
     destroy: () => {
       resizeObserver.disconnect()
@@ -3271,6 +3382,7 @@ function escapeHtml(value: string): string {
 
 window.addEventListener('beforeunload', () => {
   framesEl.removeEventListener('scroll', handleFrameRailScroll)
+  window.removeEventListener('resize', handleWorkbenchResize)
   frameViewportObserver?.disconnect()
   frameViewportObserver = null
   disposeAllFrameResources()

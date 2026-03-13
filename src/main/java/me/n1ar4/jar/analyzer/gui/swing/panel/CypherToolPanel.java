@@ -70,6 +70,7 @@ public final class CypherToolPanel extends JPanel {
     private EntryLoadState entryLoadState = EntryLoadState.UNSTARTED;
     private boolean shutdownRequested;
     private Timer watchdogTimer;
+    private Timer resizeSyncTimer;
     private String entryUrl = "";
     private String language = "zh";
     private String theme = "default";
@@ -115,6 +116,7 @@ public final class CypherToolPanel extends JPanel {
         }
         shutdownRequested = true;
         stopWatchdog();
+        stopResizeSync();
         jcefReady = false;
         entryLoadState = EntryLoadState.UNSTARTED;
         releaseBrowserResources();
@@ -185,6 +187,7 @@ public final class CypherToolPanel extends JPanel {
                             pushUiContextToFrontend();
                             pushFullscreenToFrontend();
                             pushHostVisibilityToFrontend();
+                            scheduleHostResizeSync();
                             scheduleBootstrapProbe();
                         });
                     }
@@ -221,6 +224,7 @@ public final class CypherToolPanel extends JPanel {
                         cefBrowser.setWindowVisibility(true);
                     }
                     pushHostVisibilityToFrontend();
+                    scheduleHostResizeSync();
                 }
 
                 @Override
@@ -229,6 +233,11 @@ public final class CypherToolPanel extends JPanel {
                         cefBrowser.setWindowVisibility(false);
                     }
                     pushHostVisibilityToFrontend();
+                }
+
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    scheduleHostResizeSync();
                 }
             });
             addHierarchyListener(e -> {
@@ -308,6 +317,7 @@ public final class CypherToolPanel extends JPanel {
                 add(uiComponent, BorderLayout.CENTER);
                 revalidate();
                 repaint();
+                scheduleHostResizeSync();
                 SwingUtilities.invokeLater(() -> {
                     try {
                         cefBrowser.createImmediately();
@@ -383,6 +393,12 @@ public final class CypherToolPanel extends JPanel {
         }
     }
 
+    private void stopResizeSync() {
+        if (resizeSyncTimer != null && resizeSyncTimer.isRunning()) {
+            resizeSyncTimer.stop();
+        }
+    }
+
     private void showLoadingPlaceholder() {
         removeAll();
         JLabel loading = new JLabel("Cypher Workbench loading...", SwingConstants.CENTER);
@@ -449,6 +465,7 @@ public final class CypherToolPanel extends JPanel {
 
     private void disableWithReason(String reason) {
         stopWatchdog();
+        stopResizeSync();
         jcefReady = false;
         entryLoadState = EntryLoadState.UNSTARTED;
         releaseBrowserResources();
@@ -481,6 +498,36 @@ public final class CypherToolPanel extends JPanel {
             return;
         }
         evalJs("window.JA_WORKBENCH&&window.JA_WORKBENCH.onHostVisibility(" + isShowing() + ");");
+    }
+
+    private void scheduleHostResizeSync() {
+        if (!jcefReady || cefBrowser == null) {
+            return;
+        }
+        if (resizeSyncTimer == null) {
+            resizeSyncTimer = new Timer(80, e -> pushHostResizeToFrontend());
+            resizeSyncTimer.setRepeats(false);
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            resizeSyncTimer.restart();
+            return;
+        }
+        SwingUtilities.invokeLater(resizeSyncTimer::restart);
+    }
+
+    private void pushHostResizeToFrontend() {
+        if (!jcefReady || cefBrowser == null) {
+            return;
+        }
+        Component uiComponent = cefBrowser.getUIComponent();
+        int width = Math.max(0, uiComponent == null ? getWidth() : Math.max(uiComponent.getWidth(), getWidth()));
+        int height = Math.max(0, uiComponent == null ? getHeight() : Math.max(uiComponent.getHeight(), getHeight()));
+        evalJs("""
+                if (window.JA_WORKBENCH) {
+                  window.JA_WORKBENCH.onHostResize(%d, %d);
+                }
+                window.dispatchEvent(new Event('resize'));
+                """.formatted(width, height));
     }
 
     private void evalJs(String script) {
