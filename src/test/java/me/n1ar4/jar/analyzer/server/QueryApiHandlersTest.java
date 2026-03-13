@@ -99,7 +99,6 @@ class QueryApiHandlersTest {
         assertEquals("default", data.getString("apocWhitelistMode"));
         assertEquals(ApocWhitelist.APOC_WHITELIST_PROP, data.getString("apocWhitelistProperty"));
         assertTrue(data.getJSONArray("apocWhitelist").contains("apoc.text.join"));
-        assertFalse(data.containsKey("legacyCompatibility"));
         assertTrue(data.containsKey("ruleValidation"));
         assertTrue(data.containsKey("graphModel"));
         JSONObject graphModel = data.getJSONObject("graphModel");
@@ -189,14 +188,14 @@ class QueryApiHandlersTest {
     }
 
     @Test
-    void cypherShouldRejectRemovedQueryBudgetOptions() {
+    void cypherShouldRejectUnsupportedQueryOptions() {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();
 
         JSONObject body = new JSONObject();
         body.put("query", "MATCH (m:Method) RETURN m LIMIT 1");
         JSONObject options = new JSONObject();
-        options.put("maxMs", 30000);
+        options.put("traceMode", "graph");
         body.put("options", options);
 
         Exception ex = assertThrows(Exception.class,
@@ -536,7 +535,7 @@ class QueryApiHandlersTest {
     }
 
     @Test
-    void legacyJaCallSyntaxShouldBeRejected() throws Exception {
+    void jaProcedureQueriesMustUseYieldClause() throws Exception {
         JarAnalyzerApiInvoker api = new JarAnalyzerApiInvoker(new ServerConfig());
         String projectKey = prepareReadyProject();
 

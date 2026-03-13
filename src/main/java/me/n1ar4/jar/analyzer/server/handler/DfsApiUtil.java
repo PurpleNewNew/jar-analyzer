@@ -86,15 +86,19 @@ class DfsApiUtil {
     static ParseResult parse(NanoHTTPD.IHTTPSession session) {
         DfsRequest req = new DfsRequest();
 
-        // 解析模式：仅接受显式 mode
-        String mode = getParam(session, "mode");
-        if (!StringUtil.isNull(mode)) {
-            String m = mode.trim().toLowerCase();
-            if ("source".equals(m) || "fromsource".equals(m)) {
-                req.fromSink = false;
-            } else if ("sink".equals(m) || "fromsink".equals(m)) {
-                req.fromSink = true;
-            }
+        String mode = safe(getParam(session, "mode")).trim().toLowerCase();
+        if (mode.isEmpty()) {
+            return new ParseResult(null, buildNeedParam("mode"));
+        }
+        if ("source".equals(mode)) {
+            req.fromSink = false;
+        } else if ("sink".equals(mode)) {
+            req.fromSink = true;
+        } else {
+            return new ParseResult(null, buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_request",
+                    "mode must be source or sink"));
         }
 
         req.searchAllSources = getBool(session, "searchAllSources");

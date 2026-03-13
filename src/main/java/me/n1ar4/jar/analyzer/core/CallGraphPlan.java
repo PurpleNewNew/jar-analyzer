@@ -10,9 +10,6 @@
 
 package me.n1ar4.jar.analyzer.core;
 
-import me.n1ar4.log.LogManager;
-import me.n1ar4.log.Logger;
-
 import java.util.Locale;
 
 public record CallGraphPlan(String analysisProfile,
@@ -26,8 +23,6 @@ public record CallGraphPlan(String analysisProfile,
     public static final String PROFILE_FAST = "fast";
     public static final String PROFILE_BALANCED = "balanced";
     public static final String PROFILE_PRECISION = "precision";
-
-    private static final Logger logger = LogManager.getLogger();
 
     public static CallGraphPlan resolve(String profileSetting) {
         String profile = normalize(profileSetting);
@@ -65,10 +60,10 @@ public record CallGraphPlan(String analysisProfile,
                     BytecodeMainlineCallGraphRunner.MODE_PRECISION_V1,
                     true
             );
-            default -> {
-                logger.warn("unknown call graph profile setting: {} (fallback to bytecode balanced)", profile);
-                yield balancedBytecode();
-            }
+            default -> throw new IllegalArgumentException(
+                    "invalid " + CALL_GRAPH_PROFILE_PROP + "=" + profile
+                            + ", supported: fast|balanced|precision"
+            );
         };
     }
 

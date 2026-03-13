@@ -29,6 +29,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.McpConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.MethodNavDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetType;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NoteSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSnapshotDto;
@@ -898,10 +900,9 @@ public final class SwingMainFrame extends JFrame {
     private String formatNavigationSource(String source) {
         return switch (safe(source)) {
             case "usage-caller" -> tr("调用方", "caller");
-            case "usage-fallback" -> tr("回退声明", "fallback declaration");
             case "impl" -> tr("实现", "implementation");
             case "impl-class" -> tr("子类", "subclass");
-            case "impl-fallback" -> tr("默认方法补全", "default-method fallback");
+            case "impl-default" -> tr("默认方法实现", "default-method implementation");
             case "hier-self" -> tr("当前", "self");
             case "hier-super" -> tr("父层级", "super");
             case "hier-sub" -> tr("子层级", "sub");
@@ -1990,13 +1991,12 @@ public final class SwingMainFrame extends JFrame {
         if (!(user instanceof TreeNodeUi item) || item.directory()) {
             return;
         }
-        String value = safe(item.value());
-        if (tryOpenTreeClassNodeAsync(value)) {
+        NavigationTargetDto target = item.navigationTarget();
+        if (target == null || !target.present()) {
             return;
         }
-        String nodeValue = value;
         Thread.ofVirtual().name("swing-tree-open-node").start(() -> {
-            RuntimeFacades.projectTree().openNode(nodeValue);
+            RuntimeFacades.projectTree().openTarget(target);
             SwingUtilities.invokeLater(() -> requestRefresh(false, true));
         });
     }
@@ -2718,40 +2718,6 @@ public final class SwingMainFrame extends JFrame {
                 true);
     }
 
-    private boolean tryOpenTreeClassNodeAsync(String nodeValue) {
-        String raw = safe(nodeValue).trim();
-        if (raw.isEmpty()
-                || raw.startsWith("res:")
-                || raw.startsWith("jarpath:")
-                || raw.startsWith("path:")
-                || raw.startsWith("error:")) {
-            return false;
-        }
-        if (raw.startsWith("cls:")) {
-            raw = raw.substring(4);
-        }
-        String className = raw;
-        Integer jarId = null;
-        int split = raw.lastIndexOf('|');
-        if (split > 0 && split < raw.length() - 1) {
-            className = raw.substring(0, split);
-            try {
-                jarId = Integer.parseInt(raw.substring(split + 1));
-            } catch (Exception ignored) {
-                jarId = null;
-            }
-        }
-        className = className.trim();
-        if (className.endsWith(".class")) {
-            className = className.substring(0, className.length() - 6);
-        }
-        if (className.isBlank()) {
-            return false;
-        }
-        openEditorClassAsync(className, jarId);
-        return true;
-    }
-
     private void selectEditorTabByKey(String key, boolean forceOpen) {
         if (safe(key).isBlank()) {
             return;
@@ -3025,7 +2991,12 @@ public final class SwingMainFrame extends JFrame {
         if (node == null) {
             return 0;
         }
-        TreeNodeUi ui = new TreeNodeUi(safe(node.label()), safe(node.value()), node.directory());
+        TreeNodeUi ui = new TreeNodeUi(
+                safe(node.label()),
+                safe(node.nodeKey()),
+                node.directory(),
+                node.navigationTarget() == null ? NavigationTargetDto.none() : node.navigationTarget()
+        );
         DefaultMutableTreeNode current = new DefaultMutableTreeNode(ui);
         parent.add(current);
         int count = 1;
@@ -3043,7 +3014,10 @@ public final class SwingMainFrame extends JFrame {
         }
         int total = 0;
         Object user = node.getUserObject();
-        if (user instanceof TreeNodeUi ui && !ui.directory() && safe(ui.value()).startsWith("cls:")) {
+        if (user instanceof TreeNodeUi ui
+                && !ui.directory()
+                && ui.navigationTarget() != null
+                && ui.navigationTarget().type() == NavigationTargetType.CLASS) {
             total++;
         }
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -3072,7 +3046,8 @@ public final class SwingMainFrame extends JFrame {
         }
         int hash = 1;
         hash = 31 * hash + safe(node.label()).hashCode();
-        hash = 31 * hash + safe(node.value()).hashCode();
+        hash = 31 * hash + safe(node.nodeKey()).hashCode();
+        hash = 31 * hash + safe(node.navigationTarget() == null ? "" : node.navigationTarget().encode()).hashCode();
         hash = 31 * hash + Boolean.hashCode(node.directory());
         if (node.children() != null) {
             for (TreeNodeDto child : node.children()) {
@@ -3177,7 +3152,7 @@ public final class SwingMainFrame extends JFrame {
     private String treeNodeKey(DefaultMutableTreeNode node) {
         Object user = node == null ? null : node.getUserObject();
         if (user instanceof TreeNodeUi ui) {
-            String stable = safe(ui.value()).isBlank() ? safe(ui.label()) : safe(ui.value());
+            String stable = safe(ui.nodeKey()).isBlank() ? safe(ui.label()) : safe(ui.nodeKey());
             return (ui.directory() ? "D:" : "F:") + stable;
         }
         return "N:" + safe(String.valueOf(user));
@@ -3187,7 +3162,7 @@ public final class SwingMainFrame extends JFrame {
         if (ui == null) {
             return treeFolderIcon;
         }
-        String value = safe(ui.value());
+        String value = safe(ui.nodeKey());
         if (value.startsWith("origin:app")) {
             return treeCategorySourceIcon;
         }
@@ -3230,9 +3205,6 @@ public final class SwingMainFrame extends JFrame {
         if (value.startsWith("origin-root:")) {
             return treeFolderIcon;
         }
-        if (value.startsWith("path:")) {
-            return treeFileIcon;
-        }
         if (value.startsWith("cat:input")) {
             return treeCategoryInputIcon;
         }
@@ -3254,13 +3226,16 @@ public final class SwingMainFrame extends JFrame {
         if (value.startsWith("srcpkg:")) {
             return treePackageIcon;
         }
-        if (value.startsWith("cls:")) {
+        if (ui.navigationTarget() != null && ui.navigationTarget().type() == NavigationTargetType.CLASS) {
             return treeClassIcon;
         }
         if (value.startsWith("input:")) {
             return treeCategoryInputIcon;
         }
-        if (value.startsWith("res:") || value.startsWith("jarpath:")) {
+        if (ui.navigationTarget() != null
+                && (ui.navigationTarget().type() == NavigationTargetType.RESOURCE
+                || ui.navigationTarget().type() == NavigationTargetType.JAR_PATH
+                || ui.navigationTarget().type() == NavigationTargetType.FILE_PATH)) {
             return treeFileIcon;
         }
         if (ui.directory()) {
@@ -4037,8 +4012,8 @@ public final class SwingMainFrame extends JFrame {
         try {
             T value = supplier.get();
             return value == null ? fallback : value;
-        } catch (Throwable ex) {
-            logger.debug("snapshot failed: {}", ex.toString());
+        } catch (Exception ex) {
+            logger.warn("snapshot failed: {}", ex.toString(), ex);
             return fallback;
         }
     }
@@ -4229,7 +4204,10 @@ public final class SwingMainFrame extends JFrame {
         }
     }
 
-    private record TreeNodeUi(String label, String value, boolean directory) {
+    private record TreeNodeUi(String label,
+                              String nodeKey,
+                              boolean directory,
+                              NavigationTargetDto navigationTarget) {
         @Override
         public String toString() {
             return label;

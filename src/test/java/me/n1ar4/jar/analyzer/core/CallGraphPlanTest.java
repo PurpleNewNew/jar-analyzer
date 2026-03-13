@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CallGraphPlanTest {
@@ -51,12 +52,12 @@ class CallGraphPlanTest {
     }
 
     @Test
-    void unknownProfileShouldFallbackToBalancedBytecode() {
-        CallGraphPlan plan = CallGraphPlan.resolve("legacy-profile");
-
-        assertEquals(CallGraphPlan.PROFILE_BALANCED, plan.analysisProfile());
-        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, plan.callGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, plan.callGraphModeMeta());
-        assertTrue(plan.selectivePta());
+    void unknownProfileShouldBeRejected() {
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CallGraphPlan.resolve("unsupported-profile")
+        );
+        assertTrue(ex.getMessage().contains("jar.analyzer.callgraph.profile"));
+        assertTrue(ex.getMessage().contains("fast|balanced|precision"));
     }
 }

@@ -12,6 +12,7 @@ import me.n1ar4.jar.analyzer.graph.query.QueryOptions;
 import me.n1ar4.jar.analyzer.graph.query.QueryResult;
 import me.n1ar4.jar.analyzer.graph.query.QueryServices;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphScope;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMatchMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchMode;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchQueryDto;
@@ -232,7 +233,6 @@ final class SearchWorkflowSupport {
                 jarName = safe(jarNames.get(jarId));
             }
             String origin = resolveOrigin(resolver, jarId);
-            String navigate = "cls:" + className + "|" + jarId;
             String rowKey = className + "|" + jarId;
             dedup.putIfAbsent(rowKey, new SearchResultDto(
                     className,
@@ -243,7 +243,7 @@ final class SearchWorkflowSupport {
                     className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
                     "class",
                     origin,
-                    navigate
+                    NavigationTargetDto.classTarget(className, jarId)
             ));
             if (dedup.size() >= max) {
                 break;
@@ -277,7 +277,6 @@ final class SearchWorkflowSupport {
                     continue;
                 }
                 String origin = resolveOrigin(resolver, jarId);
-                String navigate = "cls:" + className + "|" + jarId;
                 dedup.put(rowKey, new SearchResultDto(
                         className,
                         "",
@@ -287,7 +286,7 @@ final class SearchWorkflowSupport {
                         className + (jarName.isBlank() ? "" : " [" + jarName + "]"),
                         "class",
                         origin,
-                        navigate
+                        NavigationTargetDto.classTarget(className, jarId)
                 ));
                 if (dedup.size() >= max) {
                     break;
@@ -406,7 +405,7 @@ final class SearchWorkflowSupport {
                     preview,
                     "resource",
                     origin,
-                    "res:" + row.getRid()
+                    NavigationTargetDto.resourceTarget(row.getRid())
             ));
         }
         return out;
@@ -493,13 +492,13 @@ final class SearchWorkflowSupport {
                 continue;
             }
             String origin = resolveOrigin(resolver, jarId);
-            String navigate = "";
+            NavigationTargetDto navigationTarget = NavigationTargetDto.none();
             if (resourceId > 0) {
-                navigate = "res:" + resourceId;
+                navigationTarget = NavigationTargetDto.resourceTarget(resourceId);
             } else if (!resourcePath.isBlank()) {
-                navigate = "path:" + resourcePath;
+                navigationTarget = NavigationTargetDto.filePathTarget(resourcePath);
             } else if (!className.isBlank()) {
-                navigate = "cls:" + normalizeClass(className) + "|" + jarId;
+                navigationTarget = NavigationTargetDto.classTarget(normalizeClass(className), jarId);
             }
             if (className.isBlank()) {
                 className = contributor + " row " + rowNo;
@@ -514,7 +513,7 @@ final class SearchWorkflowSupport {
                     preview,
                     contributor,
                     origin,
-                    navigate,
+                    navigationTarget,
                     lineNumber
             ));
         }
@@ -634,7 +633,7 @@ final class SearchWorkflowSupport {
                 safe(item.methodDesc()) + "|" +
                 item.jarId() + "|" +
                 item.lineNumber() + "|" +
-                safe(item.navigateValue()) + "|" +
+                safe(item.navigationTarget().encode()) + "|" +
                 safe(item.preview());
     }
 
@@ -672,7 +671,7 @@ final class SearchWorkflowSupport {
                     path,
                     "binary",
                     "unknown",
-                    "path:" + path
+                    NavigationTargetDto.filePathTarget(path)
             ));
         }
         return out;
@@ -716,7 +715,7 @@ final class SearchWorkflowSupport {
                 preview,
                 safe(contributor),
                 safe(origin),
-                "cls:" + normalizeClass(method.getClassName()) + "|" + method.getJarId(),
+                NavigationTargetDto.classTarget(normalizeClass(method.getClassName()), method.getJarId()),
                 method.getLineNumber()
         );
     }

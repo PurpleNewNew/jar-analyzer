@@ -9,7 +9,7 @@ public record SearchResultDto(
         String preview,
         String contributor,
         String origin,
-        String navigateValue,
+        NavigationTargetDto navigationTarget,
         int lineNumber
 ) {
     public SearchResultDto {
@@ -20,7 +20,7 @@ public record SearchResultDto(
         preview = safe(preview);
         contributor = safe(contributor);
         origin = safe(origin);
-        navigateValue = safe(navigateValue);
+        navigationTarget = navigationTarget == null ? NavigationTargetDto.none() : navigationTarget;
         lineNumber = Math.max(0, lineNumber);
     }
 
@@ -32,9 +32,9 @@ public record SearchResultDto(
                            String preview,
                            String contributor,
                            String origin,
-                           String navigateValue) {
+                           NavigationTargetDto navigationTarget) {
         this(className, methodName, methodDesc, jarName, jarId,
-                preview, contributor, origin, navigateValue, 0);
+                preview, contributor, origin, navigationTarget, 0);
     }
 
     public SearchResultDto(String className,
@@ -43,7 +43,8 @@ public record SearchResultDto(
                            String jarName,
                            int jarId,
                            String preview) {
-        this(className, methodName, methodDesc, jarName, jarId, preview, "method", "unknown", "", 0);
+        this(className, methodName, methodDesc, jarName, jarId,
+                preview, "method", "unknown", NavigationTargetDto.none(), 0);
     }
 
     private static String safe(String value) {

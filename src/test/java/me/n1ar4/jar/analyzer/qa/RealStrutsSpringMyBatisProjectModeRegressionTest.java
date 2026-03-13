@@ -93,7 +93,7 @@ public class RealStrutsSpringMyBatisProjectModeRegressionTest {
                             "", "", "",
                             "com/example/ssm/sink/SearchAuditSink", "record", "(Ljava/lang/String;)V",
                             "6", "15000", "12",
-                            "sink", "true", "true"
+                            "true", "true", "call-only", "backward"
                     ),
                     Map.of(),
                     QueryOptions.defaults(),

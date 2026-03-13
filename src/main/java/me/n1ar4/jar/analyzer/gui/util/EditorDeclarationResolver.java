@@ -76,11 +76,11 @@ public final class EditorDeclarationResolver {
 
         CompilationUnit cu = parse(code);
         if (cu == null) {
-            List<EditorDeclarationTargetDto> fallback = resolveTokenFallback(engine, doc, token);
-            if (fallback.isEmpty()) {
+            List<EditorDeclarationTargetDto> tokenCandidates = resolveTokenCandidates(engine, doc, token);
+            if (tokenCandidates.isEmpty()) {
                 return new EditorDeclarationResultDto(token, "unknown", List.of(), "semantic parse failed");
             }
-            return new EditorDeclarationResultDto(token, "unknown", fallback, "fallback declaration candidates: " + fallback.size());
+            return new EditorDeclarationResultDto(token, "unknown", tokenCandidates, "declaration candidates: " + tokenCandidates.size());
         }
 
         TypeSolver typeSolver = new TypeSolver(engine);
@@ -92,7 +92,7 @@ public final class EditorDeclarationResolver {
         List<EditorDeclarationTargetDto> targets = resolveSymbolTargets(
                 engine, doc, cu, pos, symbol, typeSolver, index);
         if (targets.isEmpty()) {
-            targets = resolveTokenFallback(engine, doc, token);
+            targets = resolveTokenCandidates(engine, doc, token);
         }
         if (targets.isEmpty()) {
             return new EditorDeclarationResultDto(token, symbolKind, List.of(), "declaration not found");
@@ -339,9 +339,9 @@ public final class EditorDeclarationResolver {
         }
     }
 
-    private static List<EditorDeclarationTargetDto> resolveTokenFallback(CoreEngine engine,
-                                                                         EditorDocumentDto doc,
-                                                                         String token) {
+    private static List<EditorDeclarationTargetDto> resolveTokenCandidates(CoreEngine engine,
+                                                                           EditorDocumentDto doc,
+                                                                           String token) {
         String word = safe(token).trim();
         if (word.isBlank()) {
             return List.of();
@@ -362,13 +362,13 @@ public final class EditorDeclarationResolver {
                         Math.max(0, method.getJarId()),
                         -1,
                         "method",
-                        "fallback-current-class"
+                        "token-current-class"
                 ));
             }
         }
         if (looksLikeClassToken(word)) {
             if (word.contains("/") || word.contains(".")) {
-                appendClassTargets(engine, out, word, "fallback-class-token");
+                appendClassTargets(engine, out, word, "token-class-token");
             } else {
                 List<String> classes = engine.includeClassByClassName(word, true);
                 int count = 0;
@@ -376,7 +376,7 @@ public final class EditorDeclarationResolver {
                     if (className == null || !className.endsWith("/" + word)) {
                         continue;
                     }
-                    appendClassTargets(engine, out, className, "fallback-class-search");
+                    appendClassTargets(engine, out, className, "token-class-search");
                     count++;
                     if (count >= 20) {
                         break;

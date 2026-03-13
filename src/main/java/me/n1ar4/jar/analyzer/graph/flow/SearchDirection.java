@@ -27,9 +27,9 @@ public enum SearchDirection {
             return defaultValue == null ? FORWARD : defaultValue;
         }
         return switch (value) {
-            case "forward", "source", "fromsource" -> FORWARD;
-            case "backward", "reverse", "sink", "fromsink" -> BACKWARD;
-            case "bidirectional", "both", "bi" -> BIDIRECTIONAL;
+            case "forward" -> FORWARD;
+            case "backward" -> BACKWARD;
+            case "bidirectional" -> BIDIRECTIONAL;
             default -> throw new IllegalArgumentException("invalid_request");
         };
     }

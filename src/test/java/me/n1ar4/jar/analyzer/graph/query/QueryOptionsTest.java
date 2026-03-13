@@ -41,15 +41,10 @@ class QueryOptionsTest {
     }
 
     @Test
-    void publicApiOptionsShouldRejectRemovedBudgetAndProfileKeys() {
-        assertUnsupported("profile", "long-chain");
-        assertUnsupported("longChain", true);
-        assertUnsupported("maxMs", 30_000);
-        assertUnsupported("maxHops", 64);
-        assertUnsupported("maxPaths", 1000);
-        assertUnsupported("expandBudget", 1_000_000);
-        assertUnsupported("pathBudget", 12_000);
-        assertUnsupported("timeoutCheckInterval", 32);
+    void publicApiOptionsShouldRejectUnsupportedKeys() {
+        assertUnsupported("budgetHint", "wide");
+        assertUnsupported("traceMode", "graph");
+        assertUnsupported("timeoutPolicy", "strict");
     }
 
     @Test

@@ -441,6 +441,14 @@ public final class RuntimeFacades {
         toolingWindowConsumer = consumer;
     }
 
+    public static void updateApiRuntimeConfig(ServerConfig config) {
+        STATE.apiRuntimeConfig = copyServerConfig(config);
+    }
+
+    public static void clearApiRuntimeConfig() {
+        STATE.apiRuntimeConfig = null;
+    }
+
     private static void emitToolingWindow(ToolingWindowRequest request) {
         try {
             toolingWindowConsumer.accept(request == null
@@ -614,6 +622,7 @@ public final class RuntimeFacades {
         private volatile int language = DEFAULT_LANGUAGE;
         private volatile boolean stripeShowNames = STRIPE_DEFAULT_SHOW_NAMES;
         private volatile int stripeWidth = STRIPE_DEFAULT_WIDTH;
+        private volatile ServerConfig apiRuntimeConfig = null;
 
         private volatile SearchQueryDto searchQuery = new SearchQueryDto(
                 SearchMode.METHOD_CALL, SearchMatchMode.LIKE, "", "", "", false);
@@ -2277,11 +2286,12 @@ public final class RuntimeFacades {
     private static final class DefaultApiMcpFacade implements ApiMcpFacade {
         @Override
         public ApiInfoDto apiInfo() {
-            ServerConfig cfg = GlobalOptions.getServerConfig();
+            ServerConfig cfg = STATE.apiRuntimeConfig;
             if (cfg == null) {
-                cfg = new ServerConfig();
+                return new ApiInfoDto(false, "", false, 0, "");
             }
             return new ApiInfoDto(
+                    true,
                     safe(cfg.getBind()).isEmpty() ? "0.0.0.0" : cfg.getBind(),
                     cfg.isAuth(),
                     cfg.getPort(),
@@ -2372,7 +2382,7 @@ public final class RuntimeFacades {
             return McpManager.get().restartAll(
                     readLineConfigs(cfg),
                     readReportWebConfig(cfg),
-                    safeApiConfig()
+                    resolveApiConfigForMcp(cfg)
             );
         }
 
@@ -2382,7 +2392,7 @@ public final class RuntimeFacades {
             return McpManager.get().restartAll(
                     readLineConfigs(cfg),
                     readReportWebConfig(cfg),
-                    safeApiConfig()
+                    resolveApiConfigForMcp(cfg)
             );
         }
 
@@ -4064,25 +4074,30 @@ public final class RuntimeFacades {
         return cfg;
     }
 
-    private static ServerConfig safeApiConfig() {
-        ServerConfig running = GlobalOptions.getServerConfig();
+    private static ServerConfig resolveApiConfigForMcp(ConfigFile cfg) {
+        ServerConfig running = STATE.apiRuntimeConfig;
         if (running != null) {
-            return running;
+            return copyServerConfig(running);
         }
-        ConfigFile cfg = ConfigEngine.parseConfig();
-        ServerConfig fallback = new ServerConfig();
-        if (cfg == null) {
-            fallback.setBind("0.0.0.0");
-            fallback.setPort(10032);
-            fallback.setAuth(false);
-            fallback.setToken("JAR-ANALYZER-API-TOKEN");
-            return fallback;
+        ConfigFile effective = cfg == null ? new ConfigFile() : cfg;
+        ServerConfig startup = new ServerConfig();
+        startup.setBind(safe(effective.getApiBind()).isEmpty() ? "0.0.0.0" : effective.getApiBind());
+        startup.setPort(normalizePort(effective.getApiPort(), 10032));
+        startup.setAuth(effective.isApiAuth());
+        startup.setToken(safe(effective.getApiToken()).isEmpty() ? "JAR-ANALYZER-API-TOKEN" : effective.getApiToken());
+        return startup;
+    }
+
+    private static ServerConfig copyServerConfig(ServerConfig config) {
+        if (config == null) {
+            return null;
         }
-        fallback.setBind(safe(cfg.getApiBind()).isEmpty() ? "0.0.0.0" : cfg.getApiBind());
-        fallback.setPort(normalizePort(cfg.getApiPort(), 10032));
-        fallback.setAuth(cfg.isApiAuth());
-        fallback.setToken(safe(cfg.getApiToken()).isEmpty() ? "JAR-ANALYZER-API-TOKEN" : cfg.getApiToken());
-        return fallback;
+        ServerConfig copy = new ServerConfig();
+        copy.setBind(config.getBind());
+        copy.setPort(config.getPort());
+        copy.setAuth(config.isAuth());
+        copy.setToken(config.getToken());
+        return copy;
     }
 
     private static Set<String> selectedLeakTypes(LeakRulesDto rules) {

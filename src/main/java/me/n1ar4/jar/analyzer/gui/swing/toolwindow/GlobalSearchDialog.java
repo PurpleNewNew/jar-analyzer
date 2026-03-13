@@ -21,6 +21,7 @@ import me.n1ar4.jar.analyzer.core.facts.JarEntity;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.log.LogManager;
@@ -387,9 +388,10 @@ public final class GlobalSearchDialog extends JDialog {
         if (item == null) {
             return;
         }
-        String navigate = safe(item.navigateValue());
-        if (!navigate.isBlank()) {
-            runNavigationAsync("swing-global-search-open-node", () -> RuntimeFacades.projectTree().openNode(navigate));
+        NavigationTargetDto navigationTarget = item.navigationTarget();
+        if (navigationTarget != null && navigationTarget.present()) {
+            runNavigationAsync("swing-global-search-open-node",
+                    () -> RuntimeFacades.projectTree().openTarget(navigationTarget));
             return;
         }
         if (!safe(item.methodName()).isBlank()) {
@@ -638,7 +640,7 @@ public final class GlobalSearchDialog extends JDialog {
             String jarName,
             int jarId,
             String preview,
-            String navigateValue
+            NavigationTargetDto navigationTarget
     ) {
     }
 
@@ -685,7 +687,7 @@ public final class GlobalSearchDialog extends JDialog {
                         safe(doc.get("jar_name")),
                         parseInt(doc.get("jar_id"), 0),
                         safe(doc.get("preview")),
-                        safe(doc.get("navigate"))
+                        NavigationTargetDto.decode(doc.get("navigate"))
                 ));
             }
             return new SearchRun(hits, buildInfo, "");
@@ -827,8 +829,8 @@ public final class GlobalSearchDialog extends JDialog {
                         jarName = safe(jarNames.get(jarId));
                     }
                     String preview = className + (jarName.isBlank() ? "" : " [" + jarName + "]");
-                    String navigate = "cls:" + className + "|" + jarId;
-                    addDoc(writer, "class", className, "", "", jarId, jarName, preview, navigate, preview);
+                    addDoc(writer, "class", className, "", "", jarId, jarName, preview,
+                            NavigationTargetDto.classTarget(className, jarId), preview);
                     count++;
                     maybeCommit(writer, count);
                 }
@@ -850,8 +852,8 @@ public final class GlobalSearchDialog extends JDialog {
                         jarName = safe(jarNames.get(jarId));
                     }
                     String preview = className + (jarName.isBlank() ? "" : " [" + jarName + "]");
-                    String navigate = "cls:" + className + "|" + jarId;
-                    addDoc(writer, "class", className, "", "", jarId, jarName, preview, navigate, preview);
+                    addDoc(writer, "class", className, "", "", jarId, jarName, preview,
+                            NavigationTargetDto.classTarget(className, jarId), preview);
                     count++;
                     maybeCommit(writer, count);
                 }
@@ -881,10 +883,9 @@ public final class GlobalSearchDialog extends JDialog {
                         jarName = safe(jarNames.get(jarId));
                     }
                     String preview = className + "#" + methodName + methodDesc;
-                    String navigate = "cls:" + className + "|" + jarId;
                     String searchable = preview + " " + jarName;
                     addDoc(writer, "method", className, methodName, methodDesc, jarId, jarName,
-                            preview, navigate, searchable);
+                            preview, NavigationTargetDto.classTarget(className, jarId), searchable);
                     count++;
                     maybeCommit(writer, count);
                 }
@@ -934,10 +935,10 @@ public final class GlobalSearchDialog extends JDialog {
                         }
                         String preview = key.className() + "#" + key.methodName() + key.methodDesc()
                                 + " :: " + trimText(text, 220);
-                        String navigate = "cls:" + key.className() + "|" + key.jarId();
                         String searchable = preview + " " + text;
                         addDoc(writer, "string", key.className(), key.methodName(), key.methodDesc(),
-                                key.jarId(), jarName, preview, navigate, searchable);
+                                key.jarId(), jarName, preview,
+                                NavigationTargetDto.classTarget(key.className(), key.jarId()), searchable);
                         count++;
                         maybeCommit(writer, count);
                     }
@@ -965,9 +966,9 @@ public final class GlobalSearchDialog extends JDialog {
                     }
                     long fileSize = row.getFileSize();
                     String preview = path + " (" + fileSize + " bytes)";
-                    String navigate = "res:" + rid;
                     String searchable = path + " " + jarName;
-                    addDoc(writer, "resource", path, "", "", jarId, jarName, preview, navigate, searchable);
+                    addDoc(writer, "resource", path, "", "", jarId, jarName, preview,
+                            NavigationTargetDto.resourceTarget(rid), searchable);
                     count++;
                     maybeCommit(writer, count);
                 }
@@ -1004,9 +1005,9 @@ public final class GlobalSearchDialog extends JDialog {
                             + " -> " + calleeClass + "#" + calleeMethod + calleeDesc
                             + " [" + edgeType + "/" + confidence + "]";
                     String searchable = preview + " " + jarName;
-                    String navigate = "cls:" + callerClass + "|" + callerJarId;
                     addDoc(writer, "call", callerClass, callerMethod, callerDesc,
-                            callerJarId, jarName, preview, navigate, searchable);
+                            callerJarId, jarName, preview,
+                            NavigationTargetDto.classTarget(callerClass, callerJarId), searchable);
                     count++;
                     maybeCommit(writer, count);
                 }
@@ -1051,7 +1052,7 @@ public final class GlobalSearchDialog extends JDialog {
                             int jarId,
                             String jarName,
                             String preview,
-                            String navigate,
+                            NavigationTargetDto navigationTarget,
                             String searchable) throws Exception {
             Document doc = new Document();
             doc.add(new StringField("kind", safe(kind), Field.Store.YES));
@@ -1060,7 +1061,8 @@ public final class GlobalSearchDialog extends JDialog {
             doc.add(new StringField("method_desc", safe(methodDesc), Field.Store.YES));
             doc.add(new StringField("jar_name", safe(jarName), Field.Store.YES));
             doc.add(new StringField("jar_id", String.valueOf(jarId), Field.Store.YES));
-            doc.add(new StringField("navigate", safe(navigate), Field.Store.YES));
+            doc.add(new StringField("navigate",
+                    navigationTarget == null ? "" : navigationTarget.encode(), Field.Store.YES));
             doc.add(new StringField("preview", trimText(safe(preview), 400), Field.Store.YES));
             String searchableLower = normalizeSearchText(searchable + " " + className + " " + methodName + " " + methodDesc);
             doc.add(new StringField("content_lower", searchableLower, Field.Store.NO));

@@ -83,11 +83,10 @@ public final class JaGraphProcedures {
                                                             @Name("depth") Long depth,
                                                             @Name("timeoutMs") Long timeoutMs,
                                                             @Name("maxPaths") Long maxPaths,
-                                                            @Name(value = "mode", defaultValue = "\"source\"") String mode,
                                                             @Name(value = "searchAllSources", defaultValue = "false") Boolean searchAllSources,
                                                             @Name(value = "onlyFromWeb", defaultValue = "false") Boolean onlyFromWeb,
                                                             @Name(value = "traversalMode", defaultValue = "\"call-only\"") String traversalMode,
-                                                            @Name(value = "direction", defaultValue = "\"\"") String direction) {
+                                                            @Name(value = "direction", defaultValue = "\"forward\"") String direction) {
         return rows("ja.taint.track", List.of(
                 sourceClass,
                 sourceMethod,
@@ -98,7 +97,6 @@ public final class JaGraphProcedures {
                 depth,
                 timeoutMs,
                 maxPaths,
-                mode,
                 searchAllSources,
                 onlyFromWeb,
                 traversalMode,

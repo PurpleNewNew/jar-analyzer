@@ -19,6 +19,7 @@
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
 - 若未设置 `jar.analyzer.callgraph.profile`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 和 lambda 的 static/constructor reference 都走这条主链；`precision` 会把 semantic/reflection/trigger/high-fanout 调用点纳入选择性高精度 PTA，并在 `callgraph` stage metrics 中暴露 `pta_precision_*` 计数，不再引入第二条隐藏调用图路径。语义边与静态 transfer 建模已经统一收敛到声明式注册器，新增规则优先在注册器扩展而不是继续散落硬编码分支。
+- 若配置了非法 `jar.analyzer.callgraph.profile`，建库会直接失败并返回显式错误，不再静默回退到 `balanced`。
 - 调用图能力统一由字节码主链提供；对外只保留 `profile` 这一条配置面。输入全部命中 common library 时，固定 `continue-no-callgraph`。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
@@ -54,16 +55,16 @@
 - `offset` / `limit`: 分页
 - `scope`: `app|all`（默认 `app`）
 
-## 行为变更（rmclassic 硬切）
+## 当前行为约束
 
-1. Flow 后端固定 graph（不再存在 classic fallback 语义）
+1. Flow 后端固定 graph
 2. Taint seed 参数已移除（自动端口推断）
-3. Cypher 仅走 Cypher 执行路径（不再做 Cypher->SQL 兼容回退）
-4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误（不再回退 LIKE）
+3. Cypher 固定走原生执行路径
+4. 字符串检索相关能力依赖 FTS，异常时直接返回 FTS 错误
 5. active project 未构建（含切换项目后未重建）统一返回 `project_model_missing_rebuild`
 6. active project 构建进行中时，图查询 / DFS / Taint 统一返回 `project_build_in_progress`
 7. DFS / Taint / Cypher 仅面向当前 active project；如需访问其他项目，先调用 `/api/projects/switch`
-8. 建库失败不会回退旧快照；失败项目保持 `project_model_missing_rebuild`
+8. 建库失败后项目保持 `project_model_missing_rebuild`
 
 ## API 列表
 
@@ -148,7 +149,8 @@
         `depth` `maxLimit` `maxPaths` `timeoutMs` `minEdgeConfidence` `traversalMode`
         `blacklist`
   说明:
-  - 后端固定 graph（不再提供 classic fallback）
+  - 后端固定 graph
+  - `mode` 必填，且只接受 `source|sink`
   - `mode=sink` 且 `searchAllSources=false` 时会从 sink 逆向精确搜索指定 source；返回结果仍按 `source -> sink` 顺序输出，便于后续 taint 复用
   - `onlyFromWeb` 仅在 `searchAllSources=true` 时生效
   - `traversalMode` 仅支持 `call-only`（默认）和 `call+alias`
@@ -172,7 +174,7 @@
 - `GET /api/flow/taint`
   参数: `dfsJobId` `timeoutMs` `maxPaths`
   说明:
-  - 后端固定 graph（不再提供 classic fallback）
+  - 后端固定 graph
   - seed 参数已移除，不提供手工 seed 入口
   - 仅接受来自当前 active project 的 DFS job；若任务排队/运行期间切换项目，job 会失败
   - 仅当 DFS 绑定的 `buildSeq` 仍与当前项目图一致时才允许启动 taint
@@ -204,13 +206,13 @@
   ```
   说明:
   - 仅支持只读 Cypher；写语句会返回 `cypher_feature_not_supported`
-  - 查询执行固定采用 Neo4j 原生引擎；`CALL ja.*` 不再回退到 ANTLR4/内存 `GraphSnapshot` 兼容过程链
+  - 查询执行固定采用 Neo4j 原生引擎；`CALL ja.*` 统一走正式过程链
   - 返回的 `Node/Relationship/Path` 值会统一按公开模型投影：节点 `labels` 只默认暴露 `Method/Class`，关系 `properties` 会补上 `rel_type/display_rel_type/rel_subtype`，方法节点会动态补上 `is_source/is_sink/sink_kind/source_badges`，同时保留建库期稳定事实 `method_semantic_flags/method_semantic_badges`；调用边会额外返回 `edge_semantic_flags/edge_semantic_badges`
-  - 提供一组本地只读 `apoc.*` 兼容函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
+  - 提供一组本地只读 `apoc.*` 函数白名单，当前仅覆盖 `apoc.coll.*` / `apoc.map.*` / `apoc.text.*` 的小集合，不包含 `apoc.path.*`、`load/export/trigger/periodic`
   - `jar.analyzer.cypher.apoc.whitelist` 默认为 `default`；可设为 `none|off|disabled` 彻底关闭，或用 `coll,text,map,apoc.text.join` 这类逗号列表精确控制
   - 对外 `options` 只保留 `maxRows`
-  - `ja.*` 过程的深度、路径数等语义参数只通过 `CALL ja.*(...)` 的显式参数指定，不再接受外层 `options.maxHops/maxPaths`
-  - 查询超时、扩展预算、路径预算与 timeout checkpoint 都由服务端硬熔断管理，不再对外暴露；旧 `profile/longChain/maxMs/maxHops/maxPaths/expandBudget/pathBudget/timeoutCheckInterval` 选项会直接返回 `invalid_request`
+  - `ja.*` 过程的深度、路径数等语义参数只通过 `CALL ja.*(...)` 的显式参数指定；对外 `options` 只保留 `maxRows`
+  - 查询超时、扩展预算、路径预算与 timeout checkpoint 都由服务端硬熔断管理，不再额外开放查询预算配置
   - `ja.path.shortest_pruned` / `ja.path.from_to_pruned` 现在走基于 `SummaryEngine + GraphSnapshot` 的 stateful pruning；响应 `warnings` 会附带 `pruned_state_cuts` / `pruned_expanded_edges` 等统计
   - `rules/model.json.pruningPolicy` 可热刷新控制 pruned 语义：
     `sourceSelection=rules|merged|graph`（默认 `rules`）
@@ -226,15 +228,15 @@
   - `ja.path.from_to_pruned(from, to, maxHops, maxPaths, traversalMode='call-only', direction='forward')`
   - `ja.path.gadget(from, to, maxHops, maxPaths, traversalMode='call-only', direction='forward')` 会基于 `method_semantic_flags + edge_semantic_flags` 做 gadget 状态机搜索，当前内置 `container-callback` `proxy-dynamic` `container-trigger` `reflection-callback` `reflection-container` `reflection-trigger` `deserialization-trigger` 路线；命中后 `evidence/warnings` 会带 `route=...` `constraints=...` `direction=...`
   - `ja.gadget.track(sourceClass, sourceMethod, sourceDesc, sinkClass, sinkMethod, sinkDesc, depth, maxPaths, searchAllSources=false, traversalMode='call-only', direction='forward')` 面向显式 source->sink 或 `searchAllSources=true` 的反序列化 source 枚举；当 `searchAllSources=true` 时，source 可留空，系统会从当前图里自动挑选 `DeserializationCallback` 方法作为候选
-  - `ja.taint.track` 保留旧的 9 参数写法；可选追加 `mode` `searchAllSources` `onlyFromWeb` `traversalMode` `direction`
-  - `ja.taint.track(..., mode='source')` 会按显式 `source -> sink` 搜索；`mode='sink'` 时会逆向剪枝搜索指定 source
-  - `ja.taint.track(..., direction='backward')` 会显式覆盖旧 `mode`；`direction='bidirectional'` 会在 source/sink 都明确时同时尝试正向和逆向剪枝搜索
+  - `ja.taint.track(sourceClass, sourceMethod, sourceDesc, sinkClass, sinkMethod, sinkDesc, depth, timeoutMs, maxPaths, searchAllSources=false, onlyFromWeb=false, traversalMode='call-only', direction='forward')`
+  - `ja.taint.track(..., direction='forward')` 会按显式 `source -> sink` 搜索；`direction='backward'` 时会逆向剪枝搜索指定 source
+  - `ja.taint.track(..., direction='bidirectional')` 会在 source/sink 都明确时同时尝试正向和逆向剪枝搜索
   - `ja.taint.track(..., direction='backward', searchAllSources=true)` 允许 source 为空，并会按当前 source 真相选择 source；`onlyFromWeb` 仅在该模式下生效
   - `ja.path.shortest` / `ja.path.from_to` / `ja.taint.track` / `ja.path.gadget` / `ja.gadget.track` 默认只遍历调用边；可选追加 `traversalMode='call+alias'`，把 `ALIAS` 一并纳入路径搜索。现在还支持显式 `direction='forward|backward|bidirectional'`，并会在 `evidence/warnings` 中回显当前搜索方向。Workbench 顶部提供显式的 `CALL / CALL + ALIAS` 遍历切换；内置 `ja.path.*` 模板与用户查询可通过 `{{TRAVERSAL_MODE_LITERAL}}` 占位符绑定当前选择
   - pruned 搜索命中时，`evidence` 中会带 `search backend: graph-pruned`
   - reflection / method-handle 边的 `edgeEvidence` 会回显 `tier=const|log|cast|unknown`；在阈值内扩成多目标时会追加 `imprecise=1`
   - `build_meta.callgraph.details` 会额外暴露 `reflection_hint_const_sites` `reflection_hint_log_sites` `reflection_hint_cast_sites` `reflection_hint_unknown_sites` `reflection_hint_imprecise_sites` `reflection_hint_threshold_exceeded_sites`
-  - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`；旧式 `CALL ja.path.shortest(...) RETURN *` 不再兼容
+  - 内置脚本和用户查询都要求使用原生 `CALL ... YIELD ... RETURN ...`
   - 内置函数：`ja.isSource(node)` `ja.isSink(node)` `ja.sinkKind(node)` `ja.relGroup(typeOrRel)` `ja.relSubtype(typeOrRel)` `ja.ruleVersion()` `ja.rulesFingerprint()` `ja.ruleValidation()` `ja.ruleValidationIssues(scope)`
   - 只读 `apoc.*` whitelist 默认包含：
     `apoc.coll.contains` `apoc.coll.containsAll` `apoc.coll.toSet` `apoc.coll.intersection` `apoc.coll.subtract` `apoc.coll.flatten`
@@ -269,7 +271,7 @@
 - `GET /api/security/rule-validation`
   直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。
 
-- 兼容下线:
+- 已移除接口:
   - `/api/query/sql` 已删除
 
 ### 项目生命周期

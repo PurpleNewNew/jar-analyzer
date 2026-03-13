@@ -95,7 +95,7 @@ class ProcedureRegistryTaintTrackTest {
     }
 
     @Test
-    void taintTrackShouldSupportSinkModeWithExplicitSource() {
+    void taintTrackShouldSupportBackwardDirectionWithExplicitSource() {
         PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
         QueryResult result = new ProcedureRegistry().execute(
                 "ja.taint.track",
@@ -103,7 +103,7 @@ class ProcedureRegistryTaintTrackTest {
                         fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc(),
                         fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
                         "8", "15000", "20",
-                        "sink", "false", "false"
+                        "false", "false", "call-only", "backward"
                 ),
                 Map.of(),
                 QueryOptions.defaults(),
@@ -127,7 +127,7 @@ class ProcedureRegistryTaintTrackTest {
                         fixture.sourceClass(), fixture.sourceMethod(), fixture.sourceDesc(),
                         fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
                         "8", "15000", "20",
-                        "source", "false", "false", "call-only", "backward"
+                        "false", "false", "call-only", "backward"
                 ),
                 Map.of(),
                 QueryOptions.defaults(),
@@ -141,7 +141,7 @@ class ProcedureRegistryTaintTrackTest {
     }
 
     @Test
-    void taintTrackShouldSupportSinkModeSearchingAllSources() {
+    void taintTrackShouldSupportBackwardDirectionSearchingAllSources() {
         PrunedFlowFixture.FixtureData fixture = PrunedFlowFixture.install();
         QueryResult result = new ProcedureRegistry().execute(
                 "ja.taint.track",
@@ -149,7 +149,7 @@ class ProcedureRegistryTaintTrackTest {
                         "", "", "",
                         fixture.sinkClass(), fixture.sinkMethod(), fixture.sinkDesc(),
                         "8", "15000", "20",
-                        "sink", "true", "false"
+                        "true", "false", "call-only", "backward"
                 ),
                 Map.of(),
                 QueryOptions.defaults(),
@@ -188,7 +188,7 @@ class ProcedureRegistryTaintTrackTest {
                         "app/Source", "entry", "(Ljava/lang/String;)V",
                         "app/Sink", "sink", "()V",
                         "6", "15000", "10",
-                        "source", "false", "false", "call+alias"
+                        "false", "false", "call+alias"
                 ),
                 Map.of(),
                 QueryOptions.defaults(),
@@ -210,7 +210,7 @@ class ProcedureRegistryTaintTrackTest {
                         "app/Source", "entry", "(Ljava/lang/String;)V",
                         "app/Sink", "sink", "()V",
                         "6", "15000", "10",
-                        "source", "false", "false", "call-only", "bidirectional"
+                        "false", "false", "call-only", "bidirectional"
                 ),
                 Map.of(),
                 QueryOptions.defaults(),

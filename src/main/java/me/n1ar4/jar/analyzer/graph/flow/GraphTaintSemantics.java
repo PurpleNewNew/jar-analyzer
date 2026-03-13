@@ -13,7 +13,6 @@ import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphTraversalRules;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
 import me.n1ar4.jar.analyzer.rules.PruningPolicy;
-import me.n1ar4.jar.analyzer.rules.SinkRuleRegistry;
 import me.n1ar4.jar.analyzer.taint.Sanitizer;
 import me.n1ar4.jar.analyzer.taint.SanitizerRule;
 import me.n1ar4.jar.analyzer.taint.SinkKindResolver;
@@ -44,10 +43,9 @@ final class GraphTaintSemantics {
     }
 
     void refreshRuleContext() {
-        SinkRuleRegistry.checkNow();
-        ModelRegistry.checkNow();
-        sanitizerRule = ModelRegistry.getBarrierRule();
-        pruningPolicy = ModelRegistry.getPruningPolicy();
+        ModelRegistry.TaintRuleContext context = ModelRegistry.getTaintRuleContext();
+        sanitizerRule = context.barrierRule();
+        pruningPolicy = context.pruningPolicy();
     }
 
     String resolveSinkKind(MethodReference.Handle sink) {

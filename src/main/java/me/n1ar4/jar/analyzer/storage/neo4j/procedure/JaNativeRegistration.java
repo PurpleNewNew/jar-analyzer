@@ -41,10 +41,10 @@ public final class JaNativeRegistration {
         try {
             procedures.registerFunction(ApocReadOnlyFunctions.class);
         } catch (Exception ex) {
-            logger.warn("register native apoc.* compatibility functions fail: {}", ex.toString());
+            logger.warn("register native read-only apoc.* functions fail: {}", ex.toString());
         }
         try {
-            logger.info("registered native ja.* procedures/functions and read-only apoc.* compatibility functions");
+            logger.info("registered native ja.* procedures/functions and read-only apoc.* functions");
         } catch (Exception ex) {
             logger.warn("log native registration fail: {}", ex.toString());
         }

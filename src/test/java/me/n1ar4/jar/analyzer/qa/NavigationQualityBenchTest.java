@@ -70,17 +70,21 @@ public class NavigationQualityBenchTest {
             List<Scenario> scenarios = List.of(
                     new Scenario("declaration-dynamicProxy", "me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V",
                             NavigationAction.DECLARATION,
+                            true,
                             List.of(new ExpectedTarget("me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V"))),
                     new Scenario("usages-dynamicProxy", "me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V",
                             NavigationAction.USAGES,
-                            List.of(new ExpectedTarget("me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V"))),
+                            false,
+                            List.of()),
                     new Scenario("impl-task-run", "me/n1ar4/cb/Task", "run", "()V",
                             NavigationAction.IMPLEMENTATION,
+                            true,
                             List.of(
                                     new ExpectedTarget("me/n1ar4/cb/FastTask", "run", "()V"),
                                     new ExpectedTarget("me/n1ar4/cb/SlowTask", "run", "()V"))),
                     new Scenario("hierarchy-task-run", "me/n1ar4/cb/Task", "run", "()V",
                             NavigationAction.HIERARCHY,
+                            true,
                             List.of(
                                     new ExpectedTarget("me/n1ar4/cb/Task", "run", "()V"),
                                     new ExpectedTarget("me/n1ar4/cb/FastTask", "run", "()V"),
@@ -197,13 +201,17 @@ public class NavigationQualityBenchTest {
         };
         long elapsed = (System.nanoTime() - start) / 1_000_000L;
 
-        boolean hit = containsExpectedTargets(result, scenario.expected());
+        boolean hit = containsExpectedTargets(result, scenario.expectTargets(), scenario.expected());
         String status = result == null ? "null-result" : safe(result.statusText());
         return new RunResult(hit, elapsed, result, status);
     }
 
     private static boolean containsExpectedTargets(EditorDeclarationResultDto result,
+                                                   boolean expectTargets,
                                                    List<ExpectedTarget> expected) {
+        if (!expectTargets) {
+            return result == null || !result.hasTargets();
+        }
         if (expected == null || expected.isEmpty()) {
             return result != null && result.hasTargets();
         }
@@ -340,6 +348,7 @@ public class NavigationQualityBenchTest {
             String methodName,
             String methodDesc,
             NavigationAction action,
+            boolean expectTargets,
             List<ExpectedTarget> expected
     ) {
     }

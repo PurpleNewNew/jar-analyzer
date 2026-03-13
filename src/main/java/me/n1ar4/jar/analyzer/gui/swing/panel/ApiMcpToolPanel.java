@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public final class ApiMcpToolPanel extends JPanel {
+    private final JTextField apiRunningText = readonly();
     private final JTextField apiBindText = readonly();
     private final JTextField apiPortText = readonly();
     private final JTextField apiAuthText = readonly();
@@ -73,8 +74,10 @@ public final class ApiMcpToolPanel extends JPanel {
     }
 
     private void initUi() {
-        JPanel apiPanel = new JPanel(new GridLayout(4, 2, 4, 4));
+        JPanel apiPanel = new JPanel(new GridLayout(5, 2, 4, 4));
         apiPanel.setBorder(BorderFactory.createTitledBorder("API Runtime"));
+        apiPanel.add(new JLabel("running"));
+        apiPanel.add(apiRunningText);
         apiPanel.add(new JLabel("bind"));
         apiPanel.add(apiBindText);
         apiPanel.add(new JLabel("port"));
@@ -202,10 +205,12 @@ public final class ApiMcpToolPanel extends JPanel {
             return;
         }
         if (apiInfo != null) {
-            apiBindText.setText(safe(apiInfo.bind()));
-            apiPortText.setText(String.valueOf(apiInfo.port()));
-            apiAuthText.setText(String.valueOf(apiInfo.authEnabled()));
-            apiTokenText.setText(safe(apiInfo.maskedToken()));
+            boolean running = apiInfo.running();
+            apiRunningText.setText(String.valueOf(running));
+            apiBindText.setText(running ? safe(apiInfo.bind()) : "-");
+            apiPortText.setText(running ? String.valueOf(apiInfo.port()) : "-");
+            apiAuthText.setText(running ? String.valueOf(apiInfo.authEnabled()) : "-");
+            apiTokenText.setText(running ? safe(apiInfo.maskedToken()) : "-");
         }
         if (apiStartupConfig != null || mcpConfig != null) {
             syncing = true;

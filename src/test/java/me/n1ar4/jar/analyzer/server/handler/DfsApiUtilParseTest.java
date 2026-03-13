@@ -68,7 +68,36 @@ class DfsApiUtilParseTest {
     }
 
     @Test
-    void parseShouldIgnoreRemovedAliasParams() {
+    void parseShouldRequireExplicitMode() {
+        DfsApiUtil.ParseResult result = DfsApiUtil.parse(session(Map.ofEntries(
+                Map.entry("sinkClass", "demo/Sink"),
+                Map.entry("sinkMethod", "exec"),
+                Map.entry("sinkDesc", "()V"),
+                Map.entry("sourceClass", "demo/Source"),
+                Map.entry("sourceMethod", "entry"),
+                Map.entry("sourceDesc", "()V")
+        )));
+        assertNotNull(result.getError());
+        assertNull(result.getRequest());
+    }
+
+    @Test
+    void parseShouldRejectUnknownMode() {
+        DfsApiUtil.ParseResult result = DfsApiUtil.parse(session(Map.ofEntries(
+                Map.entry("mode", "bidirectional"),
+                Map.entry("sinkClass", "demo/Sink"),
+                Map.entry("sinkMethod", "exec"),
+                Map.entry("sinkDesc", "()V"),
+                Map.entry("sourceClass", "demo/Source"),
+                Map.entry("sourceMethod", "entry"),
+                Map.entry("sourceDesc", "()V")
+        )));
+        assertNotNull(result.getError());
+        assertNull(result.getRequest());
+    }
+
+    @Test
+    void parseShouldIgnoreUnknownParams() {
         DfsApiUtil.ParseResult result = DfsApiUtil.parse(session(Map.ofEntries(
                 Map.entry("mode", "sink"),
                 Map.entry("sinkClass", "demo/Sink"),
@@ -77,11 +106,9 @@ class DfsApiUtilParseTest {
                 Map.entry("sourceClass", "demo/Source"),
                 Map.entry("sourceMethod", "entry"),
                 Map.entry("sourceDesc", "()V"),
-                Map.entry("allSources", "true"),
-                Map.entry("sourceOnlyWeb", "true"),
-                Map.entry("confidence", "high"),
-                Map.entry("edgeMode", "call+alias"),
-                Map.entry("timeout", "999")
+                Map.entry("traceMode", "full"),
+                Map.entry("budgetHint", "999"),
+                Map.entry("display", "graph")
         )));
         assertNull(result.getError());
         assertNotNull(result.getRequest());

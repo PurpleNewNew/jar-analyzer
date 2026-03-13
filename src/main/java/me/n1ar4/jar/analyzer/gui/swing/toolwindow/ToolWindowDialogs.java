@@ -16,6 +16,7 @@ import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.model.MethodView;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.SearchResultDto;
 import me.n1ar4.jar.analyzer.starter.Const;
@@ -1115,7 +1116,7 @@ public final class ToolWindowDialogs {
                     preview,
                     "el-search",
                     "unknown",
-                    "",
+                    NavigationTargetDto.none(),
                     0
             ));
         }

@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -164,17 +165,14 @@ class CoreRunnerCallGraphProfileTest {
     }
 
     @Test
-    void invalidProfileShouldFallbackToBalancedBytecodeProfile() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "legacy-profile");
-        Path jar = FixtureJars.callbackTestJar();
-        ProjectRuntimeContext.updateResolveInnerJars(false);
-
-        CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
-
-        assertNotNull(result);
-        assertEquals(CallGraphPlan.ENGINE_BYTECODE_PTA, result.getCallGraphEngine());
-        assertEquals(BytecodeMainlineCallGraphRunner.MODE_BALANCED_V1, result.getCallGraphMode());
-        assertEquals(CallGraphPlan.PROFILE_BALANCED, result.getAnalysisProfile());
+    void invalidProfileShouldFailFast() {
+        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "unsupported-profile");
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> CoreRunner.run(FixtureJars.callbackTestJar(), null, false, null)
+        );
+        assertTrue(ex.getMessage().contains("jar.analyzer.callgraph.profile"));
+        assertTrue(ex.getMessage().contains("fast|balanced|precision"));
     }
 
     private static ConfigFile config() {

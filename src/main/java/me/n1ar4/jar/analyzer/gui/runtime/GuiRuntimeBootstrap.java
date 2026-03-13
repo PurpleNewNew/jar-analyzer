@@ -11,7 +11,6 @@
 package me.n1ar4.jar.analyzer.gui.runtime;
 
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
-import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.notify.SwingNotifier;
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.server.HttpServer;
@@ -61,10 +60,12 @@ public final class GuiRuntimeBootstrap {
             config.setAuth(options.apiAuthEnabled());
             config.setToken(options.apiToken());
 
-            GlobalOptions.setServerConfig(null);
+            RuntimeFacades.clearApiRuntimeConfig();
             Thread.ofVirtual().name("jar-analyzer-http").start(() -> {
                 if (HttpServer.start(config) != null) {
-                    GlobalOptions.setServerConfig(config);
+                    RuntimeFacades.updateApiRuntimeConfig(config);
+                } else {
+                    RuntimeFacades.clearApiRuntimeConfig();
                 }
             });
             Thread.setDefaultUncaughtExceptionHandler(new RuntimeExceptionHandler());

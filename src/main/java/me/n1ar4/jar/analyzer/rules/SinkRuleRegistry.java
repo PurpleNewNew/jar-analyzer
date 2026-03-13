@@ -17,14 +17,12 @@ import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 import org.objectweb.asm.Type;
 
-import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,6 +40,7 @@ public final class SinkRuleRegistry {
 
     private static volatile Snapshot cachedSnapshot;
     private static volatile long nextCheckAfterMs;
+    private static volatile boolean forceCheckNow;
     private static volatile String sinkPathOverrideForTesting;
 
     private SinkRuleRegistry() {
@@ -124,6 +123,7 @@ public final class SinkRuleRegistry {
         synchronized (SinkRuleRegistry.class) {
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
         return currentSnapshot().version;
     }
@@ -131,6 +131,7 @@ public final class SinkRuleRegistry {
     public static long checkNow() {
         synchronized (SinkRuleRegistry.class) {
             nextCheckAfterMs = 0L;
+            forceCheckNow = true;
         }
         return currentSnapshot().version;
     }
@@ -140,6 +141,7 @@ public final class SinkRuleRegistry {
             sinkPathOverrideForTesting = safe(path);
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
     }
 
@@ -148,45 +150,58 @@ public final class SinkRuleRegistry {
             sinkPathOverrideForTesting = null;
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
     }
 
     private static Snapshot currentSnapshot() {
         Snapshot local = cachedSnapshot;
         long now = System.currentTimeMillis();
-        if (local != null && now < nextCheckAfterMs) {
+        boolean fullCheckRequested = forceCheckNow;
+        if (!fullCheckRequested && local != null && now < nextCheckAfterMs) {
             return local;
         }
         String sinkPath = resolveSinkPath();
-        RuleFileStamp stamp = RuleFileStamp.of(sinkPath);
-        if (isUpToDate(local, sinkPath, stamp)) {
+        RuleFileVersion.State sinkState = fullCheckRequested
+                ? RuleFileVersion.stamp(sinkPath, "sink")
+                : RuleFileVersion.probe(sinkPath, "sink");
+        if (!fullCheckRequested && isUpToDateByProbe(local, sinkPath, sinkState)) {
             nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
             return local;
         }
         synchronized (SinkRuleRegistry.class) {
             now = System.currentTimeMillis();
             Snapshot latest = cachedSnapshot;
-            if (latest != null && now < nextCheckAfterMs) {
+            fullCheckRequested = forceCheckNow;
+            if (!fullCheckRequested && latest != null && now < nextCheckAfterMs) {
                 return latest;
             }
             sinkPath = resolveSinkPath();
-            stamp = RuleFileStamp.of(sinkPath);
-            if (isUpToDate(latest, sinkPath, stamp)) {
+            sinkState = fullCheckRequested
+                    ? RuleFileVersion.stamp(sinkPath, "sink")
+                    : RuleFileVersion.probe(sinkPath, "sink");
+            boolean upToDate = fullCheckRequested
+                    ? isUpToDateByStamp(latest, sinkPath, sinkState)
+                    : isUpToDateByProbe(latest, sinkPath, sinkState);
+            if (upToDate) {
+                forceCheckNow = false;
                 nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
                 return latest;
             }
             LoadedSinkRule loaded = loadSinkRule(sinkPath);
             SinkRule rule = loaded.rule();
             List<SinkModel> models = loadSinkModelsFromRule(rule);
+            RuleFileVersion.State sinkStamp = RuleFileVersion.stamp(sinkPath, "sink");
             Snapshot refreshed = new Snapshot(
                     sinkPath,
-                    stamp,
+                    sinkStamp,
                     rule,
                     loaded.validation(),
                     models.isEmpty() ? Collections.emptyList() : List.copyOf(models),
                     VERSION_SEQ.incrementAndGet()
             );
             cachedSnapshot = refreshed;
+            forceCheckNow = false;
             nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
             logger.info("sink rule registry refreshed: path={} version={} sinks={}",
                     sinkPath,
@@ -196,11 +211,16 @@ public final class SinkRuleRegistry {
         }
     }
 
-    private static boolean isUpToDate(Snapshot snapshot, String sinkPath, RuleFileStamp stamp) {
+    private static boolean isUpToDateByProbe(Snapshot snapshot, String sinkPath, RuleFileVersion.State stamp) {
         if (snapshot == null || stamp == null) {
             return false;
         }
-        return sinkPath.equals(snapshot.sinkPath) && stamp.equals(snapshot.stamp);
+        return sinkPath.equals(snapshot.sinkPath) && snapshot.stamp.sameProbe(stamp);
+    }
+
+    private static boolean isUpToDateByStamp(Snapshot snapshot, String sinkPath, RuleFileVersion.State stamp) {
+        return isUpToDateByProbe(snapshot, sinkPath, stamp)
+                && snapshot.stamp.sameStamped(stamp);
     }
 
     private static String resolveSinkPath() {
@@ -337,14 +357,14 @@ public final class SinkRuleRegistry {
 
     private static final class Snapshot {
         private final String sinkPath;
-        private final RuleFileStamp stamp;
+        private final RuleFileVersion.State stamp;
         private final SinkRule rule;
         private final RuleValidationSummary validation;
         private final List<SinkModel> sinkModels;
         private final long version;
 
         private Snapshot(String sinkPath,
-                         RuleFileStamp stamp,
+                         RuleFileVersion.State stamp,
                          SinkRule rule,
                          RuleValidationSummary validation,
                          List<SinkModel> sinkModels,
@@ -361,75 +381,6 @@ public final class SinkRuleRegistry {
     }
 
     private record LoadedSinkRule(SinkRule rule, RuleValidationSummary validation) {
-    }
-
-    private static final class RuleFileStamp {
-        private final boolean exists;
-        private final long modifiedTime;
-        private final long size;
-        private final String contentHash;
-
-        private RuleFileStamp(boolean exists, long modifiedTime, long size, String contentHash) {
-            this.exists = exists;
-            this.modifiedTime = modifiedTime;
-            this.size = size;
-            this.contentHash = contentHash == null ? "" : contentHash;
-        }
-
-        private static RuleFileStamp of(String rawPath) {
-            if (rawPath == null || rawPath.isBlank()) {
-                return new RuleFileStamp(false, -1L, -1L, "");
-            }
-            try {
-                Path path = Paths.get(rawPath);
-                if (!Files.exists(path)) {
-                    return new RuleFileStamp(false, -1L, -1L, "");
-                }
-                byte[] data = Files.readAllBytes(path);
-                long modified = Files.getLastModifiedTime(path).toMillis();
-                long fileSize = data.length;
-                return new RuleFileStamp(true, modified, fileSize, sha256Hex(data));
-            } catch (Exception ex) {
-                logger.debug("resolve sink rule stamp failed: path={} err={}", rawPath, ex.toString());
-                return new RuleFileStamp(false, -1L, -1L, "");
-            }
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (!(obj instanceof RuleFileStamp other)) {
-                return false;
-            }
-            return exists == other.exists
-                    && modifiedTime == other.modifiedTime
-                    && size == other.size
-                    && contentHash.equals(other.contentHash);
-        }
-
-        @Override
-        public int hashCode() {
-            int result = Boolean.hashCode(exists);
-            result = 31 * result + Long.hashCode(modifiedTime);
-            result = 31 * result + Long.hashCode(size);
-            result = 31 * result + contentHash.hashCode();
-            return result;
-        }
-    }
-
-    private static String sha256Hex(byte[] data) {
-        if (data == null || data.length == 0) {
-            return "";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(data));
-        } catch (Exception ex) {
-            logger.debug("compute sink rule hash failed: {}", ex.toString());
-            return "";
-        }
     }
 
     private static String normalizeClassName(String className) {

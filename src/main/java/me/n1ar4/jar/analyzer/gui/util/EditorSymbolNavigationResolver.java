@@ -109,13 +109,8 @@ public final class EditorSymbolNavigationResolver {
                     for (MethodView caller : callers) {
                         appendMethodTarget(out, caller, "usage-caller");
                     }
-                    continue;
                 }
-                // Fallback for unresolved call edges: keep declaration target visible.
-                addTarget(out, withSource(seed, "usage-fallback"));
-                continue;
             }
-            addTarget(out, withSource(seed, "usage-declaration"));
         }
     }
 
@@ -143,10 +138,7 @@ public final class EditorSymbolNavigationResolver {
                         appendMethodTarget(out, impl, "impl");
                     }
                 }
-                appendDefaultMethodFallback(engine, owner, method, desc, out);
-                if (out.isEmpty()) {
-                    addTarget(out, withSource(seed, "impl-self"));
-                }
+                appendDefaultMethodImplementations(engine, owner, method, desc, out);
                 continue;
             }
             appendClassImplementations(engine, seed, out);
@@ -202,7 +194,6 @@ public final class EditorSymbolNavigationResolver {
         }
         Set<ClassReference.Handle> subs = engine.getSubClasses(new ClassReference.Handle(className));
         if (subs == null || subs.isEmpty()) {
-            addTarget(out, withSource(seed, "impl-self"));
             return;
         }
         int scanned = 0;
@@ -259,11 +250,11 @@ public final class EditorSymbolNavigationResolver {
         }
     }
 
-    private static void appendDefaultMethodFallback(CoreEngine engine,
-                                                    String ownerClass,
-                                                    String methodName,
-                                                    String methodDesc,
-                                                    Map<String, EditorDeclarationTargetDto> out) {
+    private static void appendDefaultMethodImplementations(CoreEngine engine,
+                                                           String ownerClass,
+                                                           String methodName,
+                                                           String methodDesc,
+                                                           Map<String, EditorDeclarationTargetDto> out) {
         if (ownerClass == null || methodName == null || methodDesc == null) {
             return;
         }
@@ -285,7 +276,7 @@ public final class EditorSymbolNavigationResolver {
                 continue;
             }
             for (MethodView method : methods) {
-                appendMethodTarget(out, method, "impl-fallback");
+                appendMethodTarget(out, method, "impl-default");
             }
             scanned++;
             if (scanned >= MAX_CLASS_SCAN) {
@@ -457,15 +448,12 @@ public final class EditorSymbolNavigationResolver {
         return switch (safe(source)) {
             case "hier-self" -> 90;
             case "impl" -> 80;
-            case "impl-fallback" -> 74;
+            case "impl-default" -> 74;
             case "hier-super" -> 72;
             case "hier-sub" -> 68;
             case "hier-bridge" -> 66;
             case "usage-caller" -> 64;
             case "impl-class" -> 62;
-            case "usage-fallback" -> 58;
-            case "usage-declaration" -> 56;
-            case "impl-self" -> 52;
             default -> 40;
         };
     }

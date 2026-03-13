@@ -16,15 +16,13 @@ public enum TaintPropagationMode {
     STRICT,
     BALANCED;
 
-    private static final String PROP_KEY = "jar.analyzer.taint.propagation";
-    private static final TaintPropagationMode CURRENT = resolve();
+    public static final String PROP_KEY = "jar.analyzer.taint.propagation";
 
     public static TaintPropagationMode current() {
-        return CURRENT;
+        return resolve(System.getProperty(PROP_KEY));
     }
 
-    private static TaintPropagationMode resolve() {
-        String value = System.getProperty(PROP_KEY);
+    static TaintPropagationMode resolve(String value) {
         if (value == null || value.trim().isEmpty()) {
             return BALANCED;
         }

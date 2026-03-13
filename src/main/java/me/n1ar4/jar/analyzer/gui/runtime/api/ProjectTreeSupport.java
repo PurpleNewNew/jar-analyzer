@@ -12,6 +12,7 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
 import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.jar.analyzer.core.facts.JarEntity;
 import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
@@ -79,61 +80,47 @@ final class ProjectTreeSupport {
         return buildSemanticTree(snapshot, classRows, resourceRows, jarRows, filterKeywordLower, settings);
     }
 
-    void openNode(String value) {
-        String raw = safe(value).trim();
-        if (raw.isEmpty()) {
+    void openTarget(NavigationTargetDto target) {
+        NavigationTargetDto nav = target == null ? NavigationTargetDto.none() : target;
+        if (!nav.present()) {
             return;
         }
-        if (raw.startsWith("res:")) {
-            openResourceNode(raw);
-            return;
-        }
-        if (raw.startsWith("jarpath:")) {
-            openJarPathNode(raw);
-            return;
-        }
-        if (raw.startsWith("path:")) {
-            openPathNode(raw);
-            return;
-        }
-        if (raw.startsWith("error:")) {
-            ui.showText("Project Tree", raw.substring("error:".length()));
-            return;
-        }
-        if (raw.startsWith("cls:")) {
-            raw = raw.substring(4);
-        } else {
-            return;
-        }
-        int split = raw.lastIndexOf('|');
-        Integer jarId = null;
-        String className = raw;
-        if (split > 0 && split < raw.length() - 1) {
-            className = raw.substring(0, split);
-            try {
-                jarId = Integer.parseInt(raw.substring(split + 1));
-            } catch (NumberFormatException ignored) {
-                jarId = null;
+        switch (nav.type()) {
+            case RESOURCE -> openResourceNode(nav.resourceId());
+            case JAR_PATH -> openJarPathNode(nav.jarId());
+            case FILE_PATH -> openPathNode(nav.path());
+            case MESSAGE -> ui.showText("Project Tree", nav.message());
+            case CLASS -> {
+                String className = normalizeClass(nav.className());
+                if (className.endsWith(".class")) {
+                    className = className.substring(0, className.length() - 6);
+                }
+                if (className.isEmpty()) {
+                    return;
+                }
+                ui.openClass(className, nav.jarId() > 0 ? nav.jarId() : null);
+            }
+            case NONE -> {
+                return;
             }
         }
-        className = normalizeClass(className);
-        if (className.endsWith(".class")) {
-            className = className.substring(0, className.length() - 6);
-        }
-        if (className.isEmpty()) {
-            return;
-        }
-        ui.openClass(className, jarId);
     }
 
     private List<TreeNodeDto> projectModelMissingTree() {
         TreeNodeDto reason = new TreeNodeDto(
                 "project_model_missing_rebuild",
-                "error:project_model_missing_rebuild",
+                "project-model-missing",
                 false,
+                NavigationTargetDto.messageTarget("project_model_missing_rebuild"),
                 List.of()
         );
-        return List.of(new TreeNodeDto("Project Model", "cat:project-model", true, List.of(reason)));
+        return List.of(new TreeNodeDto(
+                "Project Model",
+                "cat:project-model",
+                true,
+                NavigationTargetDto.none(),
+                List.of(reason)
+        ));
     }
 
     private List<TreeNodeDto> buildSemanticTree(ProjectModelSnapshot snapshot,
@@ -383,16 +370,21 @@ final class ProjectTreeSupport {
             }
             MutableTreeNode section = ensureOriginSection(category, origin, "roots", "Roots");
             String nodeKey = "origin-root:" + origin.value() + ":" + root.rootId();
-            String nodeValue = "origin-root:" + origin.value() + ":" + root.kind().value() + ":" + root.rootId();
             String finalLabel = label;
             MutableTreeNode rootNode = section.children.computeIfAbsent(
                     nodeKey,
-                    ignored -> new MutableTreeNode(finalLabel, nodeValue, true)
+                    ignored -> new MutableTreeNode(finalLabel, nodeKey, true)
             );
             if (!rootPath.isBlank()) {
+                String pathNodeKey = "origin-root-path:" + origin.value() + ":" + root.rootId();
                 rootNode.children.computeIfAbsent(
-                        "origin-root-path:" + origin.value() + ":" + root.rootId(),
-                        ignored -> new MutableTreeNode(rootPath, "path:" + rootPath, false)
+                        pathNodeKey,
+                        ignored -> new MutableTreeNode(
+                                rootPath,
+                                pathNodeKey,
+                                false,
+                                NavigationTargetDto.filePathTarget(rootPath)
+                        )
                 );
             }
         }
@@ -421,20 +413,25 @@ final class ProjectTreeSupport {
             }
             MutableTreeNode section = ensureOriginSection(category, origin, "archives", "Archives");
             String nodeKey = "origin-archive:" + origin.value() + ":" + jarId;
-            String nodeValue = "origin-archive:" + origin.value() + ":" + jarId;
             String finalJarName = jarName;
             MutableTreeNode archiveNode = section.children.computeIfAbsent(
                     nodeKey,
-                    ignored -> new MutableTreeNode(finalJarName, nodeValue, true)
+                    ignored -> new MutableTreeNode(finalJarName, nodeKey, true)
             );
             if (!absPath.isBlank()) {
                 String absPathKey = pathKey(normalizeFsPath(absPath));
                 if (!absPathKey.isBlank()) {
                     seenArchivePaths.add(absPathKey);
                 }
+                String pathNodeKey = "origin-archive-path:" + origin.value() + ":" + jarId;
                 archiveNode.children.computeIfAbsent(
-                        "origin-archive-path:" + origin.value() + ":" + jarId,
-                        ignored -> new MutableTreeNode(absPath, "jarpath:" + jarId, false)
+                        pathNodeKey,
+                        ignored -> new MutableTreeNode(
+                                absPath,
+                                pathNodeKey,
+                                false,
+                                NavigationTargetDto.jarPathTarget(jarId)
+                        )
                 );
             }
         }
@@ -461,15 +458,20 @@ final class ProjectTreeSupport {
             }
             MutableTreeNode section = ensureOriginSection(category, origin, "archives", "Archives");
             String nodeKey = "origin-archive-entry:" + origin.value() + ":" + entryPath;
-            String nodeValue = "origin-archive-entry:" + origin.value() + ":" + entryPath;
             String finalName = name;
             MutableTreeNode archiveNode = section.children.computeIfAbsent(
                     nodeKey,
-                    ignored -> new MutableTreeNode(finalName, nodeValue, true)
+                    ignored -> new MutableTreeNode(finalName, nodeKey, true)
             );
+            String pathNodeKey = "origin-archive-entry-path:" + origin.value() + ":" + entryPath;
             archiveNode.children.computeIfAbsent(
-                    "origin-archive-entry-path:" + origin.value() + ":" + entryPath,
-                    ignored -> new MutableTreeNode(entryPath, "path:" + entryPath, false)
+                    pathNodeKey,
+                    ignored -> new MutableTreeNode(
+                            entryPath,
+                            pathNodeKey,
+                            false,
+                            NavigationTargetDto.filePathTarget(entryPath)
+                    )
             );
         }
     }
@@ -504,11 +506,10 @@ final class ProjectTreeSupport {
             MutableTreeNode cursor = section;
             if (groupByJar) {
                 String jarKey = "origin-jar:" + origin.value() + ":" + jarName + "|" + jarId;
-                String jarValue = "origin-jar:" + origin.value() + ":" + jarName + "|" + jarId;
                 String finalJarName = jarName;
                 cursor = section.children.computeIfAbsent(
                         jarKey,
-                        ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                        ignored -> new MutableTreeNode(finalJarName, jarKey, true)
                 );
             }
             String[] parts = normalized.split("/");
@@ -524,13 +525,16 @@ final class ProjectTreeSupport {
                     if (!groupByJar) {
                         label = label + " [" + jarName + "]";
                     }
-                    String value = "cls:" + normalized + "|" + jarId;
                     String leafKey = "origin-class-leaf:" + origin.value() + ":" + normalized + "|" + jarId;
                     String finalLabel = label;
-                    String finalValue = value;
                     cursor.children.computeIfAbsent(
                             leafKey,
-                            ignored -> new MutableTreeNode(finalLabel, finalValue, false)
+                            ignored -> new MutableTreeNode(
+                                    finalLabel,
+                                    leafKey,
+                                    false,
+                                    NavigationTargetDto.classTarget(normalized, jarId)
+                            )
                     );
                 } else {
                     if (packagePath.length() > 0) {
@@ -539,10 +543,9 @@ final class ProjectTreeSupport {
                     packagePath.append(part);
                     String pkg = packagePath.toString().replace('/', '.');
                     String dirKey = "origin-pkg:" + origin.value() + ":" + (groupByJar ? jarId + ":" : "") + pkg;
-                    String dirValue = "origin-pkg:" + origin.value() + ":" + pkg;
                     cursor = cursor.children.computeIfAbsent(
                             dirKey,
-                            ignored -> new MutableTreeNode(part, dirValue, true)
+                            ignored -> new MutableTreeNode(part, dirKey, true)
                     );
                 }
             }
@@ -578,11 +581,10 @@ final class ProjectTreeSupport {
             MutableTreeNode cursor = section;
             if (groupByJar) {
                 String jarKey = "origin-res-jar:" + origin.value() + ":" + jarName + "|" + jarId;
-                String jarValue = "origin-res-jar:" + origin.value() + ":" + jarName + "|" + jarId;
                 String finalJarName = jarName;
                 cursor = section.children.computeIfAbsent(
                         jarKey,
-                        ignored -> new MutableTreeNode(finalJarName, jarValue, true)
+                        ignored -> new MutableTreeNode(finalJarName, jarKey, true)
                 );
             }
             String[] parts = normalized.split("/");
@@ -599,11 +601,15 @@ final class ProjectTreeSupport {
                         label = label + " [" + jarName + "]";
                     }
                     String leafKey = "origin-res-leaf:" + origin.value() + ":" + row.getRid();
-                    String leafValue = "res:" + row.getRid();
                     String finalLabel = label;
                     cursor.children.computeIfAbsent(
                             leafKey,
-                            ignored -> new MutableTreeNode(finalLabel, leafValue, false)
+                            ignored -> new MutableTreeNode(
+                                    finalLabel,
+                                    leafKey,
+                                    false,
+                                    NavigationTargetDto.resourceTarget(row.getRid())
+                            )
                     );
                 } else {
                     if (path.length() > 0) {
@@ -612,10 +618,9 @@ final class ProjectTreeSupport {
                     path.append(part);
                     String p = path.toString().replace('/', '.');
                     String dirKey = "origin-resdir:" + origin.value() + ":" + (groupByJar ? jarId + ":" : "") + p;
-                    String dirValue = "origin-resdir:" + origin.value() + ":" + p;
                     cursor = cursor.children.computeIfAbsent(
                             dirKey,
-                            ignored -> new MutableTreeNode(part, dirValue, true)
+                            ignored -> new MutableTreeNode(part, dirKey, true)
                     );
                 }
             }
@@ -626,8 +631,8 @@ final class ProjectTreeSupport {
                                                 ProjectOrigin origin,
                                                 String suffix,
                                                 String label) {
-        String value = "origin-sec:" + origin.value() + ":" + suffix;
-        return category.children.computeIfAbsent(value, ignored -> new MutableTreeNode(label, value, true));
+        String nodeKey = "origin-sec:" + origin.value() + ":" + suffix;
+        return category.children.computeIfAbsent(nodeKey, ignored -> new MutableTreeNode(label, nodeKey, true));
     }
 
     private MutableTreeNode resolveCategory(Map<ProjectOrigin, MutableTreeNode> categories,
@@ -653,11 +658,12 @@ final class ProjectTreeSupport {
             if (child == null) {
                 continue;
             }
-            if (child.directory() && shouldMergeSection(child.value())) {
+            if (child.directory() && shouldMergeSection(child.nodeKey())) {
                 out.add(new TreeNodeDto(
                         child.label(),
-                        child.value(),
+                        child.nodeKey(),
                         true,
+                        child.navigationTarget(),
                         mergeNodeList(child.children())
                 ));
             } else {
@@ -665,7 +671,13 @@ final class ProjectTreeSupport {
             }
         }
         sortNodes(out);
-        return new TreeNodeDto(category.label(), category.value(), true, out);
+        return new TreeNodeDto(
+                category.label(),
+                category.nodeKey(),
+                true,
+                category.navigationTarget(),
+                out
+        );
     }
 
     private boolean shouldMergeSection(String value) {
@@ -727,15 +739,22 @@ final class ProjectTreeSupport {
             return node;
         }
         List<TreeNodeDto> mergedChildren = mergeNodeList(node.children());
-        TreeNodeDto merged = new TreeNodeDto(node.label(), node.value(), true, mergedChildren);
+        TreeNodeDto merged = new TreeNodeDto(
+                node.label(),
+                node.nodeKey(),
+                true,
+                node.navigationTarget(),
+                mergedChildren
+        );
         while (merged.children() != null
                 && merged.children().size() == 1
                 && merged.children().get(0).directory()) {
             TreeNodeDto only = merged.children().get(0);
             merged = new TreeNodeDto(
                     merged.label() + "/" + only.label(),
-                    only.value(),
+                    only.nodeKey(),
                     true,
+                    only.navigationTarget(),
                     only.children()
             );
         }
@@ -793,15 +812,12 @@ final class ProjectTreeSupport {
         return value;
     }
 
-    private void openResourceNode(String rawValue) {
+    private void openResourceNode(int rid) {
         CoreEngine engine = services.currentEngine();
         if (engine == null || !engine.isEnabled()) {
             return;
         }
-        int rid;
-        try {
-            rid = Integer.parseInt(rawValue.substring(4).trim());
-        } catch (Throwable ignored) {
+        if (rid <= 0) {
             return;
         }
         ResourceEntity resource = engine.getResourceById(rid);
@@ -866,15 +882,12 @@ final class ProjectTreeSupport {
         }
     }
 
-    private void openJarPathNode(String rawValue) {
+    private void openJarPathNode(int jarId) {
         CoreEngine engine = services.currentEngine();
         if (engine == null || !engine.isEnabled()) {
             return;
         }
-        int jarId;
-        try {
-            jarId = Integer.parseInt(rawValue.substring("jarpath:".length()).trim());
-        } catch (Throwable ignored) {
+        if (jarId <= 0) {
             return;
         }
         JarEntity matched = null;
@@ -907,7 +920,7 @@ final class ProjectTreeSupport {
     }
 
     private void openPathNode(String rawValue) {
-        String text = safe(rawValue.substring("path:".length())).trim();
+        String text = safe(rawValue).trim();
         if (text.isBlank()) {
             return;
         }
@@ -1242,14 +1255,20 @@ final class ProjectTreeSupport {
 
     private static final class MutableTreeNode {
         private final String label;
-        private final String value;
+        private final String nodeKey;
         private final boolean directory;
+        private final NavigationTargetDto target;
         private final Map<String, MutableTreeNode> children = new HashMap<>();
 
-        private MutableTreeNode(String label, String value, boolean directory) {
+        private MutableTreeNode(String label, String nodeKey, boolean directory) {
+            this(label, nodeKey, directory, NavigationTargetDto.none());
+        }
+
+        private MutableTreeNode(String label, String nodeKey, boolean directory, NavigationTargetDto target) {
             this.label = label;
-            this.value = value;
+            this.nodeKey = nodeKey;
             this.directory = directory;
+            this.target = target == null ? NavigationTargetDto.none() : target;
         }
 
         private TreeNodeDto freeze() {
@@ -1261,7 +1280,7 @@ final class ProjectTreeSupport {
                 nodes.add(child.freeze());
             }
             sortNodes(nodes);
-            return new TreeNodeDto(label, value, directory, nodes);
+            return new TreeNodeDto(label, nodeKey, directory, target, nodes);
         }
     }
 }

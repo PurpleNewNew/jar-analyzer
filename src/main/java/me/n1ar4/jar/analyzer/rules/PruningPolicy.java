@@ -159,8 +159,8 @@ public class PruningPolicy {
     private static MatchMode parseMatchMode(String value) {
         String normalized = safe(value).toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "source", "forward" -> MatchMode.SOURCE;
-            case "sink", "backward", "reverse" -> MatchMode.SINK;
+            case "source" -> MatchMode.SOURCE;
+            case "sink" -> MatchMode.SINK;
             default -> MatchMode.ANY;
         };
     }

@@ -10,14 +10,10 @@
 
 package me.n1ar4.jar.analyzer.gui;
 
-import me.n1ar4.jar.analyzer.server.ServerConfig;
-
 public class GlobalOptions {
     public static final int CHINESE = 1;
     public static final int ENGLISH = 2;
     private static int LANGUAGE;
-
-    private static volatile ServerConfig serverConfig;
 
     static {
         LANGUAGE = CHINESE;
@@ -32,13 +28,5 @@ public class GlobalOptions {
 
     public static int getLang() {
         return LANGUAGE;
-    }
-
-    public static ServerConfig getServerConfig() {
-        return serverConfig;
-    }
-
-    public static void setServerConfig(ServerConfig serverConfig) {
-        GlobalOptions.serverConfig = serverConfig;
     }
 }

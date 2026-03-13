@@ -337,9 +337,8 @@ public final class SearchToolPanel extends JPanel {
             );
             return;
         }
-        String navigateValue = safe(item.navigateValue()).trim();
-        if (!navigateValue.isBlank()) {
-            RuntimeFacades.projectTree().openNode(navigateValue);
+        if (item.navigationTarget() != null && item.navigationTarget().present()) {
+            RuntimeFacades.projectTree().openTarget(item.navigationTarget());
             return;
         }
         String className = safe(item.className()).replace('/', '.').trim();

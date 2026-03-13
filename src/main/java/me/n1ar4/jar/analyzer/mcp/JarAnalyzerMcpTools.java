@@ -533,7 +533,7 @@ public final class JarAnalyzerMcpTools {
         JSONObject start = McpToolSchemas.tool("flow_start",
                 "Start DFS or taint job.");
         McpToolSchemas.addString(start, "engine", true, "dfs|taint");
-        McpToolSchemas.addString(start, "mode", false, "DFS mode: sink|source (optional).");
+        McpToolSchemas.addString(start, "mode", false, "DFS mode: sink|source (required for dfs).");
         McpToolSchemas.addString(start, "sinkName", false, "Built-in sink name list (optional).");
         McpToolSchemas.addString(start, "sinkClass", false, "Sink class (optional).");
         McpToolSchemas.addString(start, "sinkMethod", false, "Sink method (optional).");
@@ -554,7 +554,7 @@ public final class JarAnalyzerMcpTools {
             String engine = require(args, "engine").trim().toLowerCase(Locale.ROOT);
             Map<String, String> params = new HashMap<>();
             if ("dfs".equals(engine)) {
-                addIf(params, "mode", args.getString("mode"));
+                params.put("mode", require(args, "mode"));
                 addIf(params, "sinkName", args.getString("sinkName"));
                 addIf(params, "sinkClass", args.getString("sinkClass"));
                 addIf(params, "sinkMethod", args.getString("sinkMethod"));

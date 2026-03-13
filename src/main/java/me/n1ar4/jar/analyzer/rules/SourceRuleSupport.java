@@ -73,8 +73,8 @@ public final class SourceRuleSupport {
     }
 
     public static RuleSnapshot snapshotCurrentRules() {
-        ModelRegistry.checkNow();
-        return RuleSnapshot.from(ModelRegistry.getSourceModels(), ModelRegistry.getSourceAnnotations());
+        ModelRegistry.SourceRuleSnapshot snapshot = ModelRegistry.getSourceRuleSnapshot();
+        return RuleSnapshot.from(snapshot.sourceModels(), snapshot.sourceAnnotations());
     }
 
     public static int resolveRuleFlags(MethodReference method, RuleSnapshot snapshot) {

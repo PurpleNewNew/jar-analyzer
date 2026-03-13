@@ -38,11 +38,11 @@ Jar Analyzer MCP 同时提供两种传输：
 1. `SSE`：`http://127.0.0.1:<port>/sse`
 2. `streamable-http`：`http://127.0.0.1:<port>/mcp`
 
-## 协议严格化（rmclassic）
+## 当前协议约束
 
 1. `initialize` 必须携带合法 `protocolVersion`（缺失/非法返回 `INVALID_PARAMS`）
 2. `tools/call` 访问未知工具返回 JSON-RPC `METHOD_NOT_FOUND`
-3. Flow 相关工具固定 graph 后端；不再存在 classic fallback 或 seed 参数
+3. Flow 相关工具固定 graph 后端；seed 参数由服务端自动推断
 
 ## 客户端配置示例
 
@@ -107,7 +107,8 @@ Jar Analyzer MCP 同时提供两种传输：
 - `flow_start` `flow_job`
 - `code_get`（链路取证用）
 - 说明：
-  - Flow 后端固定 graph（不再提供 classic fallback）
+  - Flow 后端固定 graph
+  - `flow_start(engine="dfs", ...)` 需要显式传入 `mode=source|sink`
   - taint seed 参数已移除，改为自动端口推断
   - Flow / Cypher 统一围绕当前 active project；如需切项目，先调用 `project_switch`
 

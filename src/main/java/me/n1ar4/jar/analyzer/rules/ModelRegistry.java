@@ -24,8 +24,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -41,6 +39,7 @@ public final class ModelRegistry {
 
     private static volatile Snapshot cachedSnapshot;
     private static volatile long nextCheckAfterMs;
+    private static volatile boolean forceCheckNow;
     private static volatile String modelPathOverrideForTesting;
     private static volatile String sourcePathOverrideForTesting;
 
@@ -67,6 +66,7 @@ public final class ModelRegistry {
         synchronized (ModelRegistry.class) {
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
         return currentSnapshot().version;
     }
@@ -74,6 +74,7 @@ public final class ModelRegistry {
     public static long checkNow() {
         synchronized (ModelRegistry.class) {
             nextCheckAfterMs = 0L;
+            forceCheckNow = true;
         }
         return currentSnapshot().version;
     }
@@ -84,6 +85,7 @@ public final class ModelRegistry {
             sourcePathOverrideForTesting = safe(sourcePath);
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
     }
 
@@ -93,6 +95,7 @@ public final class ModelRegistry {
             sourcePathOverrideForTesting = null;
             cachedSnapshot = null;
             nextCheckAfterMs = 0L;
+            forceCheckNow = false;
         }
     }
 
@@ -230,37 +233,90 @@ public final class ModelRegistry {
         return Collections.emptyList();
     }
 
+    public static SourceRuleSnapshot getSourceRuleSnapshot() {
+        Snapshot snapshot = currentSnapshot();
+        UnifiedModel model = snapshot.model;
+        List<SourceModel> sourceModels = model == null || model.getSourceModel() == null
+                ? Collections.emptyList()
+                : model.getSourceModel();
+        List<String> sourceAnnotations = model == null || model.getSourceAnnotations() == null
+                ? Collections.emptyList()
+                : model.getSourceAnnotations();
+        return new SourceRuleSnapshot(sourceModels, sourceAnnotations);
+    }
+
+    public static TaintRuleContext getTaintRuleContext() {
+        Snapshot snapshot = currentSnapshot();
+        UnifiedModel model = snapshot.model;
+        List<Sanitizer> rules = new ArrayList<>();
+        if (model != null) {
+            if (model.getSanitizerModel() != null) {
+                rules.addAll(model.getSanitizerModel());
+            }
+            if (model.getNeutralModel() != null) {
+                rules.addAll(model.getNeutralModel());
+            }
+        }
+        SanitizerRule barrierRule = new SanitizerRule();
+        if (!rules.isEmpty()) {
+            barrierRule.setRules(rules);
+        }
+        PruningPolicy pruningPolicy = model == null || model.getPruningPolicy() == null
+                ? PruningPolicy.defaults()
+                : model.getPruningPolicy();
+        List<TaintGuardRule> guardRules = model == null || model.getGuardSanitizers() == null
+                ? Collections.emptyList()
+                : model.getGuardSanitizers();
+        return new TaintRuleContext(barrierRule, pruningPolicy, guardRules);
+    }
+
     private static Snapshot currentSnapshot() {
         Snapshot local = cachedSnapshot;
         long now = System.currentTimeMillis();
-        if (local != null && now < nextCheckAfterMs) {
+        boolean fullCheckRequested = forceCheckNow;
+        if (!fullCheckRequested && local != null && now < nextCheckAfterMs) {
             return local;
         }
         String modelPath = resolvePath(modelPathOverrideForTesting, MODEL_PATH);
         String sourcePath = resolvePath(sourcePathOverrideForTesting, SOURCE_PATH);
-        RuleFileStamp modelStamp = RuleFileStamp.of(modelPath);
-        RuleFileStamp sourceStamp = RuleFileStamp.of(sourcePath);
+        RuleFileVersion.State modelProbe = fullCheckRequested
+                ? RuleFileVersion.stamp(modelPath, "model")
+                : RuleFileVersion.probe(modelPath, "model");
+        RuleFileVersion.State sourceProbe = fullCheckRequested
+                ? RuleFileVersion.stamp(sourcePath, "source")
+                : RuleFileVersion.probe(sourcePath, "source");
         long sinkVersion = SinkRuleRegistry.getVersion();
-        if (isUpToDate(local, modelPath, sourcePath, modelStamp, sourceStamp, sinkVersion)) {
+        if (!fullCheckRequested && isUpToDateByProbe(local, modelPath, sourcePath, modelProbe, sourceProbe, sinkVersion)) {
             nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
             return local;
         }
         synchronized (ModelRegistry.class) {
             now = System.currentTimeMillis();
             Snapshot latest = cachedSnapshot;
-            if (latest != null && now < nextCheckAfterMs) {
+            fullCheckRequested = forceCheckNow;
+            if (!fullCheckRequested && latest != null && now < nextCheckAfterMs) {
                 return latest;
             }
             modelPath = resolvePath(modelPathOverrideForTesting, MODEL_PATH);
             sourcePath = resolvePath(sourcePathOverrideForTesting, SOURCE_PATH);
-            modelStamp = RuleFileStamp.of(modelPath);
-            sourceStamp = RuleFileStamp.of(sourcePath);
+            RuleFileVersion.State modelState = fullCheckRequested
+                    ? RuleFileVersion.stamp(modelPath, "model")
+                    : RuleFileVersion.probe(modelPath, "model");
+            RuleFileVersion.State sourceState = fullCheckRequested
+                    ? RuleFileVersion.stamp(sourcePath, "source")
+                    : RuleFileVersion.probe(sourcePath, "source");
             sinkVersion = SinkRuleRegistry.getVersion();
-            if (isUpToDate(latest, modelPath, sourcePath, modelStamp, sourceStamp, sinkVersion)) {
+            boolean upToDate = fullCheckRequested
+                    ? isUpToDateByStamp(latest, modelPath, sourcePath, modelState, sourceState, sinkVersion)
+                    : isUpToDateByProbe(latest, modelPath, sourcePath, modelState, sourceState, sinkVersion);
+            if (upToDate) {
+                forceCheckNow = false;
                 nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
                 return latest;
             }
             LoadedModel loaded = loadUnifiedModel(modelPath, sourcePath);
+            RuleFileVersion.State modelStamp = RuleFileVersion.stamp(modelPath, "model");
+            RuleFileVersion.State sourceStamp = RuleFileVersion.stamp(sourcePath, "source");
             String rulesFingerprint = buildRulesFingerprint(modelPath, modelStamp, sourcePath, sourceStamp, sinkVersion);
             Snapshot refreshed = new Snapshot(
                     modelPath,
@@ -274,6 +330,7 @@ public final class ModelRegistry {
                     rulesFingerprint
             );
             cachedSnapshot = refreshed;
+            forceCheckNow = false;
             nextCheckAfterMs = now + CHANGE_CHECK_INTERVAL_MS;
             logger.info("model registry refreshed: version={} modelPath={} sourcePath={} sinkVersion={}",
                     refreshed.version, modelPath, sourcePath, sinkVersion);
@@ -281,19 +338,33 @@ public final class ModelRegistry {
         }
     }
 
-    private static boolean isUpToDate(Snapshot snapshot,
-                                      String modelPath,
-                                      String sourcePath,
-                                      RuleFileStamp modelStamp,
-                                      RuleFileStamp sourceStamp,
-                                      long sinkVersion) {
-        if (snapshot == null || modelStamp == null || sourceStamp == null) {
+    private static boolean isUpToDateByProbe(Snapshot snapshot,
+                                             String modelPath,
+                                             String sourcePath,
+                                             RuleFileVersion.State modelProbe,
+                                             RuleFileVersion.State sourceProbe,
+                                             long sinkVersion) {
+        if (snapshot == null || modelProbe == null || sourceProbe == null) {
             return false;
         }
         return modelPath.equals(snapshot.modelPath)
                 && sourcePath.equals(snapshot.sourcePath)
-                && modelStamp.equals(snapshot.modelStamp)
-                && sourceStamp.equals(snapshot.sourceStamp)
+                && snapshot.modelStamp.sameProbe(modelProbe)
+                && snapshot.sourceStamp.sameProbe(sourceProbe)
+                && sinkVersion == snapshot.sinkVersion;
+    }
+
+    private static boolean isUpToDateByStamp(Snapshot snapshot,
+                                             String modelPath,
+                                             String sourcePath,
+                                             RuleFileVersion.State modelStamp,
+                                             RuleFileVersion.State sourceStamp,
+                                             long sinkVersion) {
+        if (!isUpToDateByProbe(snapshot, modelPath, sourcePath, modelStamp, sourceStamp, sinkVersion)) {
+            return false;
+        }
+        return snapshot.modelStamp.sameStamped(modelStamp)
+                && snapshot.sourceStamp.sameStamped(sourceStamp)
                 && sinkVersion == snapshot.sinkVersion;
     }
 
@@ -469,9 +540,9 @@ public final class ModelRegistry {
     }
 
     private static String buildRulesFingerprint(String modelPath,
-                                                RuleFileStamp modelStamp,
+                                                RuleFileVersion.State modelStamp,
                                                 String sourcePath,
-                                                RuleFileStamp sourceStamp,
+                                                RuleFileVersion.State sourceStamp,
                                                 long sinkVersion) {
         String modelPart = modelStamp == null ? "missing" : modelStamp.fingerprint();
         String sourcePart = sourceStamp == null ? "missing" : sourceStamp.fingerprint();
@@ -483,8 +554,8 @@ public final class ModelRegistry {
     private static final class Snapshot {
         private final String modelPath;
         private final String sourcePath;
-        private final RuleFileStamp modelStamp;
-        private final RuleFileStamp sourceStamp;
+        private final RuleFileVersion.State modelStamp;
+        private final RuleFileVersion.State sourceStamp;
         private final long sinkVersion;
         private final UnifiedModel model;
         private final RuleValidationSummary validation;
@@ -493,8 +564,8 @@ public final class ModelRegistry {
 
         private Snapshot(String modelPath,
                          String sourcePath,
-                         RuleFileStamp modelStamp,
-                         RuleFileStamp sourceStamp,
+                         RuleFileVersion.State modelStamp,
+                         RuleFileVersion.State sourceStamp,
                          long sinkVersion,
                          UnifiedModel model,
                          RuleValidationSummary validation,
@@ -570,82 +641,20 @@ public final class ModelRegistry {
         }
     }
 
-    private static final class RuleFileStamp {
-        private final boolean exists;
-        private final long modifiedTime;
-        private final long size;
-        private final String contentHash;
-
-        private RuleFileStamp(boolean exists, long modifiedTime, long size, String contentHash) {
-            this.exists = exists;
-            this.modifiedTime = modifiedTime;
-            this.size = size;
-            this.contentHash = contentHash == null ? "" : contentHash;
-        }
-
-        private static RuleFileStamp of(String rawPath) {
-            if (rawPath == null || rawPath.isBlank()) {
-                return new RuleFileStamp(false, -1L, -1L, "");
-            }
-            try {
-                Path path = Paths.get(rawPath);
-                if (!Files.exists(path)) {
-                    return new RuleFileStamp(false, -1L, -1L, "");
-                }
-                byte[] data = Files.readAllBytes(path);
-                long modified = Files.getLastModifiedTime(path).toMillis();
-                long fileSize = data.length;
-                return new RuleFileStamp(true, modified, fileSize, sha256Hex(data));
-            } catch (Exception ex) {
-                logger.debug("resolve model rule stamp failed: path={} err={}", rawPath, ex.toString());
-                return new RuleFileStamp(false, -1L, -1L, "");
-            }
-        }
-
-        private String fingerprint() {
-            if (!exists) {
-                return "missing";
-            }
-            if (!contentHash.isBlank()) {
-                return contentHash;
-            }
-            return modifiedTime + ":" + size;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (!(obj instanceof RuleFileStamp other)) {
-                return false;
-            }
-            return exists == other.exists
-                    && modifiedTime == other.modifiedTime
-                    && size == other.size
-                    && contentHash.equals(other.contentHash);
-        }
-
-        @Override
-        public int hashCode() {
-            int result = Boolean.hashCode(exists);
-            result = 31 * result + Long.hashCode(modifiedTime);
-            result = 31 * result + Long.hashCode(size);
-            result = 31 * result + contentHash.hashCode();
-            return result;
+    public record SourceRuleSnapshot(List<SourceModel> sourceModels, List<String> sourceAnnotations) {
+        public SourceRuleSnapshot {
+            sourceModels = sourceModels == null ? Collections.emptyList() : List.copyOf(sourceModels);
+            sourceAnnotations = sourceAnnotations == null ? Collections.emptyList() : List.copyOf(sourceAnnotations);
         }
     }
 
-    private static String sha256Hex(byte[] data) {
-        if (data == null || data.length == 0) {
-            return "";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(data));
-        } catch (Exception ex) {
-            logger.debug("compute model rule hash failed: {}", ex.toString());
-            return "";
+    public record TaintRuleContext(SanitizerRule barrierRule,
+                                   PruningPolicy pruningPolicy,
+                                   List<TaintGuardRule> guardRules) {
+        public TaintRuleContext {
+            barrierRule = barrierRule == null ? new SanitizerRule() : barrierRule;
+            pruningPolicy = pruningPolicy == null ? PruningPolicy.defaults() : pruningPolicy;
+            guardRules = guardRules == null ? Collections.emptyList() : List.copyOf(guardRules);
         }
     }
 }

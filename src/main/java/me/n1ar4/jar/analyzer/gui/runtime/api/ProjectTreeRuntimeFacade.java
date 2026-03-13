@@ -1,6 +1,7 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
 
 import java.util.List;
@@ -61,8 +62,8 @@ final class ProjectTreeRuntimeFacade implements ProjectTreeFacade {
     }
 
     @Override
-    public void openNode(String value) {
-        treeSupport.openNode(value);
+    public void openTarget(NavigationTargetDto target) {
+        treeSupport.openTarget(target);
     }
 
     @Override

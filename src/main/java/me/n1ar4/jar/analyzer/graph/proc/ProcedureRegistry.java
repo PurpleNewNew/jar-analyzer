@@ -201,11 +201,13 @@ public final class ProcedureRegistry {
         int depth = toInt(resolveArg(argExprs, params, 6), options.getMaxHops());
         Integer timeoutMs = toNullableInt(resolveArg(argExprs, params, 7));
         Integer maxPaths = toNullableInt(resolveArg(argExprs, params, 8));
-        String mode = toString(resolveArg(argExprs, params, 9));
-        boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 10), false);
-        boolean onlyFromWeb = searchAllSources && toBoolean(resolveArg(argExprs, params, 11), false);
-        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 12)));
-        SearchDirection direction = resolveTaintDirection(mode, toString(resolveArg(argExprs, params, 13)));
+        boolean searchAllSources = toBoolean(resolveArg(argExprs, params, 9), false);
+        boolean onlyFromWeb = searchAllSources && toBoolean(resolveArg(argExprs, params, 10), false);
+        TraversalMode traversalMode = TraversalMode.parse(toString(resolveArg(argExprs, params, 11)));
+        SearchDirection direction = SearchDirection.parse(
+                normalizeProcedureString(toString(resolveArg(argExprs, params, 12))),
+                SearchDirection.FORWARD
+        );
 
         if (sinkClass.isEmpty() || sinkMethod.isEmpty() || sinkDesc.isEmpty()) {
             throw new IllegalArgumentException("missing_param");
@@ -1959,21 +1961,6 @@ public final class ProcedureRegistry {
 
     private static String toString(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private static SearchDirection resolveTaintDirection(String mode, String direction) {
-        String explicit = normalizeProcedureString(direction);
-        if (!explicit.isEmpty()) {
-            return SearchDirection.parse(explicit, SearchDirection.FORWARD);
-        }
-        String value = normalizeProcedureString(mode).toLowerCase(Locale.ROOT);
-        if (value.isEmpty() || "source".equals(value) || "fromsource".equals(value)) {
-            return SearchDirection.FORWARD;
-        }
-        if ("sink".equals(value) || "fromsink".equals(value)) {
-            return SearchDirection.BACKWARD;
-        }
-        throw new IllegalArgumentException("invalid_request");
     }
 
     private static String normalizeProcedureString(String value) {
