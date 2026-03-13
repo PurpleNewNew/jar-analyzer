@@ -23,6 +23,8 @@ import java.util.Objects;
 public final class JcefRuntime {
     private static final Logger logger = LogManager.getLogger();
     private static final long DEFAULT_SHUTDOWN_WAIT_MS = 1500L;
+    private static final String RUNTIME_DIR = "jcef-runtime";
+    private static final String PROFILE_DIR = "profile";
     private static volatile CefApp app;
     private static volatile String failureReason;
     private static final Object INIT_LOCK = new Object();
@@ -78,8 +80,8 @@ public final class JcefRuntime {
                 return;
             }
             try {
-                Path installRoot = Path.of(Const.tempDir, "jcef-runtime");
-                Files.createDirectories(installRoot);
+                Path runtimeRoot = resolveRuntimeRoot();
+                Files.createDirectories(runtimeRoot);
                 String remoteFlagBefore = safe(System.getProperty("jcef.remote.enabled"));
                 System.setProperty("jcef.remote.enabled", "false");
                 String remoteFlagAfter = safe(System.getProperty("jcef.remote.enabled"));
@@ -105,10 +107,10 @@ public final class JcefRuntime {
                 if (safe(settings.locale).isBlank()) {
                     settings.locale = "zh-CN";
                 }
-                Path cacheRoot = installRoot.resolve("cache");
-                Files.createDirectories(cacheRoot);
-                settings.cache_path = cacheRoot.toAbsolutePath().toString();
-                settings.log_file = new File(installRoot.toFile(), "jcef.log").getAbsolutePath();
+                Path profileRoot = resolveProfileRoot(runtimeRoot);
+                Files.createDirectories(profileRoot);
+                settings.cache_path = profileRoot.toAbsolutePath().toString();
+                settings.log_file = new File(runtimeRoot.toFile(), "jcef.log").getAbsolutePath();
                 app = CefApp.getInstance(cefArgs, settings);
                 logger.info("JCEF runtime init success");
                 boolean remoteSupported = CefApp.isRemoteSupported();
@@ -122,6 +124,15 @@ public final class JcefRuntime {
                 logger.error("JCEF runtime init failed: {}", reason);
             }
         }
+    }
+
+    static Path resolveRuntimeRoot() {
+        return Path.of(Const.dbDir, RUNTIME_DIR).toAbsolutePath().normalize();
+    }
+
+    static Path resolveProfileRoot(Path runtimeRoot) {
+        Objects.requireNonNull(runtimeRoot, "runtimeRoot");
+        return runtimeRoot.resolve(PROFILE_DIR).toAbsolutePath().normalize();
     }
 
     private static void ensureJbrJcefModule() {
