@@ -10,7 +10,6 @@ import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
-import me.n1ar4.jar.analyzer.taint.TaintCache;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,8 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ChainsTaintExecutionTest {
     @AfterEach
     void cleanup() {
-        TaintCache.dfsCache.clear();
-        TaintCache.cache.clear();
+        ChainsResultStore.getInstance().clear();
         DatabaseManager.clearAllData();
     }
 
@@ -49,7 +47,10 @@ class ChainsTaintExecutionTest {
         dfs.setSink(sink);
         dfs.setMethodList(List.of(source, sink));
         dfs.setEdges(List.of(edge));
-        TaintCache.dfsCache.add(dfs);
+        ChainsResultStore.getInstance().replaceDfs(
+                ChainsResultStore.captureCurrentContext(),
+                List.of(dfs)
+        );
 
         RuntimeFacades.chains().apply(new ChainsSettingsDto(
                 true,

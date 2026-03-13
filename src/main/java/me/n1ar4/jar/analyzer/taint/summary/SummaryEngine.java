@@ -28,8 +28,7 @@ import java.util.Set;
 
 public final class SummaryEngine {
     private static final Logger logger = LogManager.getLogger();
-    private static final String PROP_SUMMARY_CACHE = "jar.analyzer.taint.summary.cache.size";
-    private static final String PROP_DB_CACHE = "jar.analyzer.taint.summary.cache.db";
+    private static final int DEFAULT_CACHE_SIZE = 2048;
     private static final String CACHE_TYPE = "summary";
     private final SummaryCache cache;
     private final SummaryBuilder builder;
@@ -41,18 +40,9 @@ public final class SummaryEngine {
     private volatile String fingerprint;
 
     public SummaryEngine() {
-        int size = 2048;
-        try {
-            String raw = System.getProperty(PROP_SUMMARY_CACHE);
-            if (raw != null && !raw.trim().isEmpty()) {
-                size = Integer.parseInt(raw.trim());
-            }
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid summary cache size: {}", System.getProperty(PROP_SUMMARY_CACHE));
-        }
-        this.cache = new SummaryCache(size);
+        this.cache = new SummaryCache(DEFAULT_CACHE_SIZE);
         this.builder = new SummaryBuilder();
-        this.dbCacheEnabled = resolveDbCacheEnabled();
+        this.dbCacheEnabled = true;
     }
 
     public MethodSummary getSummary(MethodReference.Handle handle) {
@@ -119,14 +109,6 @@ public final class SummaryEngine {
                         runtimeState.projectKey(), runtimeState.buildSeq(), latestVersion, fingerprint);
             }
         }
-    }
-
-    private boolean resolveDbCacheEnabled() {
-        String raw = System.getProperty(PROP_DB_CACHE);
-        if (raw == null || raw.trim().isEmpty()) {
-            return true;
-        }
-        return !"false".equalsIgnoreCase(raw.trim());
     }
 
     private MethodSummary loadFromDb(MethodReference.Handle handle) {

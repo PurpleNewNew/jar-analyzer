@@ -27,7 +27,6 @@ import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectBuildMode;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
-import me.n1ar4.jar.analyzer.engine.index.IndexEngine;
 import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.jar.analyzer.core.facts.LocalVarEntity;
@@ -74,14 +73,6 @@ public class CoreRunner {
     private static final String CALLGRAPH_STAGE_KEY = "callgraph";
     private static final String BOOT_INF_CLASSES_PREFIX = "BOOT-INF/classes/";
     private static final String WEB_INF_CLASSES_PREFIX = "WEB-INF/classes/";
-
-    private static void refreshCachesAfterBuild() {
-        try {
-            IndexEngine.closeAll();
-        } catch (Exception ex) {
-            logger.warn("close index fail: {}", ex.toString());
-        }
-    }
 
     public static BuildResult run(Path jarPath,
                                   Path rtJarPath,
@@ -804,7 +795,6 @@ public class CoreRunner {
         progress.accept(97);
         markBuildStage("refresh-caches");
         long refreshStartNs = System.nanoTime();
-        refreshCachesAfterBuild();
         if (metrics != null) {
             metrics.record("refresh_caches", msSince(refreshStartNs), metricMap(
                     "cache_refresh", true

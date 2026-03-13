@@ -25,7 +25,7 @@ public final class JarFingerprintUtil {
     private static final Logger logger = LogManager.getLogger();
     private static final int DEFAULT_CAPACITY = 512;
     private static final BuildScopedLru<String, CacheEntry> CACHE =
-            new BuildScopedLru<>(resolveCapacity(), ProjectStateUtil::runtimeSnapshot);
+            new BuildScopedLru<>(DEFAULT_CAPACITY, ProjectStateUtil::runtimeSnapshot);
 
     private JarFingerprintUtil() {
     }
@@ -96,23 +96,6 @@ public final class JarFingerprintUtil {
         } catch (Exception ex) {
             logger.debug("read file mtime failed: {}: {}", path, ex.toString());
             return -1L;
-        }
-    }
-
-    private static int resolveCapacity() {
-        String raw = System.getProperty("jar.analyzer.fingerprint.cache.max");
-        if (raw == null || raw.trim().isEmpty()) {
-            return DEFAULT_CAPACITY;
-        }
-        try {
-            int v = Integer.parseInt(raw.trim());
-            if (v < 16) {
-                return DEFAULT_CAPACITY;
-            }
-            return v;
-        } catch (NumberFormatException ex) {
-            logger.debug("invalid fingerprint cache max: {}", raw);
-            return DEFAULT_CAPACITY;
         }
     }
 

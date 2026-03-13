@@ -9,7 +9,6 @@ import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
-import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -199,8 +198,7 @@ final class BuildRuntimeFacade implements BuildFacade {
             logger.debug("clear semantic cache failed: {}", ex.toString());
         }
         try {
-            TaintCache.dfsCache.clear();
-            TaintCache.cache.clear();
+            ChainsResultStore.getInstance().clear();
         } catch (Throwable ex) {
             logger.debug("clear taint cache failed: {}", ex.toString());
         }

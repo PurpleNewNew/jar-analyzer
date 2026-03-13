@@ -25,6 +25,7 @@ public final class ApocWhitelist {
     private static final Map<String, List<String>> CATEGORY_FUNCTIONS;
     private static final Map<String, String> CANONICAL_FUNCTIONS;
     private static final List<String> DEFAULT_FUNCTIONS;
+    private static final List<String> ALL_FUNCTION_NAMES;
     private static final Set<String> ALL_FUNCTIONS;
 
     static {
@@ -66,6 +67,7 @@ public final class ApocWhitelist {
         }
         CANONICAL_FUNCTIONS = Collections.unmodifiableMap(canonicalFunctions);
         DEFAULT_FUNCTIONS = List.copyOf(defaults);
+        ALL_FUNCTION_NAMES = List.copyOf(canonicalFunctions.values());
         ALL_FUNCTIONS = Set.copyOf(CANONICAL_FUNCTIONS.keySet());
     }
 
@@ -111,8 +113,11 @@ public final class ApocWhitelist {
 
     static List<String> resolveWhitelist(String rawProperty) {
         String raw = normalizeToken(rawProperty);
-        if (raw.isBlank() || "default".equals(raw) || "all".equals(raw)) {
+        if (raw.isBlank() || "default".equals(raw)) {
             return DEFAULT_FUNCTIONS;
+        }
+        if ("all".equals(raw)) {
+            return ALL_FUNCTION_NAMES;
         }
         if (isOffToken(raw)) {
             return List.of();
@@ -123,8 +128,12 @@ public final class ApocWhitelist {
             if (normalized.isBlank() || isOffToken(normalized)) {
                 continue;
             }
-            if ("default".equals(normalized) || "all".equals(normalized)) {
+            if ("default".equals(normalized)) {
                 resolved.addAll(DEFAULT_FUNCTIONS);
+                continue;
+            }
+            if ("all".equals(normalized)) {
+                resolved.addAll(ALL_FUNCTION_NAMES);
                 continue;
             }
             List<String> category = CATEGORY_FUNCTIONS.get(normalized);

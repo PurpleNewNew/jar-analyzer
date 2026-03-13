@@ -19,7 +19,6 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ScaSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
-import me.n1ar4.jar.analyzer.taint.TaintCache;
 import me.n1ar4.jar.analyzer.taint.TaintResult;
 import org.junit.jupiter.api.Test;
 
@@ -68,8 +67,8 @@ class ToolingWindowContractTest {
 
     @Test
     void chainsViewerShouldEmitStructuredPayload() {
-        TaintCache.dfsCache.clear();
-        TaintCache.cache.clear();
+        ChainsResultStore store = ChainsResultStore.getInstance();
+        store.clear();
         List<ToolingWindowRequest> requests = new ArrayList<>();
         RuntimeFacades.setToolingWindowConsumer(requests::add);
         try {
@@ -90,14 +89,15 @@ class ToolingWindowContractTest {
             dfs.setTruncateReason("max depth");
             dfs.setRecommend("increase depth");
             dfs.setMethodList(List.of(handle));
-            TaintCache.dfsCache.add(dfs);
+            ChainsResultStore.Context context = ChainsResultStore.captureCurrentContext();
+            store.replaceDfs(context, List.of(dfs));
 
             TaintResult taint = new TaintResult();
             taint.setDfsResult(dfs);
             taint.setSuccess(true);
             taint.setLowConfidence(false);
             taint.setTaintText("sanitizer hit: demo");
-            TaintCache.cache.add(taint);
+            store.replaceTaint(context, List.of(taint));
 
             RuntimeFacades.tooling().openChainsDfsResult();
             RuntimeFacades.tooling().openChainsTaintResult();
@@ -124,8 +124,7 @@ class ToolingWindowContractTest {
             assertNotNull(taintPayload.items().get(0).sanitizerDetail());
         } finally {
             RuntimeFacades.setToolingWindowConsumer(null);
-            TaintCache.dfsCache.clear();
-            TaintCache.cache.clear();
+            store.clear();
         }
     }
 }

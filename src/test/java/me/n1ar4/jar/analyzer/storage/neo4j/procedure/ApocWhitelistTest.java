@@ -53,4 +53,14 @@ class ApocWhitelistTest {
         assertEquals("off", ApocWhitelist.whitelistMode());
         assertEquals(List.of(), ApocWhitelist.effectiveWhitelist());
     }
+
+    @Test
+    void shouldKeepAllModeConsistentWithAllWhitelistExpansion() {
+        System.setProperty(ApocWhitelist.APOC_WHITELIST_PROP, "all");
+        List<String> whitelist = ApocWhitelist.effectiveWhitelist();
+        assertEquals("all", ApocWhitelist.whitelistMode());
+        assertTrue(whitelist.contains("apoc.text.join"));
+        assertTrue(whitelist.contains("apoc.map.merge"));
+        assertTrue(whitelist.contains("apoc.coll.flatten"));
+    }
 }

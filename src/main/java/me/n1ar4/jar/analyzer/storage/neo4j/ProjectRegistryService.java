@@ -147,8 +147,7 @@ public final class ProjectRegistryService {
                     }
                 }
             } catch (RuntimeException ex) {
-                cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
-                throw ex;
+                throw attachPreparedProjectCleanupFailure(ex, next.projectKey(), storeExistedBefore);
             }
             try {
                 if (!Objects.equals(previousProjectKey, next.projectKey())) {
@@ -161,8 +160,8 @@ public final class ProjectRegistryService {
             } catch (RuntimeException ex) {
                 try {
                     rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
-                } finally {
-                    cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                } catch (RuntimeException rollbackEx) {
+                    throw attachPreparedProjectCleanupFailure(rollbackEx, next.projectKey(), storeExistedBefore);
                 }
             }
             return next;
@@ -216,21 +215,11 @@ public final class ProjectRegistryService {
                 refreshActiveProjectInPlace(
                         temporaryKey,
                         ActiveProjectContext.temporaryProjectAlias(),
-                        () -> {
-                            try {
-                                PROJECT_STORE.deleteProjectStore(temporaryKey);
-                            } catch (Exception ex) {
-                                logger.debug("cleanup temporary project store fail: {}", ex.toString());
-                            }
-                        },
+                        () -> deleteProjectStoreOrThrow(temporaryKey, "temporary_project_store_delete_failed"),
                         "cleanup_temporary_project"
                 );
             } else {
-                try {
-                    PROJECT_STORE.deleteProjectStore(temporaryKey);
-                } catch (Exception ex) {
-                    logger.debug("cleanup temporary project store fail: {}", ex.toString());
-                }
+                deleteProjectStoreOrThrow(temporaryKey, "temporary_project_store_delete_failed");
             }
         }
     }
@@ -278,8 +267,7 @@ public final class ProjectRegistryService {
                     }
                 }
             } catch (RuntimeException ex) {
-                cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
-                throw ex;
+                throw attachPreparedProjectCleanupFailure(ex, next.projectKey(), storeExistedBefore);
             }
             try {
                 if (!Objects.equals(previousProjectKey, next.projectKey())) {
@@ -292,8 +280,8 @@ public final class ProjectRegistryService {
             } catch (RuntimeException ex) {
                 try {
                     rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
-                } finally {
-                    cleanupPreparedProjectStore(next.projectKey(), storeExistedBefore);
+                } catch (RuntimeException rollbackEx) {
+                    throw attachPreparedProjectCleanupFailure(rollbackEx, next.projectKey(), storeExistedBefore);
                 }
             }
             return next;
@@ -535,10 +523,9 @@ public final class ProjectRegistryService {
             }
             if (deleteStore && !removedProjectKey.isBlank()) {
                 try {
-                    PROJECT_STORE.deleteProjectStore(removedProjectKey);
-                } catch (Exception ex) {
-                    logger.debug("delete removed project store fail: key={} err={}",
-                            safe(removedProjectKey), ex.toString());
+                    deleteProjectStoreOrThrow(removedProjectKey, "project_store_delete_failed");
+                } catch (RuntimeException ex) {
+                    rollbackCommittedRegistryMutation(previousEntries, previousProjectKey, previousAlias, ex);
                 }
             }
             return removedFlag;
@@ -833,14 +820,24 @@ public final class ProjectRegistryService {
                 logger.debug("close current project runtime fail: {}", ex.toString());
             }
             clearActiveProjectServices();
-            if (projectMutation != null) {
-                projectMutation.run();
+            RuntimeException failure = null;
+            try {
+                if (projectMutation != null) {
+                    projectMutation.run();
+                }
+                RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(projectKey);
+                boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
+                activateProjectServices(projectKey);
+                logger.info("project refreshed in place: key={} reason={} (metadataRestored={})",
+                        safe(projectKey), safe(reason), restored);
+            } catch (RuntimeException ex) {
+                failure = ex;
+                throw ex;
+            } finally {
+                if (failure != null) {
+                    recoverActiveProjectRefresh(projectKey, alias, reason, failure);
+                }
             }
-            RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(projectKey);
-            boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
-            activateProjectServices(projectKey);
-            logger.info("project refreshed in place: key={} reason={} (metadataRestored={})",
-                    safe(projectKey), safe(reason), restored);
         } finally {
             ActiveProjectContext.endProjectMutation(projectKey);
         }
@@ -1213,10 +1210,50 @@ public final class ProjectRegistryService {
         if (existedBefore || projectKey == null || projectKey.isBlank()) {
             return;
         }
+        deleteProjectStoreOrThrow(projectKey, "prepared_project_store_cleanup_failed");
+    }
+
+    private static RuntimeException attachPreparedProjectCleanupFailure(RuntimeException failure,
+                                                                       String projectKey,
+                                                                       boolean existedBefore) {
+        if (failure == null) {
+            failure = new IllegalStateException("prepared_project_store_cleanup_failed");
+        }
         try {
-            PROJECT_STORE.deleteProjectStore(projectKey);
-        } catch (Exception ex) {
-            logger.debug("cleanup prepared project store fail: key={} err={}", safe(projectKey), ex.toString());
+            cleanupPreparedProjectStore(projectKey, existedBefore);
+        } catch (RuntimeException cleanupEx) {
+            failure.addSuppressed(cleanupEx);
+        }
+        return failure;
+    }
+
+    private static void deleteProjectStoreOrThrow(String projectKey, String code) {
+        String normalized = ActiveProjectContext.normalizeProjectKey(projectKey);
+        if (normalized.isBlank()) {
+            return;
+        }
+        try {
+            PROJECT_STORE.deleteProjectStore(normalized);
+        } catch (RuntimeException ex) {
+            throw new IllegalStateException(safe(code), ex);
+        }
+    }
+
+    private void recoverActiveProjectRefresh(String projectKey,
+                                             String alias,
+                                             String reason,
+                                             RuntimeException failure) {
+        try {
+            synchronized (lock) {
+                setActiveStateLocked(projectKey, alias);
+            }
+            RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(projectKey);
+            boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
+            activateProjectServices(projectKey);
+            logger.warn("project refresh recovered after failure: key={} reason={} (metadataRestored={})",
+                    safe(projectKey), safe(reason), restored);
+        } catch (RuntimeException recoverEx) {
+            failure.addSuppressed(recoverEx);
         }
     }
 
