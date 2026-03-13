@@ -28,7 +28,7 @@ public final class CypherScriptService {
 
     public ScriptListResponse list() {
         synchronized (STORE_LOCK) {
-            List<StoredScript> entities = readStore();
+            List<StoredScript> entities = readStoreOrThrow();
             entities.sort(Comparator.comparingInt(StoredScript::getPinned).reversed()
                     .thenComparingLong(StoredScript::getUpdatedAt).reversed()
                     .thenComparingLong(StoredScript::getScriptId).reversed());
@@ -61,7 +61,7 @@ public final class CypherScriptService {
         int pinned = request.pinned() ? 1 : 0;
 
         synchronized (STORE_LOCK) {
-            List<StoredScript> rows = readStore();
+            List<StoredScript> rows = readStoreOrThrow();
             long now = System.currentTimeMillis();
             long nextId = nextId(rows);
             Long scriptId = request.scriptId();
@@ -118,7 +118,7 @@ public final class CypherScriptService {
             return;
         }
         synchronized (STORE_LOCK) {
-            List<StoredScript> rows = readStore();
+            List<StoredScript> rows = readStoreOrThrow();
             rows.removeIf(item -> item != null && item.getScriptId() == scriptId);
             writeStore(rows);
         }
@@ -175,22 +175,31 @@ public final class CypherScriptService {
         return max + 1L;
     }
 
-    private static List<StoredScript> readStore() {
+    private static List<StoredScript> readStoreOrThrow() {
         if (!Files.exists(STORE_FILE)) {
             return new ArrayList<>();
         }
         try {
             String content = Files.readString(STORE_FILE, StandardCharsets.UTF_8);
+            if (content.isBlank()) {
+                throw unreadableStore(null);
+            }
             List<StoredScript> out = JSON.parseObject(content, new TypeReference<List<StoredScript>>() {
             });
             if (out == null) {
-                return new ArrayList<>();
+                throw unreadableStore(null);
             }
             return new ArrayList<>(out);
+        } catch (IllegalStateException ex) {
+            throw ex;
         } catch (Exception ex) {
-            logger.warn("read cypher script store failed: {}", ex.toString());
-            return new ArrayList<>();
+            logger.warn("read cypher script store failed: path={} err={}", STORE_FILE, ex.toString());
+            throw unreadableStore(ex);
         }
+    }
+
+    private static IllegalStateException unreadableStore(Exception ex) {
+        return new IllegalStateException("cypher_script_store_unreadable: saved scripts unavailable", ex);
     }
 
     private static void writeStore(List<StoredScript> rows) {

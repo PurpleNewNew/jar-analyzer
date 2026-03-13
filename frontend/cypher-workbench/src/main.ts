@@ -47,6 +47,8 @@ declare global {
 
 const MAX_FRAMES = 50
 const TABLE_ROW_HEIGHT = 26
+const FRAME_PREVIEW_HEIGHT = 86
+const FRAME_STACK_GAP = 8
 const QUERY_OPTIONS_STORAGE_KEY = 'ja.workbench.query-options.v3'
 const TRAVERSAL_MODE_STORAGE_KEY = 'ja.workbench.traversal-mode.v1'
 
@@ -54,6 +56,7 @@ type FrameViewMode = 'graph' | 'table' | 'text'
 type TraversalMode = 'call-only' | 'call+alias'
 type GraphViewport = { x: number; y: number; k: number }
 type GraphNodePosition = { x: number; y: number }
+type NoticeKind = 'info' | 'success' | 'error'
 
 interface FrameState {
   frameId: string
@@ -74,12 +77,35 @@ interface FrameState {
   graphViewport: GraphViewport | null
   graphPinnedNodeIds: number[]
   graphNodePositions: Record<number, GraphNodePosition>
+  layoutMeasured: boolean
   errorCode?: string
   errorMessage?: string
 }
 
-interface SimRef {
-  simulation: d3.Simulation<GraphNodeSim, GraphEdgeSim>
+interface GraphViewController {
+  sync: (frame: FrameState, graph: GraphFramePayload, restartSimulation?: boolean) => void
+  setVisible: (visible: boolean) => void
+  destroy: () => void
+}
+
+interface TableViewController {
+  sync: (frame: FrameState) => void
+  setVisible: (visible: boolean) => void
+  destroy: () => void
+}
+
+interface FrameBodyController {
+  element: HTMLElement
+  sync: (frame: FrameState, restartSimulation?: boolean) => void
+  setHostVisible: (visible: boolean) => void
+  destroy: () => void
+}
+
+interface FrameCardController {
+  card: HTMLElement
+  sync: (frame: FrameState, restartSimulation?: boolean) => void
+  setHostVisible: (visible: boolean) => void
+  destroy: () => void
 }
 
 type GraphNodeSim = GraphNodePayload & d3.SimulationNodeDatum
@@ -89,6 +115,20 @@ type EdgeRouteMeta = {
   lane: number
   isLoop: boolean
   loopIndex: number
+}
+type GraphThemeColors = {
+  accent: string
+  selected: string
+  edgeStroke: string
+  nodeStroke: string
+  nodeFillMethod: string
+  nodeFillClass: string
+  nodeFillCall: string
+  nodeFillDefault: string
+  text: string
+  textOutline: string
+  edgeText: string
+  ring: string
 }
 
 const GRAPH_LABEL_FONT = '600 11px "SF Mono", "JetBrains Mono", "Consolas", monospace'
@@ -106,10 +146,12 @@ const state = {
   selectedFrameId: '',
   scripts: [] as ScriptItem[],
   queryOptions: { ...DEFAULT_QUERY_OPTIONS } as QueryUiOptions,
-  traversalMode: 'call-only' as TraversalMode
+  traversalMode: 'call-only' as TraversalMode,
+  notice: null as { kind: NoticeKind; text: string } | null
 }
 
-const graphSimulations = new Map<string, SimRef>()
+const frameControllers = new Map<string, FrameCardController>()
+const pendingLayoutRefresh = new Set<string>()
 
 installFatalBootHandlers()
 
@@ -121,7 +163,10 @@ if (!app) {
 app.innerHTML = `
   <div class="workbench" id="workbench-root" data-theme="default">
     <header class="wb-header">
-      <div class="wb-title" id="title"></div>
+      <div class="wb-header-main">
+        <div class="wb-title" id="title"></div>
+        <div class="wb-notice" id="notice" hidden></div>
+      </div>
       <div class="wb-actions">
         <button class="wb-btn" id="btn-save" title="Save Script">☆</button>
         <button class="wb-btn" id="btn-refresh" title="Refresh Scripts">↻</button>
@@ -159,9 +204,12 @@ app.innerHTML = `
 
 const root = getRequired<HTMLElement>('workbench-root')
 const titleEl = getRequired<HTMLElement>('title')
+const noticeEl = getRequired<HTMLElement>('notice')
 const scriptsTitleEl = getRequired<HTMLElement>('scripts-title')
 const scriptsCountEl = getRequired<HTMLElement>('scripts-count')
 const framesEl = getRequired<HTMLElement>('frames')
+framesEl.innerHTML = '<div class="frames-rail" id="frames-rail"></div>'
+const framesRailEl = getRequired<HTMLElement>('frames-rail')
 const scriptListEl = getRequired<HTMLElement>('script-list')
 const runButton = getRequired<HTMLButtonElement>('btn-run')
 const refreshButton = getRequired<HTMLButtonElement>('btn-refresh')
@@ -171,6 +219,9 @@ const editorHost = getRequired<HTMLElement>('editor')
 const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
 const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
 const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
+
+let frameViewportObserver: ResizeObserver | null = null
+let suppressFrameScrollSelection = false
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -282,6 +333,7 @@ function installFatalBootHandlers(): void {
     window.__JA_BOOT_ERROR = text
     const root = document.getElementById('app')
     if (root && root.childElementCount > 0) {
+      setNotice('error', humanizeErrorMessage(text))
       return
     }
     const host = root || document.body
@@ -361,6 +413,109 @@ function refreshHeaderLabels(): void {
   modeCallOnlyButton.classList.toggle('active', state.traversalMode === 'call-only')
   modeCallAliasButton.classList.toggle('active', state.traversalMode === 'call+alias')
   syncQueryOptionControls()
+  refreshNotice()
+}
+
+function refreshNotice(): void {
+  const notice = state.notice
+  if (!notice || !notice.text.trim()) {
+    noticeEl.hidden = true
+    noticeEl.textContent = ''
+    noticeEl.className = 'wb-notice'
+    noticeEl.removeAttribute('title')
+    return
+  }
+  const text = notice.text.trim()
+  noticeEl.hidden = false
+  noticeEl.textContent = text
+  noticeEl.title = text
+  noticeEl.className = `wb-notice ${notice.kind}`
+}
+
+function setNotice(kind: NoticeKind, text: string): void {
+  const normalized = text.trim()
+  state.notice = normalized ? { kind, text: normalized } : null
+  refreshNotice()
+}
+
+function clearNotice(): void {
+  if (!state.notice) {
+    return
+  }
+  state.notice = null
+  refreshNotice()
+}
+
+function cssVar(name: string, fallback: string): string {
+  const value = getComputedStyle(root).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function graphThemeColors(): GraphThemeColors {
+  return {
+    accent: cssVar('--accent', '#2f81f7'),
+    selected: cssVar('--warn', '#fdcc59'),
+    edgeStroke: cssVar('--graph-edge-stroke', '#8e98a6'),
+    nodeStroke: cssVar('--graph-node-stroke', '#2f3640'),
+    nodeFillMethod: cssVar('--graph-node-fill-method', '#8fc5ff'),
+    nodeFillClass: cssVar('--graph-node-fill-class', '#ffb283'),
+    nodeFillCall: cssVar('--graph-node-fill-call', '#a6e3bc'),
+    nodeFillDefault: cssVar('--graph-node-fill-default', '#d6dae0'),
+    text: cssVar('--graph-text', '#1f2933'),
+    textOutline: cssVar('--graph-text-outline', 'rgba(248, 250, 252, 0.94)'),
+    edgeText: cssVar('--graph-edge-text', '#5f6b78'),
+    ring: cssVar('--graph-ring', '#6ac6ff')
+  }
+}
+
+installFrameRailBehavior()
+
+function installFrameRailBehavior(): void {
+  framesEl.addEventListener('scroll', handleFrameRailScroll, { passive: true })
+  frameViewportObserver = new ResizeObserver(() => {
+    updateFrameViewportHeight()
+  })
+  frameViewportObserver.observe(framesEl)
+  updateFrameViewportHeight()
+}
+
+function updateFrameViewportHeight(): void {
+  framesEl.style.setProperty('--frames-viewport-height', `${Math.max(0, framesEl.clientHeight)}px`)
+}
+
+function handleFrameRailScroll(): void {
+  if (suppressFrameScrollSelection || state.frames.length <= 1) {
+    return
+  }
+  requestAnimationFrame(() => {
+    if (suppressFrameScrollSelection || state.frames.length <= 1) {
+      return
+    }
+    const anchorY = framesEl.scrollTop + FRAME_PREVIEW_HEIGHT + FRAME_STACK_GAP + 4
+    let candidateId = state.frames[0]?.frameId || ''
+    for (const frame of state.frames) {
+      const card = frameControllers.get(frame.frameId)?.card
+      if (!card) {
+        continue
+      }
+      if (card.offsetTop <= anchorY) {
+        candidateId = frame.frameId
+        continue
+      }
+      break
+    }
+    if (candidateId && candidateId !== state.selectedFrameId) {
+      expandFrame(candidateId, 'preserve')
+    }
+  })
+}
+
+function withSuppressedFrameScrollSelection(action: () => void, timeoutMs = 280): void {
+  suppressFrameScrollSelection = true
+  action()
+  window.setTimeout(() => {
+    suppressFrameScrollSelection = false
+  }, timeoutMs)
 }
 
 function normalizeTraversalMode(value: unknown): TraversalMode {
@@ -461,13 +616,23 @@ async function runQuery(queryInput?: string): Promise<void> {
 }
 
 function pushFrame(frame: FrameState): void {
-  state.frames = [frame, ...state.frames.filter((item) => item.frameId !== frame.frameId)].slice(0, MAX_FRAMES)
-  if (!state.selectedFrameId || !state.frames.some((item) => item.frameId === state.selectedFrameId)) {
-    state.selectedFrameId = frame.frameId
-  } else {
-    state.selectedFrameId = frame.frameId
-  }
+  state.frames = [
+    frame,
+    ...state.frames
+      .filter((item) => item.frameId !== frame.frameId)
+      .map((item) => {
+        item.collapsed = true
+        return item
+      })
+  ].slice(0, MAX_FRAMES)
+  frame.collapsed = false
+  state.selectedFrameId = frame.frameId
   renderFrames()
+  requestAnimationFrame(() => {
+    withSuppressedFrameScrollSelection(() => {
+      framesEl.scrollTo({ top: 0, behavior: 'smooth' })
+    })
+  })
 }
 
 function toFrameState(frame: QueryFramePayload): FrameState {
@@ -490,7 +655,8 @@ function toFrameState(frame: QueryFramePayload): FrameState {
     graphFilter: null,
     graphViewport: null,
     graphPinnedNodeIds: [],
-    graphNodePositions: {}
+    graphNodePositions: {},
+    layoutMeasured: false
   }
 }
 
@@ -574,6 +740,7 @@ function buildErrorFrame(query: string, code: string, message: string): FrameSta
     graphViewport: null,
     graphPinnedNodeIds: [],
     graphNodePositions: {},
+    layoutMeasured: false,
     errorCode: code,
     errorMessage: message
   }
@@ -608,75 +775,163 @@ function renderScripts(): void {
 }
 
 function renderFrames(): void {
-  stopAllSimulations()
-  framesEl.innerHTML = ''
   if (state.frames.length === 0) {
-    const empty = document.createElement('div')
-    empty.className = 'empty'
-    empty.textContent = tr('输入 Cypher 后按 Enter 运行', 'Type Cypher and press Enter')
-    framesEl.appendChild(empty)
+    disposeAllFrameResources()
+    framesRailEl.innerHTML = ''
+    renderEmptyFrames()
     return
   }
 
+  clearEmptyFrames()
+  const activeFrameIds = new Set(state.frames.map((frame) => frame.frameId))
+  for (const [frameId, controller] of frameControllers.entries()) {
+    if (activeFrameIds.has(frameId)) {
+      continue
+    }
+    controller.destroy()
+    frameControllers.delete(frameId)
+  }
+
   for (const frame of state.frames) {
-    const card = document.createElement('section')
-    card.className = `frame${frame.frameId === state.selectedFrameId ? ' selected' : ''}`
-    card.addEventListener('click', () => {
-      state.selectedFrameId = frame.frameId
+    let controller = frameControllers.get(frame.frameId)
+    if (!controller) {
+      controller = createFrameCardController(frame)
+      frameControllers.set(frame.frameId, controller)
+    }
+    controller.sync(frame)
+    scheduleFrameLayoutRefresh(frame)
+  }
+
+  let anchor: ChildNode | null = framesRailEl.firstChild
+  for (const frame of state.frames) {
+    const controller = frameControllers.get(frame.frameId)
+    if (!controller) {
+      continue
+    }
+    const card = controller.card
+    if (card.parentElement !== framesRailEl) {
+      framesRailEl.insertBefore(card, anchor)
+    } else if (card !== anchor) {
+      framesRailEl.insertBefore(card, anchor)
+    }
+    anchor = card.nextSibling
+  }
+
+  updateSelectedFrameClasses()
+  updateSimulationVisibility()
+}
+
+function renderEmptyFrames(): void {
+  const empty = document.createElement('div')
+  empty.id = 'frames-empty'
+  empty.className = 'empty'
+  empty.textContent = tr('输入 Cypher 后按 Enter 运行', 'Type Cypher and press Enter')
+  framesRailEl.appendChild(empty)
+}
+
+function clearEmptyFrames(): void {
+  const empty = document.getElementById('frames-empty')
+  if (empty && empty.parentElement === framesRailEl) {
+    empty.remove()
+  }
+}
+
+function createFrameCardController(initialFrame: FrameState): FrameCardController {
+  let frame = initialFrame
+  const card = document.createElement('section')
+  card.addEventListener('click', () => {
+    selectFrame(frame.frameId)
+  })
+
+  const head = document.createElement('div')
+  head.className = 'frame-head'
+
+  const fold = createFrameButton(frame.collapsed ? '▸' : '▾', frame.collapsed ? tr('展开', 'Expand') : tr('收起', 'Collapse'))
+  fold.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (frame.collapsed) {
+      expandFrame(frame.frameId, 'anchor')
+      return
+    }
+    const nextFrameId = adjacentFrameId(frame.frameId)
+    if (!nextFrameId) {
+      return
+    }
+    expandFrame(nextFrameId, 'anchor')
+  })
+
+  const query = document.createElement('div')
+  query.className = 'frame-query'
+
+  const actions = document.createElement('div')
+  actions.className = 'frame-actions'
+
+  const run = createFrameButton('▶', tr('再运行', 'Run Again'))
+  run.addEventListener('click', (event) => {
+    event.stopPropagation()
+    void runQuery(frame.query)
+  })
+
+  const save = createFrameButton('★', tr('收藏脚本', 'Save Script'))
+  save.addEventListener('click', (event) => {
+    event.stopPropagation()
+    void saveScriptFromFrame(frame)
+  })
+
+  const full = createFrameButton(tr('全屏', 'Full'), tr('全屏', 'Fullscreen'))
+  full.addEventListener('click', (event) => {
+    event.stopPropagation()
+    void requestFullscreen(!state.fullscreen)
+  })
+
+  const close = createFrameButton('✕', tr('关闭', 'Close'))
+  close.addEventListener('click', (event) => {
+    event.stopPropagation()
+    const fallbackFrameId = adjacentFrameId(frame.frameId)
+    state.frames = state.frames.filter((item) => item.frameId !== frame.frameId)
+    if (state.frames.length === 0) {
+      state.selectedFrameId = ''
       renderFrames()
-    })
+      return
+    }
+    if (state.selectedFrameId === frame.frameId) {
+      expandFrame(fallbackFrameId || state.frames[0].frameId, 'preserve')
+      return
+    }
+    renderFrames()
+  })
 
-    const head = document.createElement('div')
-    head.className = 'frame-head'
+  actions.append(run, save, full, close)
+  head.append(fold, query, actions)
+  card.appendChild(head)
 
-    const fold = createFrameButton(frame.collapsed ? '▸' : '▾', frame.collapsed ? tr('展开', 'Expand') : tr('收起', 'Collapse'))
-    fold.addEventListener('click', (event) => {
-      event.stopPropagation()
-      frame.collapsed = !frame.collapsed
-      renderFrames()
-    })
+  const status = document.createElement('div')
+  status.className = 'frame-status'
+  card.appendChild(status)
 
-    const query = document.createElement('div')
-    query.className = 'frame-query'
+  const filterHost = document.createElement('div')
+  card.appendChild(filterHost)
+
+  const bodyController = createFrameBodyController(
+    () => frame,
+    (restartSimulation) => refreshFrame(frame, restartSimulation)
+  )
+  const bodyShell = document.createElement('div')
+  bodyShell.className = 'frame-body-shell'
+  bodyShell.appendChild(bodyController.element)
+  card.appendChild(bodyShell)
+
+  const sync = (nextFrame: FrameState, restartSimulation = false): void => {
+    frame = nextFrame
+    card.className = `frame${frame.frameId === state.selectedFrameId ? ' selected' : ''}${frame.collapsed ? ' collapsed' : ''}`
+    fold.textContent = frame.collapsed ? '▸' : '▾'
+    fold.title = frame.collapsed ? tr('展开', 'Expand') : tr('收起', 'Collapse')
+    fold.setAttribute('aria-expanded', String(!frame.collapsed))
     query.textContent = `$ ${frame.query}`
-
-    const actions = document.createElement('div')
-    actions.className = 'frame-actions'
-
-    const run = createFrameButton('▶', tr('再运行', 'Run Again'))
-    run.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void runQuery(frame.query)
-    })
-
-    const save = createFrameButton('★', tr('收藏脚本', 'Save Script'))
-    save.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void saveScriptFromFrame(frame)
-    })
-
-    const full = createFrameButton(tr('全屏', 'Full'), tr('全屏', 'Fullscreen'))
-    full.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void requestFullscreen(!state.fullscreen)
-    })
-
-    const close = createFrameButton('✕', tr('关闭', 'Close'))
-    close.addEventListener('click', (event) => {
-      event.stopPropagation()
-      state.frames = state.frames.filter((item) => item.frameId !== frame.frameId)
-      if (state.selectedFrameId === frame.frameId) {
-        state.selectedFrameId = state.frames[0]?.frameId || ''
-      }
-      renderFrames()
-    })
-
-    actions.append(run, save, full, close)
-    head.append(fold, query, actions)
-    card.appendChild(head)
-
-    const status = document.createElement('div')
-    status.className = 'frame-status'
+    full.textContent = tr('全屏', 'Full')
+    full.title = tr('全屏', 'Fullscreen')
+    bodyShell.setAttribute('aria-hidden', String(frame.collapsed))
+    status.innerHTML = ''
     status.appendChild(createBadge(`${tr('耗时', 'elapsed')} ${frame.elapsedMs}ms`, frame.errorCode ? 'err' : 'ok'))
     status.appendChild(createBadge(`${tr('行', 'rows')} ${frame.rows.length}`))
     if (frame.truncated) {
@@ -688,58 +943,183 @@ function renderFrames(): void {
     for (const warning of (frame.graph?.warnings || frame.warnings).slice(0, 2)) {
       status.appendChild(createBadge(warning, 'warn'))
     }
-    card.appendChild(status)
-
-    if (frame.graphFilter) {
-      card.appendChild(
+    filterHost.innerHTML = ''
+    filterHost.hidden = frame.collapsed || !frame.graphFilter
+    if (!filterHost.hidden && frame.graphFilter) {
+      filterHost.appendChild(
         buildGraphFilterBar(frame, {
           tr,
           clearGraphFilter: () => {
             frame.graphFilter = null
-            renderFrames()
+            refreshFrame(frame, false)
           }
         })
       )
     }
-
-    if (!frame.collapsed) {
-      card.appendChild(buildFrameBody(frame))
-    }
-
-    framesEl.appendChild(card)
+    bodyController.sync(frame, restartSimulation)
   }
 
-  updateSimulationVisibility()
+  sync(frame)
+  return {
+    card,
+    sync,
+    setHostVisible: (visible) => {
+      bodyController.setHostVisible(visible)
+    },
+    destroy: () => {
+      bodyController.destroy()
+      card.remove()
+    }
+  }
 }
 
-function buildFrameBody(frame: FrameState): HTMLElement {
+function refreshFrame(frame: FrameState, restartSimulation = true): void {
+  const controller = frameControllers.get(frame.frameId)
+  if (!controller) {
+    renderFrames()
+    return
+  }
+  controller.sync(frame, restartSimulation)
+  updateSelectedFrameClasses()
+  controller.setHostVisible(state.hostVisible)
+}
+
+function expandFrame(frameId: string, mode: 'anchor' | 'preserve' | 'none' = 'anchor'): void {
+  if (!frameId) {
+    return
+  }
+  const selected = state.frames.find((item) => item.frameId === frameId)
+  if (!selected) {
+    return
+  }
+  if (state.selectedFrameId === frameId && !selected.collapsed) {
+    return
+  }
+  const selectedCard = frameControllers.get(frameId)?.card || null
+  const previousTop = selectedCard?.offsetTop || 0
+  const previewOffset = Math.max(0, FRAME_PREVIEW_HEIGHT + FRAME_STACK_GAP)
+  for (const frame of state.frames) {
+    frame.collapsed = frame.frameId !== frameId
+  }
+  state.selectedFrameId = frameId
+  renderFrames()
+  if (mode === 'none') {
+    return
+  }
+  requestAnimationFrame(() => {
+    const nextCard = frameControllers.get(frameId)?.card
+    if (!nextCard) {
+      return
+    }
+    if (mode === 'anchor') {
+      const targetTop = Math.max(0, nextCard.offsetTop - previewOffset)
+      withSuppressedFrameScrollSelection(() => {
+        framesEl.scrollTo({ top: targetTop, behavior: 'smooth' })
+      })
+      return
+    }
+    const nextTop = nextCard.offsetTop
+    const delta = nextTop - previousTop
+    if (Math.abs(delta) < 1) {
+      return
+    }
+    withSuppressedFrameScrollSelection(() => {
+      framesEl.scrollTop += delta
+    })
+  })
+}
+
+function selectFrame(frameId: string): void {
+  if (!frameId) {
+    return
+  }
+  const selected = state.frames.find((item) => item.frameId === frameId)
+  if (!selected) {
+    return
+  }
+  if (state.selectedFrameId === frameId && !selected.collapsed) {
+    return
+  }
+  expandFrame(frameId, 'anchor')
+}
+
+function updateSelectedFrameClasses(): void {
+  for (const [frameId, controller] of frameControllers.entries()) {
+    controller.card.classList.toggle('selected', frameId === state.selectedFrameId)
+  }
+}
+
+function adjacentFrameId(frameId: string): string {
+  const index = state.frames.findIndex((item) => item.frameId === frameId)
+  if (index < 0) {
+    return ''
+  }
+  return state.frames[index + 1]?.frameId || state.frames[index - 1]?.frameId || ''
+}
+
+function scheduleFrameLayoutRefresh(frame: FrameState): void {
+  if (frame.collapsed) {
+    return
+  }
+  if (!frame || frame.layoutMeasured || pendingLayoutRefresh.has(frame.frameId)) {
+    return
+  }
+  pendingLayoutRefresh.add(frame.frameId)
+  requestAnimationFrame(() => {
+    pendingLayoutRefresh.delete(frame.frameId)
+    if (!frameControllers.has(frame.frameId) || frame.layoutMeasured) {
+      return
+    }
+    frame.layoutMeasured = true
+    refreshFrame(frame, false)
+  })
+}
+
+function disposeAllFrameResources(): void {
+  for (const controller of frameControllers.values()) {
+    controller.destroy()
+  }
+  frameControllers.clear()
+}
+
+function createFrameBodyController(
+  getFrame: () => FrameState,
+  requestFrameRefresh: (restartSimulation: boolean) => void
+): FrameBodyController {
+  let graphController: GraphViewController | null = null
+  let tableController: TableViewController | null = null
+  let graphKey = ''
+  let textKey = ''
+  let inspectorKey = ''
+  let hostVisible = state.hostVisible
+
   const body = document.createElement('div')
   body.className = 'frame-body'
 
   const tabs = document.createElement('div')
   tabs.className = 'view-tabs'
 
-  const filteredGraph = frame.graph ? applyGraphFilter(frame.graph, frame.graphFilter) : null
-  const normalizedGraph = normalizeGraph(filteredGraph || undefined)
-  const graphEnabled = !!normalizedGraph && normalizedGraph.nodes.length > 0
-  const graphTab = createTabButton('Graph', frame.view === 'graph', !graphEnabled)
-  const tableTab = createTabButton('Table', frame.view === 'table', false)
-  const textTab = createTabButton('Text', frame.view === 'text', false)
+  const graphTab = createTabButton('Graph', false, false)
+  const tableTab = createTabButton('Table', false, false)
+  const textTab = createTabButton('Text', false, false)
 
   graphTab.addEventListener('click', () => {
-    if (!graphEnabled) {
+    const frame = getFrame()
+    if (!frame.graph || frame.graph.nodes.length === 0) {
       return
     }
     frame.view = 'graph'
-    renderFrames()
+    refreshFrame(frame, true)
   })
   tableTab.addEventListener('click', () => {
+    const frame = getFrame()
     frame.view = 'table'
-    renderFrames()
+    refreshFrame(frame, false)
   })
   textTab.addEventListener('click', () => {
+    const frame = getFrame()
     frame.view = 'text'
-    renderFrames()
+    refreshFrame(frame, false)
   })
 
   tabs.append(graphTab, tableTab, textTab)
@@ -748,72 +1128,159 @@ function buildFrameBody(frame: FrameState): HTMLElement {
   content.className = 'view-content'
 
   const graphView = document.createElement('div')
-  graphView.className = `graph-view${frame.view === 'graph' ? ' active' : ''}`
+  graphView.className = 'graph-view'
   const tableView = document.createElement('div')
-  tableView.className = `table-view${frame.view === 'table' ? ' active' : ''}`
+  tableView.className = 'table-view'
   const textView = document.createElement('div')
-  textView.className = `text-view${frame.view === 'text' ? ' active' : ''}`
-
-  if (frame.view === 'graph' && graphEnabled && normalizedGraph) {
-    try {
-      renderGraphView(graphView, frame, normalizedGraph)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error || 'graph render failed')
-      graphView.innerHTML = `<div class="empty">${tr('图渲染失败', 'Graph render failed')}: ${escapeHtml(message)}</div>`
-    }
-  } else {
-    const emptyReason = tr('该结果不可图形化', 'Graph unavailable for this result')
-    graphView.innerHTML = `<div class="empty">${emptyReason}</div>`
-  }
-
-  renderVirtualTable(tableView, frame)
-  renderTextView(textView, frame)
+  textView.className = 'text-view'
 
   content.append(graphView, tableView, textView)
 
   const propPanel = document.createElement('aside')
   propPanel.className = 'prop-panel'
-  renderInspector(propPanel, {
-    ...frame,
-    graph: normalizedGraph
-  }, {
-    tr,
-    activateLegend: (kind, value) => {
-      activateLegend(frame, kind, value)
-    },
-    activateInspectorLink: (key, value, selected) => {
-      activateInspectorLink(frame, key, value, selected)
-    },
-    activateNeighborhoodFocus: (node) => {
-      activateNeighborhoodFocus(frame, node)
-    },
-    clearGraphFilter: () => {
-      frame.graphFilter = null
-      renderFrames()
-    }
-  })
-
   body.append(tabs, content, propPanel)
-  return body
+
+  const applyGraphVisibility = (frame: FrameState): void => {
+    graphController?.setVisible(hostVisible && frame.view === 'graph' && !frame.collapsed)
+  }
+
+  const applyTableVisibility = (frame: FrameState): void => {
+    tableController?.setVisible(frame.view === 'table' && !frame.collapsed)
+  }
+
+  const sync = (frame: FrameState, restartSimulation = false): void => {
+    if (frame.collapsed) {
+      graphController?.setVisible(false)
+      tableController?.setVisible(false)
+      return
+    }
+
+    const filteredGraph = frame.graph ? applyGraphFilter(frame.graph, frame.graphFilter) : null
+    const normalizedGraph = normalizeGraph(filteredGraph || undefined)
+    const graphEnabled = !!normalizedGraph && normalizedGraph.nodes.length > 0
+    const nextGraphKey = graphEnabled ? graphIdentityKey(frame, normalizedGraph) : ''
+
+    graphTab.disabled = !graphEnabled
+    graphTab.className = `tab-btn${frame.view === 'graph' ? ' active' : ''}`
+    tableTab.className = `tab-btn${frame.view === 'table' ? ' active' : ''}`
+    textTab.className = `tab-btn${frame.view === 'text' ? ' active' : ''}`
+    graphView.className = `graph-view${frame.view === 'graph' ? ' active' : ''}`
+    tableView.className = `table-view${frame.view === 'table' ? ' active' : ''}`
+    textView.className = `text-view${frame.view === 'text' ? ' active' : ''}`
+
+    if (graphEnabled && normalizedGraph) {
+      if (!graphController || graphKey !== nextGraphKey) {
+        graphController?.destroy()
+        graphView.innerHTML = ''
+        try {
+          graphController = mountGraphView(graphView, frame, normalizedGraph, requestFrameRefresh)
+          graphKey = nextGraphKey
+        } catch (error) {
+          graphController = null
+          graphKey = ''
+          const message = error instanceof Error ? error.message : String(error || 'graph render failed')
+          graphView.innerHTML = `<div class="empty">${tr('图渲染失败', 'Graph render failed')}: ${escapeHtml(message)}</div>`
+        }
+      } else {
+        graphController.sync(frame, normalizedGraph, restartSimulation)
+      }
+    } else {
+      graphController?.destroy()
+      graphController = null
+      graphKey = ''
+      graphView.innerHTML = `<div class="empty">${tr('该结果不可图形化', 'Graph unavailable for this result')}</div>`
+    }
+
+    if (!tableController) {
+      tableController = mountVirtualTable(tableView, frame)
+    } else {
+      tableController.sync(frame)
+    }
+
+    applyGraphVisibility(frame)
+    applyTableVisibility(frame)
+    const nextTextKey = frameTextRenderKey(frame)
+    if (textKey !== nextTextKey) {
+      renderTextView(textView, frame)
+      textKey = nextTextKey
+    }
+
+    const nextInspectorKey = frameInspectorRenderKey(frame, normalizedGraph)
+    if (inspectorKey !== nextInspectorKey) {
+      renderInspector(propPanel, {
+        ...frame,
+        graph: normalizedGraph
+      }, {
+        tr,
+        activateLegend: (kind, value) => {
+          activateLegend(frame, kind, value)
+        },
+        activateInspectorLink: (key, value, selected) => {
+          activateInspectorLink(frame, key, value, selected)
+        },
+        activateNeighborhoodFocus: (node) => {
+          activateNeighborhoodFocus(frame, node)
+        },
+        clearGraphFilter: () => {
+          frame.graphFilter = null
+          refreshFrame(frame, false)
+        }
+      })
+      inspectorKey = nextInspectorKey
+    }
+  }
+
+  const destroy = (): void => {
+    graphController?.destroy()
+    graphController = null
+    tableController?.destroy()
+    tableController = null
+  }
+
+  return {
+    element: body,
+    sync,
+    setHostVisible: (visible) => {
+      hostVisible = visible
+      applyGraphVisibility(getFrame())
+    },
+    destroy
+  }
 }
 
-function renderGraphView(container: HTMLElement, frame: FrameState, graph: GraphFramePayload): void {
-  if (!graph) {
-    container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
-    return
-  }
-  const nodes = graph.nodes
-  const edges = graph.edges
+function graphIdentityKey(frame: FrameState, graph: GraphFramePayload): string {
+  const nodeKey = graph.nodes.map((node) => `${node.id}:${node.kind}:${node.label || ''}`).join('|')
+  const edgeKey = graph.edges.map((edge) => `${edge.id}:${edge.source}>${edge.target}:${edgeDisplayLabel(edge)}`).join('|')
+  return `${frame.frameId}::${nodeKey}::${edgeKey}`
+}
+
+function mountGraphView(
+  container: HTMLElement,
+  initialFrame: FrameState,
+  initialGraph: GraphFramePayload,
+  requestFrameRefresh: (restartSimulation: boolean) => void
+): GraphViewController {
+  let currentFrame = initialFrame
+  let currentGraph = initialGraph
+  const nodes = currentGraph.nodes
+  const edges = currentGraph.edges
   if (nodes.length === 0) {
-    container.innerHTML = `<div class="empty">${tr('无图数据', 'No graph data')}</div>`
-    return
+    throw new Error('graph data required')
   }
   container.innerHTML = ''
   const stage = document.createElement('div')
   stage.className = 'graph-stage'
   container.appendChild(stage)
-  const width = Math.max(360, stage.clientWidth || container.clientWidth || 720)
-  const height = Math.max(260, stage.clientHeight || container.clientHeight || 420)
+  let visible = false
+  const measureStage = (): { width: number; height: number } => {
+    return {
+      width: Math.max(360, stage.clientWidth || container.clientWidth || 720),
+      height: Math.max(260, stage.clientHeight || container.clientHeight || 420)
+    }
+  }
+  const initialSize = measureStage()
+  let width = initialSize.width
+  let height = initialSize.height
   const controls = document.createElement('div')
   controls.className = 'graph-zoom-controls'
   const zoomReadout = document.createElement('div')
@@ -853,8 +1320,9 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
   const nodeLayer = scene.append('g')
   const textLayer = scene.append('g')
   const defs = svg.append('defs')
-  const markerBase = `graph-arrow-${frame.frameId}`
-  defs
+  const markerBase = `graph-arrow-${currentFrame.frameId}`
+  let graphTheme = graphThemeColors()
+  const baseMarkerPath = defs
     .append('marker')
     .attr('id', `${markerBase}-base`)
     .attr('viewBox', '0 0 10 10')
@@ -865,8 +1333,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .attr('orient', 'auto')
     .append('path')
     .attr('d', 'M 0 0 L 10 5 L 0 10 z')
-    .attr('fill', '#8e98a6')
-  defs
+    .attr('fill', graphTheme.edgeStroke)
+  const activeMarkerPath = defs
     .append('marker')
     .attr('id', `${markerBase}-active`)
     .attr('viewBox', '0 0 10 10')
@@ -877,26 +1345,36 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .attr('orient', 'auto')
     .append('path')
     .attr('d', 'M 0 0 L 10 5 L 0 10 z')
-    .attr('fill', '#2f81f7')
+    .attr('fill', graphTheme.accent)
 
   const simNodes: GraphNodeSim[] = nodes.map((node) => ({ ...node }))
   const simEdges: GraphEdgeSim[] = edges.map((edge) => ({ ...edge }))
   const nodeOnlyLayout = simEdges.length === 0
   const edgeRouteMeta = buildEdgeRouteMeta(simEdges)
-  const pinnedNodeIds = new Set<number>(frame.graphPinnedNodeIds)
-  let currentTransform = frame.graphViewport
-    ? d3.zoomIdentity.translate(frame.graphViewport.x, frame.graphViewport.y).scale(frame.graphViewport.k)
+  const pinnedNodeIds = new Set<number>(currentFrame.graphPinnedNodeIds)
+  let currentTransform = currentFrame.graphViewport
+    ? d3.zoomIdentity.translate(currentFrame.graphViewport.x, currentFrame.graphViewport.y).scale(currentFrame.graphViewport.k)
     : d3.zoomIdentity
   let lastPanSample: { x: number; y: number; at: number } | null = null
   let panVelocity = { x: 0, y: 0 }
+  let edgeGeometry = new Map<number, ReturnType<typeof computeEdgeGeometry>>()
   seedGraphLayout(simNodes, width, height, nodeOnlyLayout)
-  restoreGraphNodePositions(frame, simNodes)
-  for (const node of simNodes) {
-    if (pinnedNodeIds.has(node.id)) {
-      node.fx = Number.isFinite(node.x) ? Number(node.x) : width / 2
-      node.fy = Number.isFinite(node.y) ? Number(node.y) : height / 2
+  restoreGraphNodePositions(currentFrame, simNodes)
+  const hasSavedLayout = Object.keys(currentFrame.graphNodePositions || {}).length > 0
+  const applyPinnedLayout = (): void => {
+    pinnedNodeIds.clear()
+    currentFrame.graphPinnedNodeIds.forEach((item) => pinnedNodeIds.add(item))
+    for (const node of simNodes) {
+      if (pinnedNodeIds.has(node.id)) {
+        node.fx = Number.isFinite(node.x) ? Number(node.x) : width / 2
+        node.fy = Number.isFinite(node.y) ? Number(node.y) : height / 2
+        continue
+      }
+      node.fx = null
+      node.fy = null
     }
   }
+  applyPinnedLayout()
 
   const simulation = d3
     .forceSimulation<GraphNodeSim>(simNodes)
@@ -914,24 +1392,29 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         .strength(0.52)
     )
   }
-  const warmupTicks = nodeOnlyLayout ? Math.min(180, 54 + simNodes.length * 3) : Math.min(120, 36 + simEdges.length)
+  const warmupTicks = hasSavedLayout
+    ? 0
+    : nodeOnlyLayout
+      ? Math.min(180, 54 + simNodes.length * 3)
+      : Math.min(120, 36 + simEdges.length)
   for (let i = 0; i < warmupTicks; i++) {
     simulation.tick()
   }
+  simulation.stop()
 
   const links = edgeLayer
     .selectAll('path')
     .data(simEdges)
     .enter()
     .append('path')
-    .attr('stroke', '#8e98a6')
+    .attr('stroke', graphTheme.edgeStroke)
     .attr('stroke-width', 1.4)
     .attr('stroke-linecap', 'round')
     .attr('fill', 'none')
     .attr('marker-end', `url(#${markerBase}-base)`)
     .attr('opacity', 0.9)
 
-  const focus = graphHighlightState(frame)
+  let focus = graphHighlightState(currentFrame, currentGraph)
   let hoveredNodeId = -1
   let hoveredEdgeId = -1
 
@@ -950,8 +1433,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .enter()
     .append('circle')
     .attr('r', (item) => nodeRadius(item))
-    .attr('fill', (item) => nodeColor(item.kind))
-    .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#2f81f7' : '#2f3640'))
+    .attr('fill', (item) => nodeColor(item.kind, graphTheme))
+    .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? graphTheme.selected : graphTheme.nodeStroke))
     .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.4 : 1.1))
     .attr('stroke-dasharray', (item) => (pinnedNodeIds.has(item.id) ? '4 2' : null))
     .attr('opacity', (item) => (focus.active && !focus.nodeIds.has(item.id) && !focus.edgeNodeIds.has(item.id) ? 0.42 : 1))
@@ -967,17 +1450,17 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
       updateGraphVisualState()
     })
     .on('click', (_, item) => {
-      persistGraphNodePositions(frame, simNodes)
-      frame.selection = { type: 'node', data: item }
-      frame.graphFocus = { nodeIds: [item.id], edgeIds: [] }
-      renderFrames()
+      freezeLayout()
+      currentFrame.selection = { type: 'node', data: item }
+      currentFrame.graphFocus = { nodeIds: [item.id], edgeIds: [] }
+      requestFrameRefresh(false)
     })
     .on('dblclick', (_, item) => {
-      persistGraphNodePositions(frame, simNodes)
-      togglePinnedNode(frame, item.id)
-      renderFrames()
+      freezeLayout()
+      togglePinnedNode(currentFrame, item.id)
+      requestFrameRefresh(false)
     })
-    .call(drag(simulation, pinnedNodeIds, () => persistGraphNodePositions(frame, simNodes)))
+    .call(drag(simulation, pinnedNodeIds, () => persistGraphNodePositions(currentFrame, simNodes)))
 
   nodesSel.append('title').text((item) => item.label)
 
@@ -989,8 +1472,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .text((item) => graphNodeDisplayLabel(item, false))
     .attr('font-size', 11)
     .attr('font-weight', 600)
-    .attr('fill', '#1f2933')
-    .attr('stroke', 'rgba(248, 250, 252, 0.94)')
+    .attr('fill', graphTheme.text)
+    .attr('stroke', graphTheme.textOutline)
     .attr('stroke-width', 4)
     .attr('paint-order', 'stroke')
     .attr('text-anchor', 'middle')
@@ -1004,8 +1487,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
     .text((item) => truncateTextByWidth(edgeDisplayLabel(item), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
     .attr('font-size', 9)
     .attr('font-weight', 700)
-    .attr('fill', '#5f6b78')
-    .attr('stroke', 'rgba(248, 250, 252, 0.94)')
+    .attr('fill', graphTheme.edgeText)
+    .attr('stroke', graphTheme.textOutline)
     .attr('stroke-width', 4)
     .attr('paint-order', 'stroke')
     .attr('text-anchor', 'middle')
@@ -1024,8 +1507,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
       updateGraphVisualState()
     })
   links.on('click', (_, item) => {
-    persistGraphNodePositions(frame, simNodes)
-    frame.selection = {
+    freezeLayout()
+    currentFrame.selection = {
       type: 'edge',
       data: {
         id: item.id,
@@ -1037,11 +1520,11 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         properties: item.properties || {}
       }
     }
-    frame.graphFocus = {
+    currentFrame.graphFocus = {
       nodeIds: [Number((item.source as GraphNodeSim).id ?? item.source), Number((item.target as GraphNodeSim).id ?? item.target)],
       edgeIds: [item.id]
     }
-    renderFrames()
+    requestFrameRefresh(false)
   })
 
   const zoom = d3
@@ -1087,15 +1570,15 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
             x: (transform.x - lastPanSample.x) / dt,
             y: (transform.y - lastPanSample.y) / dt
           }
-        }
-        lastPanSample = { x: transform.x, y: transform.y, at: now }
       }
-      scene.attr('transform', transform.toString())
-      frame.graphViewport = { x: transform.x, y: transform.y, k: transform.k }
-      zoomReadout.textContent = `${Math.round(transform.k * 100)}%`
-      hint.classList.toggle('hidden', transform.k !== 1)
-      updateGraphVisualState()
-    })
+      lastPanSample = { x: transform.x, y: transform.y, at: now }
+    }
+    scene.attr('transform', transform.toString())
+    currentFrame.graphViewport = { x: transform.x, y: transform.y, k: transform.k }
+    zoomReadout.textContent = `${Math.round(transform.k * 100)}%`
+    hint.classList.toggle('hidden', transform.k !== 1)
+    updateGraphVisualState()
+  })
 
   svg.call(zoom)
   svg.on('dblclick.zoom', null)
@@ -1107,6 +1590,11 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
       return
     }
     svg.call(zoom.transform, transform)
+  }
+
+  const freezeLayout = (): void => {
+    simulation.stop()
+    persistGraphNodePositions(currentFrame, simNodes)
   }
 
   zoomInButton.addEventListener('click', () => {
@@ -1123,14 +1611,14 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
   })
 
   const applyGraphGeometry = (): void => {
-    persistGraphNodePositions(frame, simNodes)
-    const edgeGeometry = new Map<number, ReturnType<typeof computeEdgeGeometry>>()
+    persistGraphNodePositions(currentFrame, simNodes)
+    edgeGeometry = new Map<number, ReturnType<typeof computeEdgeGeometry>>()
     for (const edge of simEdges) {
       edgeGeometry.set(edge.id, computeEdgeGeometry(edge, edgeRouteMeta.get(edge.id) || { lane: 0, isLoop: false, loopIndex: 0 }))
     }
     links
       .attr('d', (item) => edgeGeometry.get(item.id)?.path || '')
-      .attr('stroke', (item) => (focus.edgeIds.has(item.id) ? '#2f81f7' : '#8e98a6'))
+      .attr('stroke', (item) => (focus.edgeIds.has(item.id) ? graphTheme.accent : graphTheme.edgeStroke))
       .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) ? 2.8 : 1.4))
       .attr('opacity', (item) => (focus.active && !focus.edgeIds.has(item.id) ? 0.32 : 0.9))
       .attr('marker-end', (item) => {
@@ -1156,25 +1644,61 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return `rotate(${geometry.labelAngle} ${geometry.labelX} ${geometry.labelY})`
       })
 
-    updateGraphVisualState(edgeGeometry)
+    updateGraphVisualState()
   }
 
   simulation.on('tick', applyGraphGeometry)
 
-  if (frame.graphViewport) {
+  if (currentFrame.graphViewport) {
     svg.call(
       zoom.transform,
-      d3.zoomIdentity.translate(frame.graphViewport.x, frame.graphViewport.y).scale(frame.graphViewport.k)
+      d3.zoomIdentity.translate(currentFrame.graphViewport.x, currentFrame.graphViewport.y).scale(currentFrame.graphViewport.k)
     )
   } else {
     fitGraph(false)
   }
   applyGraphGeometry()
-  graphSimulations.set(frame.frameId, { simulation })
 
-  function updateGraphVisualState(
-    edgeGeometry: Map<number, ReturnType<typeof computeEdgeGeometry>> = new Map()
-  ): void {
+  const nudgeSimulation = (alpha: number): void => {
+    if (!visible) {
+      return
+    }
+    simulation.alpha(Math.max(simulation.alpha(), alpha)).restart()
+  }
+
+  const resizeStage = (refit: boolean): void => {
+    const nextSize = measureStage()
+    if (nextSize.width === width && nextSize.height === height && !refit) {
+      return
+    }
+    width = nextSize.width
+    height = nextSize.height
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    simulation.force('center', d3.forceCenter(width / 2, height / 2))
+    applyPinnedLayout()
+    if (refit || !currentFrame.graphViewport) {
+      fitGraph(false)
+    } else {
+      scene.attr('transform', currentTransform.toString())
+      zoomReadout.textContent = `${Math.round(currentTransform.k * 100)}%`
+      hint.classList.toggle('hidden', currentTransform.k !== 1)
+    }
+    applyGraphGeometry()
+    if (visible) {
+      nudgeSimulation(hasSavedLayout ? 0.08 : 0.2)
+    }
+  }
+
+  const resizeObserver = new ResizeObserver(() => {
+    requestAnimationFrame(() => resizeStage(false))
+  })
+  resizeObserver.observe(stage)
+  requestAnimationFrame(() => resizeStage(true))
+
+  function updateGraphVisualState(): void {
+    graphTheme = graphThemeColors()
+    baseMarkerPath.attr('fill', graphTheme.edgeStroke)
+    activeMarkerPath.attr('fill', graphTheme.accent)
     const visibleNodeLabelIds = computeVisibleNodeLabelIds(simNodes, focus, hoveredNodeId, currentTransform.k)
     const visibleEdgeLabelIds = computeVisibleEdgeLabelIds(
       simEdges,
@@ -1184,7 +1708,7 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
       currentTransform.k
     )
     links
-      .attr('stroke', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? '#2f81f7' : '#8e98a6'))
+      .attr('stroke', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? graphTheme.accent : graphTheme.edgeStroke))
       .attr('stroke-width', (item) => (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? 2.8 : 1.4))
       .attr('opacity', (item) => {
         if (!focus.active && hoveredEdgeId < 0 && hoveredNodeId < 0) {
@@ -1193,10 +1717,19 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return focus.edgeIds.has(item.id) || hoveredEdgeId === item.id ? 1 : 0.26
       })
     rings
-      .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#fdcc59' : hoveredNodeId === item.id ? '#6ac6ff' : '#6ac6ff'))
+      .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? graphTheme.selected : graphTheme.ring))
       .attr('opacity', (item) => (focus.nodeIds.has(item.id) ? 0.34 : hoveredNodeId === item.id ? 0.26 : 0))
     nodesSel
-      .attr('stroke', (item) => (focus.nodeIds.has(item.id) ? '#fdcc59' : hoveredNodeId === item.id ? '#2f81f7' : '#2f3640'))
+      .attr('fill', (item) => nodeColor(item.kind, graphTheme))
+      .attr('stroke', (item) => {
+        if (focus.nodeIds.has(item.id)) {
+          return graphTheme.selected
+        }
+        if (hoveredNodeId === item.id) {
+          return graphTheme.accent
+        }
+        return graphTheme.nodeStroke
+      })
       .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.6 : hoveredNodeId === item.id ? 2 : 1.1))
       .attr('stroke-dasharray', (item) => (pinnedNodeIds.has(item.id) ? '4 2' : null))
       .attr('opacity', (item) => {
@@ -1209,6 +1742,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return 0.4
       })
     labels
+      .attr('fill', graphTheme.text)
+      .attr('stroke', graphTheme.textOutline)
       .text((item) => graphNodeDisplayLabel(item, focus.nodeIds.has(item.id) || hoveredNodeId === item.id))
       .attr('opacity', (item) => {
         if (
@@ -1222,6 +1757,8 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return 0
       })
     edgeLabels
+      .attr('fill', graphTheme.edgeText)
+      .attr('stroke', graphTheme.textOutline)
       .text((item) => truncateTextByWidth(edgeDisplayLabel(item), 120, '700 9px "SF Mono", "JetBrains Mono", "Consolas", monospace'))
       .attr('opacity', (item) => {
         if (focus.edgeIds.has(item.id) || hoveredEdgeId === item.id) {
@@ -1230,71 +1767,142 @@ function renderGraphView(container: HTMLElement, frame: FrameState, graph: Graph
         return visibleEdgeLabelIds.has(item.id) ? 0.7 : 0
       })
   }
+
+  return {
+    sync: (frame, graph, restartSimulation = false) => {
+      currentFrame = frame
+      currentGraph = graph
+      focus = graphHighlightState(currentFrame, currentGraph)
+      applyPinnedLayout()
+      if (currentFrame.graphViewport && !sameGraphViewport(currentFrame.graphViewport, currentTransform)) {
+        svg.call(
+          zoom.transform,
+          d3.zoomIdentity.translate(currentFrame.graphViewport.x, currentFrame.graphViewport.y).scale(currentFrame.graphViewport.k)
+        )
+      } else {
+        updateGraphVisualState()
+      }
+      applyGraphGeometry()
+      if (restartSimulation) {
+        nudgeSimulation(hasSavedLayout ? 0.12 : 0.3)
+      }
+    },
+    setVisible: (nextVisible) => {
+      if (visible === nextVisible) {
+        return
+      }
+      visible = nextVisible
+      if (!visible) {
+        simulation.stop()
+        return
+      }
+      nudgeSimulation(hasSavedLayout ? 0.08 : 0.22)
+    },
+    destroy: () => {
+      resizeObserver.disconnect()
+      simulation.stop()
+      container.innerHTML = ''
+    }
+  }
 }
 
-function renderVirtualTable(container: HTMLElement, frame: FrameState): void {
-  container.innerHTML = ''
-  const columns = frame.columns
-  const rows = frame.rows
-  const focus = frame.tableFocus
-  const safeColumns = columns.length > 0 ? columns : ['value']
-  const template = safeColumns.map(() => 'minmax(120px, 1fr)').join(' ')
+function sameGraphViewport(viewport: GraphViewport, transform: d3.ZoomTransform): boolean {
+  return Math.abs(viewport.x - transform.x) < 0.5
+    && Math.abs(viewport.y - transform.y) < 0.5
+    && Math.abs(viewport.k - transform.k) < 0.01
+}
 
+function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): TableViewController {
+  let currentFrame = initialFrame
+  let visible = true
+  let columnsKey = ''
+  let lastFocusKey = ''
+
+  container.innerHTML = ''
   const header = document.createElement('div')
   header.className = 'vt-header'
-  header.style.gridTemplateColumns = template
-  for (const col of safeColumns) {
-    const cell = document.createElement('div')
-    cell.className = 'vt-cell'
-    cell.textContent = col
-    header.appendChild(cell)
-  }
-
   const scroll = document.createElement('div')
   scroll.className = 'vt-scroll'
   const space = document.createElement('div')
   space.className = 'vt-space'
-  space.style.height = `${rows.length * TABLE_ROW_HEIGHT}px`
   const win = document.createElement('div')
   win.className = 'vt-window'
   space.appendChild(win)
   scroll.appendChild(space)
+  container.append(header, scroll)
+
+  const currentColumns = (): string[] => {
+    return currentFrame.columns.length > 0 ? currentFrame.columns : ['value']
+  }
+
+  const currentTemplate = (): string => {
+    return currentColumns().map(() => 'minmax(120px, 1fr)').join(' ')
+  }
+
+  const focusKey = (focus: FrameState['tableFocus']): string => {
+    return focus ? `${focus.rowIndex}:${focus.colIndex}` : ''
+  }
+
+  const renderHeader = (): void => {
+    const safeColumns = currentColumns()
+    const nextKey = safeColumns.join('\u0001')
+    header.style.gridTemplateColumns = currentTemplate()
+    if (nextKey === columnsKey) {
+      return
+    }
+    columnsKey = nextKey
+    header.innerHTML = ''
+    for (const col of safeColumns) {
+      const cell = document.createElement('div')
+      cell.className = 'vt-cell'
+      cell.textContent = col
+      header.appendChild(cell)
+    }
+  }
 
   const renderWindow = (): void => {
+    const focus = currentFrame.tableFocus
+    const rows = currentFrame.rows
+    const safeColumns = currentColumns()
+    const template = currentTemplate()
     const viewportHeight = Math.max(240, scroll.clientHeight || 240)
     const start = Math.max(0, Math.floor(scroll.scrollTop / TABLE_ROW_HEIGHT) - 2)
     const count = Math.ceil(viewportHeight / TABLE_ROW_HEIGHT) + 6
     const end = Math.min(rows.length, start + count)
+    space.style.height = `${rows.length * TABLE_ROW_HEIGHT}px`
     win.style.transform = `translateY(${start * TABLE_ROW_HEIGHT}px)`
     win.innerHTML = ''
 
-    for (let i = start; i < end; i++) {
-      const row = rows[i] || []
+    for (let rowIndex = start; rowIndex < end; rowIndex++) {
+      const row = rows[rowIndex] || []
       const rowEl = document.createElement('div')
-      rowEl.className = `vt-row${focus && focus.rowIndex === i ? ' focus' : ''}`
+      rowEl.className = `vt-row${focus && focus.rowIndex === rowIndex ? ' focus' : ''}`
       rowEl.style.gridTemplateColumns = template
       rowEl.style.height = `${TABLE_ROW_HEIGHT}px`
       rowEl.addEventListener('click', () => {
-        activateTableRow(frame, i, row)
+        activateTableRow(currentFrame, rowIndex, row)
       })
       rowEl.addEventListener('dblclick', () => {
-        activateTableRow(frame, i, row, true)
+        activateTableRow(currentFrame, rowIndex, row, true)
       })
-      for (let j = 0; j < safeColumns.length; j++) {
+      for (let columnIndex = 0; columnIndex < safeColumns.length; columnIndex++) {
         const cell = document.createElement('div')
-        cell.className = `vt-cell${focus && focus.rowIndex === i && focus.colIndex === j ? ' focus' : ''}`
-        cell.textContent = toCell(row[j])
+        cell.className = `vt-cell${focus && focus.rowIndex === rowIndex && focus.colIndex === columnIndex ? ' focus' : ''}`
+        cell.textContent = toCell(row[columnIndex])
         rowEl.appendChild(cell)
       }
       win.appendChild(rowEl)
     }
   }
 
-  scroll.addEventListener('scroll', renderWindow)
-  const observer = new ResizeObserver(() => renderWindow())
-  observer.observe(scroll)
-  renderWindow()
-  if (focus && focus.rowIndex >= 0) {
+  const alignFocus = (): void => {
+    const focus = currentFrame.tableFocus
+    const nextFocusKey = focusKey(focus)
+    if (!focus || focus.rowIndex < 0 || nextFocusKey === lastFocusKey) {
+      lastFocusKey = nextFocusKey
+      return
+    }
+    lastFocusKey = nextFocusKey
     const target = Math.max(0, focus.rowIndex * TABLE_ROW_HEIGHT - Math.max(80, (scroll.clientHeight || 240) / 3))
     requestAnimationFrame(() => {
       scroll.scrollTop = target
@@ -1302,7 +1910,43 @@ function renderVirtualTable(container: HTMLElement, frame: FrameState): void {
     })
   }
 
-  container.append(header, scroll)
+  const render = (): void => {
+    renderHeader()
+    renderWindow()
+    alignFocus()
+  }
+
+  const onScroll = (): void => {
+    renderWindow()
+  }
+
+  scroll.addEventListener('scroll', onScroll)
+  const resizeObserver = new ResizeObserver(() => {
+    if (!visible) {
+      return
+    }
+    renderWindow()
+  })
+  resizeObserver.observe(scroll)
+  render()
+
+  return {
+    sync: (frame) => {
+      currentFrame = frame
+      render()
+    },
+    setVisible: (nextVisible) => {
+      visible = nextVisible
+      if (visible) {
+        renderWindow()
+      }
+    },
+    destroy: () => {
+      resizeObserver.disconnect()
+      scroll.removeEventListener('scroll', onScroll)
+      container.innerHTML = ''
+    }
+  }
 }
 
 function renderTextView(container: HTMLElement, frame: FrameState): void {
@@ -1329,6 +1973,46 @@ function renderTextView(container: HTMLElement, frame: FrameState): void {
     details.append(title, pre)
     container.appendChild(details)
   })
+}
+
+function frameTextRenderKey(frame: FrameState): string {
+  return [
+    frame.frameId,
+    frame.view,
+    frame.text.length,
+    frame.columns.join('\u0001'),
+    frame.rows.length,
+    frame.warnings.join('\u0001'),
+    frame.errorCode || '',
+    frame.errorMessage || ''
+  ].join('::')
+}
+
+function frameInspectorRenderKey(frame: FrameState, graph: GraphFramePayload | null): string {
+  return [
+    frame.frameId,
+    frame.query,
+    frame.elapsedMs,
+    frame.columns.length,
+    frame.rows.length,
+    frame.truncated ? '1' : '0',
+    graph?.nodes.length || 0,
+    graph?.edges.length || 0,
+    frame.graphFilter ? JSON.stringify(frame.graphFilter) : '',
+    frameSelectionKey(frame.selection),
+    frame.warnings.join('\u0001'),
+    graph?.warnings.join('\u0001') || ''
+  ].join('::')
+}
+
+function frameSelectionKey(selection: FrameSelection): string {
+  if (!selection) {
+    return ''
+  }
+  if (selection.type === 'node') {
+    return `node:${selection.data.id}`
+  }
+  return `edge:${selection.data.id}:${selection.data.source}:${selection.data.target}`
 }
 
 function applyGraphFilter(
@@ -1384,7 +2068,7 @@ function applyGraphFilter(
   }
 }
 
-function graphHighlightState(frame: FrameState): {
+function graphHighlightState(frame: FrameState, graph: GraphFramePayload | null = frame.graph): {
   active: boolean
   nodeIds: Set<number>
   edgeIds: Set<number>
@@ -1405,8 +2089,8 @@ function graphHighlightState(frame: FrameState): {
     frame.graphFocus.edgeIds.forEach((item) => edgeIds.add(item))
   }
   const edgeNodeIds = new Set<number>()
-  if (frame.graph) {
-    for (const edge of frame.graph.edges) {
+  if (graph) {
+    for (const edge of graph.edges) {
       if (edgeIds.has(edge.id)) {
         edgeNodeIds.add(edge.source)
         edgeNodeIds.add(edge.target)
@@ -1443,7 +2127,7 @@ function activateInspectorLink(
   if (fragment) {
     insertQueryFragment(fragment)
   }
-  renderFrames()
+  refreshFrame(frame, false)
 }
 
 function activateLegend(frame: FrameState, kind: 'label' | 'relGroup', value: string): void {
@@ -1461,7 +2145,7 @@ function activateLegend(frame: FrameState, kind: 'label' | 'relGroup', value: st
   if (fragment) {
     insertQueryFragment(fragment)
   }
-  renderFrames()
+  refreshFrame(frame, false)
 }
 
 function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): void {
@@ -1470,7 +2154,7 @@ function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): v
     frame.graphFilter = null
     frame.graphFocus = { nodeIds: [node.id], edgeIds: [] }
     frame.view = 'graph'
-    renderFrames()
+    refreshFrame(frame, false)
     return
   }
   const nextNodeIds = new Set<number>([node.id])
@@ -1493,7 +2177,7 @@ function activateNeighborhoodFocus(frame: FrameState, node: GraphNodePayload): v
     edgeIds: Array.from(nextEdgeIds)
   }
   frame.view = 'graph'
-  renderFrames()
+  refreshFrame(frame, false)
 }
 
 function activateTableRow(frame: FrameState, rowIndex: number, row: unknown[], switchToGraph = false): void {
@@ -1513,7 +2197,7 @@ function activateTableRow(frame: FrameState, rowIndex: number, row: unknown[], s
   if (switchToGraph && frame.graph && refs.nodeIds.length > 0) {
     frame.view = 'graph'
   }
-  renderFrames()
+  refreshFrame(frame, false)
 }
 
 function findTableFocus(
@@ -2315,9 +2999,14 @@ function toCypherLiteral(value: unknown): string {
 }
 
 async function refreshScripts(): Promise<void> {
-  const scripts = await safeBridgeCall<ScriptListResponse>(CHANNEL_SCRIPT_LIST, {})
-  state.scripts = scripts?.items || []
-  renderScripts()
+  try {
+    const scripts = await bridgeCall<ScriptListResponse>(CHANNEL_SCRIPT_LIST, {})
+    state.scripts = scripts?.items || []
+    clearNotice()
+    renderScripts()
+  } catch (error) {
+    setNotice('error', `${tr('脚本刷新失败', 'Failed to refresh scripts')}: ${bridgeMessage(error, 'script_refresh_failed')}`)
+  }
 }
 
 async function saveScriptFromEditor(): Promise<void> {
@@ -2325,8 +3014,16 @@ async function saveScriptFromEditor(): Promise<void> {
   if (!body) {
     return
   }
-  const title = window.prompt(tr('脚本标题', 'Script Title'), deriveScriptTitle(body)) || deriveScriptTitle(body)
-  const tags = window.prompt(tr('脚本标签（逗号分隔）', 'Script tags (comma separated)'), '') || ''
+  const promptedTitle = window.prompt(tr('脚本标题', 'Script Title'), deriveScriptTitle(body))
+  if (promptedTitle === null) {
+    return
+  }
+  const promptedTags = window.prompt(tr('脚本标签（逗号分隔）', 'Script tags (comma separated)'), '')
+  if (promptedTags === null) {
+    return
+  }
+  const title = promptedTitle.trim() || deriveScriptTitle(body)
+  const tags = promptedTags.trim()
   await saveScript({
     scriptId: undefined,
     title,
@@ -2337,8 +3034,16 @@ async function saveScriptFromEditor(): Promise<void> {
 }
 
 async function saveScriptFromFrame(frame: FrameState): Promise<void> {
-  const title = window.prompt(tr('脚本标题', 'Script Title'), deriveScriptTitle(frame.query)) || deriveScriptTitle(frame.query)
-  const tags = window.prompt(tr('脚本标签（逗号分隔）', 'Script tags (comma separated)'), '') || ''
+  const promptedTitle = window.prompt(tr('脚本标题', 'Script Title'), deriveScriptTitle(frame.query))
+  if (promptedTitle === null) {
+    return
+  }
+  const promptedTags = window.prompt(tr('脚本标签（逗号分隔）', 'Script tags (comma separated)'), '')
+  if (promptedTags === null) {
+    return
+  }
+  const title = promptedTitle.trim() || deriveScriptTitle(frame.query)
+  const tags = promptedTags.trim()
   await saveScript({
     scriptId: undefined,
     title,
@@ -2355,13 +3060,23 @@ async function saveScript(payload: {
   tags: string
   pinned: boolean
 }): Promise<void> {
-  await bridgeCall<ScriptItem>(CHANNEL_SCRIPT_SAVE, payload)
-  await refreshScripts()
+  try {
+    await bridgeCall<ScriptItem>(CHANNEL_SCRIPT_SAVE, payload)
+    clearNotice()
+    await refreshScripts()
+  } catch (error) {
+    setNotice('error', `${tr('脚本保存失败', 'Failed to save script')}: ${bridgeMessage(error, 'script_save_failed')}`)
+  }
 }
 
 async function deleteScript(scriptId: number): Promise<void> {
-  await bridgeCall(CHANNEL_SCRIPT_DELETE, { scriptId })
-  await refreshScripts()
+  try {
+    await bridgeCall(CHANNEL_SCRIPT_DELETE, { scriptId })
+    clearNotice()
+    await refreshScripts()
+  } catch (error) {
+    setNotice('error', `${tr('脚本删除失败', 'Failed to delete script')}: ${bridgeMessage(error, 'script_delete_failed')}`)
+  }
 }
 
 function applyScriptBody(body: string, execute = false): void {
@@ -2372,9 +3087,14 @@ function applyScriptBody(body: string, execute = false): void {
 }
 
 async function requestFullscreen(fullscreen: boolean): Promise<void> {
-  await bridgeCall(CHANNEL_UI_FULLSCREEN, { fullscreen })
-  state.fullscreen = fullscreen
-  refreshHeaderLabels()
+  try {
+    await bridgeCall(CHANNEL_UI_FULLSCREEN, { fullscreen })
+    state.fullscreen = fullscreen
+    clearNotice()
+    refreshHeaderLabels()
+  } catch (error) {
+    setNotice('error', `${tr('全屏切换失败', 'Failed to toggle fullscreen')}: ${bridgeMessage(error, 'fullscreen_toggle_failed')}`)
+  }
 }
 
 function setEditorText(text: string): void {
@@ -2395,8 +3115,7 @@ function selectPrevFrame(): void {
   }
   const index = Math.max(0, state.frames.findIndex((item) => item.frameId === state.selectedFrameId))
   const next = index <= 0 ? state.frames.length - 1 : index - 1
-  state.selectedFrameId = state.frames[next].frameId
-  renderFrames()
+  selectFrame(state.frames[next].frameId)
 }
 
 function selectNextFrame(): void {
@@ -2405,25 +3124,13 @@ function selectNextFrame(): void {
   }
   const index = Math.max(0, state.frames.findIndex((item) => item.frameId === state.selectedFrameId))
   const next = index >= state.frames.length - 1 ? 0 : index + 1
-  state.selectedFrameId = state.frames[next].frameId
-  renderFrames()
+  selectFrame(state.frames[next].frameId)
 }
 
 function updateSimulationVisibility(): void {
-  for (const entry of graphSimulations.values()) {
-    if (state.hostVisible) {
-      entry.simulation.alpha(0.45).restart()
-    } else {
-      entry.simulation.stop()
-    }
+  for (const controller of frameControllers.values()) {
+    controller.setHostVisible(state.hostVisible)
   }
-}
-
-function stopAllSimulations(): void {
-  for (const entry of graphSimulations.values()) {
-    entry.simulation.stop()
-  }
-  graphSimulations.clear()
 }
 
 function createFrameButton(text: string, title: string): HTMLButtonElement {
@@ -2460,18 +3167,18 @@ function nodeRadius(node: GraphNodePayload): number {
   return 15
 }
 
-function nodeColor(kind: string): string {
+function nodeColor(kind: string, theme: GraphThemeColors = graphThemeColors()): string {
   const safe = (kind || '').toLowerCase()
   if (safe.includes('method')) {
-    return '#8fc5ff'
+    return theme.nodeFillMethod
   }
   if (safe.includes('class')) {
-    return '#ffb283'
+    return theme.nodeFillClass
   }
   if (safe.includes('call')) {
-    return '#a6e3bc'
+    return theme.nodeFillCall
   }
-  return '#d6dae0'
+  return theme.nodeFillDefault
 }
 
 function drag(
@@ -2525,6 +3232,19 @@ function getRequired<T extends HTMLElement>(id: string): T {
   return element as T
 }
 
+function bridgeMessage(error: unknown, fallbackCode: string): string {
+  const detail = extractBridgeError(error, fallbackCode)
+  return humanizeErrorMessage(detail.message)
+}
+
+function humanizeErrorMessage(raw: string): string {
+  const text = (raw || '').trim()
+  if (!text) {
+    return tr('未知错误', 'Unknown error')
+  }
+  return text.replace(/^[a-z0-9_]+:\s*/i, '')
+}
+
 function tr(zh: string, en: string): string {
   return state.ui.language === 'en' ? en : zh
 }
@@ -2550,6 +3270,9 @@ function escapeHtml(value: string): string {
 }
 
 window.addEventListener('beforeunload', () => {
-  stopAllSimulations()
+  framesEl.removeEventListener('scroll', handleFrameRailScroll)
+  frameViewportObserver?.disconnect()
+  frameViewportObserver = null
+  disposeAllFrameResources()
   editor.destroy()
 })

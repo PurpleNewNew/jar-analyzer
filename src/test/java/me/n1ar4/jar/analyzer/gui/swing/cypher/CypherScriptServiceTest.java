@@ -13,7 +13,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 class CypherScriptServiceTest {
     private final CypherScriptService service = new CypherScriptService();
@@ -64,9 +66,40 @@ class CypherScriptServiceTest {
         Assertions.assertTrue(finalList.items().isEmpty());
     }
 
+    @Test
+    void shouldNotOverwriteUnreadableStoreOnSave() throws Exception {
+        Path store = prepareUnreadableStore();
+
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> service.save(
+                new SaveScriptRequest(null, "demo", "MATCH (n) RETURN n", "audit", false)
+        ));
+
+        Assertions.assertTrue(ex.getMessage().contains("cypher_script_store_unreadable"));
+        Assertions.assertEquals("not-json", Files.readString(store, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void shouldRejectUnreadableStoreForListAndDeleteWithoutResettingFile() throws Exception {
+        Path store = prepareUnreadableStore();
+
+        IllegalStateException listEx = Assertions.assertThrows(IllegalStateException.class, service::list);
+        IllegalStateException deleteEx = Assertions.assertThrows(IllegalStateException.class, () -> service.delete(1L));
+
+        Assertions.assertTrue(listEx.getMessage().contains("cypher_script_store_unreadable"));
+        Assertions.assertTrue(deleteEx.getMessage().contains("cypher_script_store_unreadable"));
+        Assertions.assertEquals("not-json", Files.readString(store, StandardCharsets.UTF_8));
+    }
+
     private static void clearScriptTable() throws Exception {
         if (Files.exists(CypherScriptService.storeFilePath())) {
             Files.delete(CypherScriptService.storeFilePath());
         }
+    }
+
+    private static Path prepareUnreadableStore() throws Exception {
+        Path store = CypherScriptService.storeFilePath();
+        Files.createDirectories(store.getParent());
+        Files.writeString(store, "not-json", StandardCharsets.UTF_8);
+        return store;
     }
 }

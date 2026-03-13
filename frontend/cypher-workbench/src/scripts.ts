@@ -57,7 +57,7 @@ export const BUILTIN_SCRIPTS: BuiltinScript[] = [
     titleEn: 'Taint Track Example',
     tagsZh: 'ja,taint',
     tagsEn: 'ja,taint',
-    body: 'CALL ja.taint.track("", "", "", "app/Sink", "sink", "()V", 8, 15000, 10, "sink", true, false, {{TRAVERSAL_MODE_LITERAL}}, "backward") YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
+    body: 'CALL ja.taint.track("", "", "", "app/Sink", "sink", "()V", 8, 15000, 10, true, false, {{TRAVERSAL_MODE_LITERAL}}, "backward") YIELD path_id, hop, node_ids, edge_ids, score, confidence, evidence RETURN *'
   },
   {
     titleZh: 'Gadget 追踪示例',

@@ -35,9 +35,6 @@ interface InspectorCallbacks {
 export function renderInspector(container: HTMLElement, frame: InspectorFrame, callbacks: InspectorCallbacks): void {
   const { activateInspectorLink, activateLegend, activateNeighborhoodFocus, clearGraphFilter, tr } = callbacks
   container.innerHTML = ''
-  container.classList.remove('panel-refresh')
-  void container.offsetWidth
-  container.classList.add('panel-refresh')
   const title = document.createElement('div')
   title.className = 'prop-title'
   container.appendChild(title)

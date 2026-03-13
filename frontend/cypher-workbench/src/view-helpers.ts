@@ -1,8 +1,9 @@
-export function formatTime(seconds: number): string {
-  if (!seconds || seconds <= 0) {
+export function formatTime(timestamp: number): string {
+  if (!timestamp || timestamp <= 0) {
     return '-'
   }
-  const date = new Date(seconds * 1000)
+  const normalized = timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp
+  const date = new Date(normalized)
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
