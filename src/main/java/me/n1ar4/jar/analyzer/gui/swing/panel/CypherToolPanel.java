@@ -153,7 +153,7 @@ public final class CypherToolPanel extends JPanel {
                                                 String source,
                                                 int line) {
                     String normalized = safe(message);
-                    if (!normalized.isBlank()) {
+                    if (!normalized.isBlank() && !isIgnorableWorkbenchConsoleMessage(normalized)) {
                         if (normalized.contains("__JA_WORKBENCH_READY__")) {
                             logger.info("cypher workbench ready: {}", normalized);
                         } else if (normalized.contains("__JA_WORKBENCH")) {
@@ -578,6 +578,12 @@ public final class CypherToolPanel extends JPanel {
 
     static boolean isAbortLikeLoadError(CefLoadHandler.ErrorCode errorCode) {
         return errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED;
+    }
+
+    static boolean isIgnorableWorkbenchConsoleMessage(String message) {
+        String normalized = safe(message).toLowerCase();
+        return normalized.contains("resizeobserver loop completed with undelivered notifications")
+                || normalized.contains("resizeobserver loop limit exceeded");
     }
 
     private static boolean parseBoolean(JSONObject obj, String key, boolean def) {

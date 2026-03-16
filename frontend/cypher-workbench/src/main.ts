@@ -225,7 +225,6 @@ const maxRowsInput = getRequired<HTMLInputElement>('opt-max-rows')
 const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
 const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
-let frameViewportObserver: ResizeObserver | null = null
 let suppressFrameScrollSelection = false
 let frameViewportSyncScheduled = false
 let workbenchLayoutSyncScheduled = false
@@ -484,10 +483,6 @@ installFrameRailBehavior()
 
 function installFrameRailBehavior(): void {
   framesEl.addEventListener('scroll', handleFrameRailScroll, { passive: true })
-  frameViewportObserver = new ResizeObserver(() => {
-    scheduleFrameViewportHeightSync()
-  })
-  frameViewportObserver.observe(framesEl)
   window.addEventListener('resize', handleWorkbenchResize)
   scheduleFrameViewportHeightSync()
 }
@@ -842,6 +837,7 @@ function renderFrames(): void {
     disposeAllFrameResources()
     framesRailEl.innerHTML = ''
     renderEmptyFrames()
+    requestWorkbenchLayoutSync(1)
     return
   }
 
@@ -882,6 +878,7 @@ function renderFrames(): void {
 
   updateSelectedFrameClasses()
   updateSimulationVisibility()
+  requestWorkbenchLayoutSync(2)
 }
 
 function renderEmptyFrames(): void {
@@ -1775,10 +1772,6 @@ function mountGraphView(
     })
   }
 
-  const resizeObserver = new ResizeObserver(() => {
-    scheduleResizeStage(false)
-  })
-  resizeObserver.observe(stage)
   scheduleResizeStage(true)
 
   function updateGraphVisualState(): void {
@@ -1889,7 +1882,6 @@ function mountGraphView(
       scheduleResizeStage(!currentFrame.graphViewport)
     },
     destroy: () => {
-      resizeObserver.disconnect()
       simulation.stop()
       container.innerHTML = ''
     }
@@ -2032,10 +2024,6 @@ function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): Ta
   }
 
   scroll.addEventListener('scroll', onScroll)
-  const resizeObserver = new ResizeObserver(() => {
-    scheduleRenderWindow()
-  })
-  resizeObserver.observe(scroll)
   render()
 
   return {
@@ -2053,7 +2041,6 @@ function mountVirtualTable(container: HTMLElement, initialFrame: FrameState): Ta
       scheduleRenderWindow(true)
     },
     destroy: () => {
-      resizeObserver.disconnect()
       scroll.removeEventListener('scroll', onScroll)
       container.innerHTML = ''
     }
@@ -3383,8 +3370,6 @@ function escapeHtml(value: string): string {
 window.addEventListener('beforeunload', () => {
   framesEl.removeEventListener('scroll', handleFrameRailScroll)
   window.removeEventListener('resize', handleWorkbenchResize)
-  frameViewportObserver?.disconnect()
-  frameViewportObserver = null
   disposeAllFrameResources()
   editor.destroy()
 })

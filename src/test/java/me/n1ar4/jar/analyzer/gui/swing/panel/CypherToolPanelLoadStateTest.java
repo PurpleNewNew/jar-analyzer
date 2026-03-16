@@ -18,4 +18,13 @@ class CypherToolPanelLoadStateTest {
     void shouldKeepRealLoadFailuresAsHardErrors() {
         Assertions.assertFalse(CypherToolPanel.isAbortLikeLoadError(CefLoadHandler.ErrorCode.ERR_FAILED));
     }
+
+    @Test
+    void shouldIgnoreResizeObserverConsoleNoise() {
+        Assertions.assertTrue(CypherToolPanel.isIgnorableWorkbenchConsoleMessage(
+                "ResizeObserver loop completed with undelivered notifications."));
+        Assertions.assertTrue(CypherToolPanel.isIgnorableWorkbenchConsoleMessage(
+                "ResizeObserver loop limit exceeded"));
+        Assertions.assertFalse(CypherToolPanel.isIgnorableWorkbenchConsoleMessage("real workbench failure"));
+    }
 }

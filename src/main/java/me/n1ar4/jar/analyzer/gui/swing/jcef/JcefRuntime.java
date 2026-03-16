@@ -12,10 +12,10 @@ import org.cef.CefApp;
 import org.cef.CefSettings;
 import org.cef.SystemBootstrap;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -24,7 +24,6 @@ public final class JcefRuntime {
     private static final Logger logger = LogManager.getLogger();
     private static final long DEFAULT_SHUTDOWN_WAIT_MS = 1500L;
     private static final String RUNTIME_DIR = "jcef-runtime";
-    private static final String PROFILE_DIR = "profile";
     private static volatile CefApp app;
     private static volatile String failureReason;
     private static final Object INIT_LOCK = new Object();
@@ -102,15 +101,7 @@ public final class JcefRuntime {
                 boolean startupOk = CefApp.startup(cefArgs);
                 logger.debug("JCEF runtime startup result: {}", startupOk);
                 CefSettings settings = resolved.settings();
-                settings.windowless_rendering_enabled = false;
-                settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
-                if (safe(settings.locale).isBlank()) {
-                    settings.locale = "zh-CN";
-                }
-                Path profileRoot = resolveProfileRoot(runtimeRoot);
-                Files.createDirectories(profileRoot);
-                settings.cache_path = profileRoot.toAbsolutePath().toString();
-                settings.log_file = new File(runtimeRoot.toFile(), "jcef.log").getAbsolutePath();
+                applyWorkbenchSettings(settings, runtimeRoot);
                 app = CefApp.getInstance(cefArgs, settings);
                 logger.info("JCEF runtime init success");
                 boolean remoteSupported = CefApp.isRemoteSupported();
@@ -130,9 +121,18 @@ public final class JcefRuntime {
         return Path.of(Const.dbDir, RUNTIME_DIR).toAbsolutePath().normalize();
     }
 
-    static Path resolveProfileRoot(Path runtimeRoot) {
+    static void applyWorkbenchSettings(CefSettings settings, Path runtimeRoot) {
+        Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(runtimeRoot, "runtimeRoot");
-        return runtimeRoot.resolve(PROFILE_DIR).toAbsolutePath().normalize();
+        settings.windowless_rendering_enabled = false;
+        settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+        settings.persist_session_cookies = false;
+        if (safe(settings.locale).isBlank()) {
+            settings.locale = "zh-CN";
+        }
+        // The workbench is fully local and persists through the Java backend, not Chromium state.
+        settings.cache_path = "";
+        settings.log_file = runtimeRoot.resolve("jcef.log").toAbsolutePath().normalize().toString();
     }
 
     private static void ensureJbrJcefModule() {
@@ -230,13 +230,31 @@ public final class JcefRuntime {
         CefSettings configSettings = config.getCefSettings();
         CefSettings settings = configSettings == null ? new CefSettings() : configSettings.clone();
 
-        appendUniqueArg(args, "--disable-notifications");
+        appendWorkbenchArgs(args);
         if (isMac()) {
-            appendUniqueArg(args, "--disable-features=SpareRendererForSitePerProcess");
             appendUniqueArg(args, "--use-mock-keychain");
         }
         logger.debug("JCEF runtime args: {}", String.join(" ", args));
         return new JcefConfig(args.toArray(String[]::new), settings);
+    }
+
+    static void appendWorkbenchArgs(List<String> args) {
+        appendUniqueArg(args, "--disable-notifications");
+        appendUniqueArg(args, "--disable-background-networking");
+        appendUniqueArg(args, "--disable-component-update");
+        appendUniqueArg(args, "--disable-default-apps");
+        appendUniqueArg(args, "--disable-sync");
+        appendUniqueArg(args, "--metrics-recording-only");
+        appendUniqueArg(args, "--no-first-run");
+        appendUniqueArg(args, "--no-default-browser-check");
+        appendDisableFeatures(args,
+                "AutofillServerCommunication",
+                "CertificateTransparencyComponentUpdater",
+                "MediaRouter",
+                "OptimizationHints");
+        if (isMac()) {
+            appendDisableFeatures(args, "SpareRendererForSitePerProcess");
+        }
     }
 
     private static void appendUniqueArg(List<String> args, String value) {
@@ -249,6 +267,58 @@ public final class JcefRuntime {
             }
         }
         args.add(value);
+    }
+
+    private static void appendDisableFeatures(List<String> args, String... features) {
+        if (args == null || features == null || features.length == 0) {
+            return;
+        }
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        int targetIndex = -1;
+        for (int i = 0; i < args.size(); i++) {
+            String arg = safe(args.get(i));
+            if (!arg.startsWith("--disable-features=")) {
+                continue;
+            }
+            if (targetIndex < 0) {
+                targetIndex = i;
+            }
+            collectDisableFeatures(merged, arg.substring("--disable-features=".length()));
+        }
+        for (String feature : features) {
+            if (!safe(feature).isBlank()) {
+                merged.add(feature.trim());
+            }
+        }
+        if (merged.isEmpty()) {
+            return;
+        }
+        String mergedArg = "--disable-features=" + String.join(",", merged);
+        if (targetIndex < 0) {
+            args.add(mergedArg);
+            return;
+        }
+        args.set(targetIndex, mergedArg);
+        for (int i = args.size() - 1; i >= 0; i--) {
+            if (i == targetIndex) {
+                continue;
+            }
+            String arg = safe(args.get(i));
+            if (arg.startsWith("--disable-features=")) {
+                args.remove(i);
+            }
+        }
+    }
+
+    private static void collectDisableFeatures(LinkedHashSet<String> out, String value) {
+        if (out == null || value == null || value.isBlank()) {
+            return;
+        }
+        for (String feature : value.split(",")) {
+            if (!safe(feature).isBlank()) {
+                out.add(feature.trim());
+            }
+        }
     }
 
     private static boolean isMac() {

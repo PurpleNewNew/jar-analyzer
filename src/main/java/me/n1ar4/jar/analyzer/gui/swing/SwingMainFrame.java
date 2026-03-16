@@ -60,6 +60,7 @@ import me.n1ar4.jar.analyzer.gui.swing.jcef.JcefRuntime;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.GlobalSearchDialog;
 import me.n1ar4.jar.analyzer.gui.swing.toolwindow.ToolWindowDialogs;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -356,7 +357,7 @@ public final class SwingMainFrame extends JFrame {
     private int cypherBottomExpandedHeight = CYPHER_BOTTOM_DEFAULT_HEIGHT;
 
     public SwingMainFrame() {
-        super("*New Project - jadx-gui");
+        super(windowTitle(null));
         ToolingConfigSnapshotDto initialTooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         if (initialTooling != null) {
             uiLanguage = normalizeLanguage(initialTooling.language());
@@ -392,6 +393,18 @@ public final class SwingMainFrame extends JFrame {
         setMinimumSize(new Dimension(1280, 760));
         setSize(new Dimension(1500, 900));
         setLocationRelativeTo(null);
+    }
+
+    static String windowTitle(BuildSnapshotDto build) {
+        String projectKey = safe(build == null ? ActiveProjectContext.getPublishedActiveProjectKey() : build.activeProjectKey());
+        String alias = safe(build == null ? ActiveProjectContext.getPublishedActiveProjectAlias() : build.activeProjectAlias());
+        String display = alias.isBlank() ? projectKey : alias;
+        if (display.isBlank()
+                || ActiveProjectContext.isTemporaryProjectKey(projectKey)
+                || display.equalsIgnoreCase(ActiveProjectContext.temporaryProjectAlias())) {
+            display = "临时项目";
+        }
+        return display + " - Jar Analyzer";
     }
 
     private void initLayout() {
@@ -922,7 +935,6 @@ public final class SwingMainFrame extends JFrame {
         bar.setBackground(toolbarBg());
         bar.setRollover(true);
 
-        // Match jadx toolbar grouping order as closely as possible.
         addTopToolbarButton(bar, "icons/jadx/openDisk.svg", "打开文件", e -> openFileFromToolbar(false));
         addTopToolbarButton(bar, "icons/jadx/addFile.svg", "添加输入", e -> openFileFromToolbar(false));
         addTopToolbarButton(bar, "icons/jadx/projectDirectory.svg", "打开项目目录", e -> openFileFromToolbar(true));
@@ -2119,6 +2131,7 @@ public final class SwingMainFrame extends JFrame {
             lastRefreshCompletedAt = System.currentTimeMillis();
             return;
         }
+        setTitle(windowTitle(snapshot.build()));
         if (snapshot.build() != null && !Objects.equals(lastAppliedBuildSnapshot, snapshot.build())) {
             appendBuildLog(snapshot.build());
             startPanel.applySnapshot(snapshot.build());
