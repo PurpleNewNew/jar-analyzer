@@ -365,13 +365,22 @@ public final class RuntimeFacades {
             }
 
             @Override
-            public void showText(String title, String text) {
-                emitTextWindow(title, text);
-            }
-
-            @Override
-            public void showTooling(ToolingWindowRequest request) {
-                emitToolingWindow(request);
+            public void openContent(ToolingWindowPayload.EditorContentPayload payload) {
+                if (payload == null) {
+                    logger.warn("project tree content skipped: payload missing");
+                    return;
+                }
+                emitToolingWindow(new ToolingWindowRequest(
+                        ToolingWindowAction.EDITOR_CONTENT,
+                        new ToolingWindowPayload.EditorContentPayload(
+                                safe(payload.tabKey()),
+                                safe(payload.title()),
+                                safe(payload.statusText()),
+                                safe(payload.content()),
+                                safe(payload.filePath()),
+                                payload.image()
+                        )
+                ));
             }
         };
     }
@@ -450,10 +459,12 @@ public final class RuntimeFacades {
     }
 
     private static void emitToolingWindow(ToolingWindowRequest request) {
+        if (request == null) {
+            logger.warn("emit tooling window skipped: request missing");
+            return;
+        }
         try {
-            toolingWindowConsumer.accept(request == null
-                    ? ToolingWindowRequest.of(ToolingWindowAction.TEXT_VIEWER)
-                    : request);
+            toolingWindowConsumer.accept(request);
         } catch (Throwable ex) {
             logger.warn("emit tooling window failed: {}", ex.toString());
         }

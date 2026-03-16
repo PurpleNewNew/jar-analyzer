@@ -25,5 +25,6 @@ public enum ToolingWindowAction {
     SCA_INPUT_PICKER,
     GADGET_DIR_PICKER,
     EXTERNAL_TOOLS,
-    TEXT_VIEWER
+    TEXT_VIEWER,
+    EDITOR_CONTENT
 }

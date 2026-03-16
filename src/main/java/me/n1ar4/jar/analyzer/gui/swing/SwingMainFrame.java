@@ -72,6 +72,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
+import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -157,6 +158,7 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -219,6 +221,9 @@ public final class SwingMainFrame extends JFrame {
     private static final int EDITOR_TAB_LIMIT = 80;
     private static final long DOUBLE_SHIFT_WINDOW_MS = 450L;
     private static final String EDITOR_TAB_KEY_PROP = "editor.tab.key";
+    private static final String CODE_SURFACE_EDITOR = "editor";
+    private static final String CODE_SURFACE_TEXT = "text";
+    private static final String CODE_SURFACE_IMAGE = "image";
     private static final DateTimeFormatter BUILD_LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     private final AtomicBoolean refreshBusy = new AtomicBoolean(false);
     private final AtomicBoolean forceTreeRefresh = new AtomicBoolean(true);
@@ -273,9 +278,16 @@ public final class SwingMainFrame extends JFrame {
     private final JTabbedPane editorClassTabs = new JTabbedPane();
     private final JLabel editorPathValue = new JLabel();
     private final Map<String, EditorTabRef> editorTabRefs = new java.util.LinkedHashMap<>();
+    private final Map<String, ContentTabRef> contentTabRefs = new java.util.LinkedHashMap<>();
     private final Map<String, EditorDocumentDto> editorTabDocs = new java.util.HashMap<>();
     private final RSyntaxTextArea editorArea = new RSyntaxTextArea();
+    private final RSyntaxTextArea contentTextArea = new RSyntaxTextArea();
+    private final JLabel contentImageLabel = new JLabel("", JLabel.CENTER);
+    private final CardLayout codeSurfaceLayout = new CardLayout();
+    private final JPanel codeSurfaceHost = new JPanel(codeSurfaceLayout);
     private RTextScrollPane editorScrollPane;
+    private RTextScrollPane contentTextScrollPane;
+    private JScrollPane contentImageScrollPane;
     private final JTabbedPane workbenchTabs = new JTabbedPane();
     private JPanel codePageView;
 
@@ -1586,6 +1598,25 @@ public final class SwingMainFrame extends JFrame {
         editorScrollPane = new RTextScrollPane(editorArea);
         editorScrollPane.setLineNumbersEnabled(true);
         editorScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+
+        contentTextArea.setEditable(false);
+        contentTextArea.setCodeFoldingEnabled(true);
+        contentTextArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        contentTextArea.setAntiAliasingEnabled(true);
+        contentTextArea.setHighlightCurrentLine(true);
+        contentTextScrollPane = new RTextScrollPane(contentTextArea);
+        contentTextScrollPane.setLineNumbersEnabled(true);
+        contentTextScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+
+        contentImageLabel.setOpaque(true);
+        contentImageLabel.setHorizontalAlignment(JLabel.CENTER);
+        contentImageLabel.setVerticalAlignment(JLabel.TOP);
+        contentImageScrollPane = new JScrollPane(contentImageLabel);
+        contentImageScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+
+        codeSurfaceHost.add(editorScrollPane, CODE_SURFACE_EDITOR);
+        codeSurfaceHost.add(contentTextScrollPane, CODE_SURFACE_TEXT);
+        codeSurfaceHost.add(contentImageScrollPane, CODE_SURFACE_IMAGE);
         applyEditorSyntaxTheme(normalizeTheme(initialTheme));
 
         JPanel status = new JPanel(new BorderLayout());
@@ -1594,7 +1625,7 @@ public final class SwingMainFrame extends JFrame {
         status.add(editorPathValue, BorderLayout.WEST);
 
         panel.add(editorClassTabs, BorderLayout.NORTH);
-        panel.add(editorScrollPane, BorderLayout.CENTER);
+        panel.add(codeSurfaceHost, BorderLayout.CENTER);
         panel.add(status, BorderLayout.SOUTH);
         return panel;
     }
@@ -2214,6 +2245,9 @@ public final class SwingMainFrame extends JFrame {
 
     private void applyEditor(EditorDocumentDto doc) {
         syncEditorTabs(doc);
+        codeSurfaceLayout.show(codeSurfaceHost, CODE_SURFACE_EDITOR);
+        contentImageLabel.setIcon(null);
+        contentImageLabel.setText("");
         String nextText = safe(doc.content());
         String structureSignature = safe(doc.className())
                 + "\u0000" + safe(String.valueOf(doc.jarId()))
@@ -2454,12 +2488,18 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void trimEditorTabs() {
-        if (editorTabRefs.size() <= EDITOR_TAB_LIMIT) {
+        if (editorClassTabs.getTabCount() <= EDITOR_TAB_LIMIT) {
             return;
         }
-        List<String> keys = new ArrayList<>(editorTabRefs.keySet());
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < editorClassTabs.getTabCount(); i++) {
+            String key = tabKeyAt(i);
+            if (!key.isBlank()) {
+                keys.add(key);
+            }
+        }
         for (String key : keys) {
-            if (editorTabRefs.size() <= EDITOR_TAB_LIMIT) {
+            if (editorClassTabs.getTabCount() <= EDITOR_TAB_LIMIT) {
                 break;
             }
             if (Objects.equals(activeEditorTabKey, key)) {
@@ -2540,7 +2580,13 @@ public final class SwingMainFrame extends JFrame {
         if (safe(keepKey).isBlank()) {
             return;
         }
-        List<String> keys = new ArrayList<>(editorTabRefs.keySet());
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < editorClassTabs.getTabCount(); i++) {
+            String key = tabKeyAt(i);
+            if (!key.isBlank()) {
+                keys.add(key);
+            }
+        }
         for (String key : keys) {
             if (Objects.equals(key, keepKey)) {
                 continue;
@@ -2575,11 +2621,21 @@ public final class SwingMainFrame extends JFrame {
             return;
         }
         EditorTabRef ref = editorTabRefs.remove(key);
-        if (ref == null) {
+        ContentTabRef contentRef = contentTabRefs.remove(key);
+        Component marker = ref == null
+                ? contentRef == null ? null : contentRef.marker()
+                : ref.marker();
+        if (marker == null) {
+            int tabIndex = indexOfTabKey(key);
+            if (tabIndex >= 0) {
+                marker = editorClassTabs.getComponentAt(tabIndex);
+            }
+        }
+        if (marker == null) {
             return;
         }
         editorTabDocs.remove(key);
-        int index = editorClassTabs.indexOfComponent(ref.marker());
+        int index = editorClassTabs.indexOfComponent(marker);
         if (index < 0) {
             if (Objects.equals(activeEditorTabKey, key)) {
                 activeEditorTabKey = "";
@@ -2596,6 +2652,9 @@ public final class SwingMainFrame extends JFrame {
         if (editorClassTabs.getTabCount() <= 0) {
             activeEditorTabKey = "";
             return;
+        }
+        if (closingActive) {
+            activeEditorTabKey = "";
         }
         if (closingActive && activateNeighbor) {
             int nextIndex = Math.max(0, Math.min(index, editorClassTabs.getTabCount() - 1));
@@ -2615,6 +2674,15 @@ public final class SwingMainFrame extends JFrame {
         }
         String key = tabKeyAt(index);
         if (key.isBlank()) {
+            return;
+        }
+        ContentTabRef contentRef = contentTabRefs.get(key);
+        if (contentRef != null) {
+            boolean shouldApply = forceOpen || !Objects.equals(activeEditorTabKey, key);
+            activeEditorTabKey = key;
+            if (shouldApply) {
+                applyContentTab(contentRef);
+            }
             return;
         }
         EditorTabRef ref = editorTabRefs.get(key);
@@ -2657,6 +2725,62 @@ public final class SwingMainFrame extends JFrame {
                 lastAppliedEditorSnapshot = doc;
             });
         });
+    }
+
+    private void openEditorContentTab(ToolingWindowPayload.EditorContentPayload payload) {
+        if (payload == null) {
+            return;
+        }
+        String key = safe(payload.tabKey()).isBlank()
+                ? "content:" + Integer.toHexString((safe(payload.title()) + "\n" + safe(payload.filePath())).hashCode())
+                : safe(payload.tabKey());
+        String title = contentTabTitle(payload);
+        String tooltip = contentTabTooltip(payload);
+        ContentTabRef existing = contentTabRefs.get(key);
+        Component marker;
+        if (existing == null) {
+            JPanel holder = new JPanel();
+            holder.setOpaque(false);
+            holder.setPreferredSize(new Dimension(0, 0));
+            holder.putClientProperty(EDITOR_TAB_KEY_PROP, key);
+            editorClassTabs.addTab(title, holder);
+            int newIndex = editorClassTabs.indexOfComponent(holder);
+            if (newIndex >= 0) {
+                editorClassTabs.setTabComponentAt(newIndex, createEditorTabHeader(key, title));
+            }
+            marker = holder;
+        } else {
+            marker = existing.marker();
+        }
+        int index = editorClassTabs.indexOfComponent(marker);
+        if (index >= 0) {
+            if (!Objects.equals(editorClassTabs.getTitleAt(index), title)) {
+                editorClassTabs.setTitleAt(index, title);
+                updateEditorTabHeaderTitle(index, title);
+            }
+            editorClassTabs.setToolTipTextAt(index, tooltip);
+            if (editorClassTabs.getSelectedIndex() != index) {
+                editorTabSelectionAdjusting = true;
+                try {
+                    editorClassTabs.setSelectedIndex(index);
+                } finally {
+                    editorTabSelectionAdjusting = false;
+                }
+            }
+        }
+        ContentTabRef ref = new ContentTabRef(
+                key,
+                title,
+                safe(payload.statusText()),
+                safe(payload.content()),
+                safe(payload.filePath()),
+                payload.image(),
+                marker
+        );
+        contentTabRefs.put(key, ref);
+        activeEditorTabKey = key;
+        applyContentTab(ref);
+        trimEditorTabs();
     }
 
     private void runEditorNavigationAsync(String threadName,
@@ -2893,6 +3017,32 @@ public final class SwingMainFrame extends JFrame {
         return idx >= 0 ? normalized.substring(idx + 1) : normalized;
     }
 
+    private String contentTabTitle(ToolingWindowPayload.EditorContentPayload payload) {
+        if (payload == null) {
+            return tr("预览", "Preview");
+        }
+        String title = safe(payload.title()).trim();
+        if (!title.isBlank()) {
+            return title;
+        }
+        String filePath = safe(payload.filePath()).trim();
+        if (!filePath.isBlank()) {
+            return editorTabTitle(filePath);
+        }
+        return tr("预览", "Preview");
+    }
+
+    private String contentTabTooltip(ToolingWindowPayload.EditorContentPayload payload) {
+        if (payload == null) {
+            return "";
+        }
+        String filePath = safe(payload.filePath()).trim();
+        if (!filePath.isBlank()) {
+            return filePath;
+        }
+        return safe(payload.statusText());
+    }
+
     private String formatEditorLocation(EditorDocumentDto doc) {
         if (doc == null) {
             return "";
@@ -2918,6 +3068,105 @@ public final class SwingMainFrame extends JFrame {
             sb.append('[').append(jarName).append(']');
         }
         return sb.toString();
+    }
+
+    private void applyContentTab(ContentTabRef ref) {
+        if (ref == null) {
+            return;
+        }
+        selectCodeTab();
+        clearEditorNavigationHighlight();
+        clearStructureForContent();
+        editorPathValue.setText(ref.statusText().isBlank() ? ref.title() : ref.statusText());
+        editorPathValue.setToolTipText(ref.filePath().isBlank() ? ref.statusText() : ref.filePath());
+        if (ref.image() && renderContentImage(ref.filePath())) {
+            codeSurfaceLayout.show(codeSurfaceHost, CODE_SURFACE_IMAGE);
+            return;
+        }
+        applyContentText(ref.content(), ref.filePath());
+    }
+
+    private void applyContentText(String content, String filePath) {
+        contentImageLabel.setIcon(null);
+        contentImageLabel.setText("");
+        contentTextArea.setSyntaxEditingStyle(resolveContentSyntaxStyle(filePath));
+        contentTextArea.setText(safe(content));
+        contentTextArea.setCaretPosition(0);
+        if (contentTextScrollPane != null && contentTextScrollPane.getViewport() != null) {
+            contentTextScrollPane.getViewport().setViewPosition(new java.awt.Point(0, 0));
+        }
+        codeSurfaceLayout.show(codeSurfaceHost, CODE_SURFACE_TEXT);
+    }
+
+    private boolean renderContentImage(String filePath) {
+        contentImageLabel.setIcon(null);
+        contentImageLabel.setText("");
+        String normalized = safe(filePath).trim();
+        if (normalized.isBlank()) {
+            return false;
+        }
+        Path path = Paths.get(normalized);
+        if (!Files.isRegularFile(path)) {
+            return false;
+        }
+        try (InputStream input = Files.newInputStream(path)) {
+            BufferedImage image = ImageIO.read(input);
+            if (image == null) {
+                return false;
+            }
+            contentImageLabel.setIcon(new ImageIcon(image));
+            contentImageLabel.setToolTipText(path.toAbsolutePath().normalize().toString());
+            if (contentImageScrollPane != null && contentImageScrollPane.getViewport() != null) {
+                contentImageScrollPane.getViewport().setViewPosition(new java.awt.Point(0, 0));
+            }
+            return true;
+        } catch (Exception ex) {
+            logger.warn("load preview image failed: {}", ex.toString());
+            return false;
+        }
+    }
+
+    private String resolveContentSyntaxStyle(String filePath) {
+        String lower = safe(filePath).trim().toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".java")) {
+            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+        }
+        if (lower.endsWith(".xml") || lower.endsWith(".xsd") || lower.endsWith(".jspx")) {
+            return SyntaxConstants.SYNTAX_STYLE_XML;
+        }
+        if (lower.endsWith(".json")) {
+            return SyntaxConstants.SYNTAX_STYLE_JSON;
+        }
+        if (lower.endsWith(".properties") || lower.endsWith(".mf") || lower.endsWith(".ini") || lower.endsWith(".conf")) {
+            return SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE;
+        }
+        if (lower.endsWith(".html") || lower.endsWith(".htm") || lower.endsWith(".jsp")) {
+            return SyntaxConstants.SYNTAX_STYLE_HTML;
+        }
+        if (lower.endsWith(".css")) {
+            return SyntaxConstants.SYNTAX_STYLE_CSS;
+        }
+        if (lower.endsWith(".js")) {
+            return SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
+        }
+        if (lower.endsWith(".sql")) {
+            return SyntaxConstants.SYNTAX_STYLE_SQL;
+        }
+        if (lower.endsWith(".sh")) {
+            return SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL;
+        }
+        if (lower.endsWith(".bat") || lower.endsWith(".cmd")) {
+            return SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH;
+        }
+        return SyntaxConstants.SYNTAX_STYLE_NONE;
+    }
+
+    private void clearStructureForContent() {
+        structureModel.clear();
+        structureTitleLabel.setText(tr("结构", "Structure"));
+        structureStatusValue.setText(tr("预览", "preview"));
+        lastEditorStructureSignature = "";
+        lastAppliedStructureSeq = structureRequestSeq.incrementAndGet();
     }
 
     private void refreshStructureOutlineAsync(EditorDocumentDto doc) {
@@ -3288,6 +3537,16 @@ public final class SwingMainFrame extends JFrame {
                 }
             }
             case CFG, FRAME, OPCODE, ASM, BCEL_TOOL, ALL_STRINGS -> showAnalysisToolWindow(action, payload);
+            case EDITOR_CONTENT -> {
+                if (payload instanceof ToolingWindowPayload.EditorContentPayload content) {
+                    openEditorContentTab(content);
+                } else {
+                    showTextDialog(
+                            tr("工具窗口", "Tool Window"),
+                            tr("当前动作需要内容载荷，但未提供内容: ", "Editor content payload required but missing: ") + action.name()
+                    );
+                }
+            }
             case TEXT_VIEWER -> {
                 if (payload instanceof ToolingWindowPayload.TextPayload text) {
                     showTextDialog(safe(text.title()), safe(text.content()));
@@ -3826,9 +4085,6 @@ public final class SwingMainFrame extends JFrame {
     }
 
     private void applyEditorSyntaxTheme(String normalizedTheme) {
-        if (editorArea == null) {
-            return;
-        }
         String syntaxThemePath = "/syntax/default.xml";
         boolean darkTheme = "dark".equalsIgnoreCase(normalizedTheme);
         if ("dark".equalsIgnoreCase(normalizedTheme)) {
@@ -3837,7 +4093,9 @@ public final class SwingMainFrame extends JFrame {
         boolean applied = false;
         try (InputStream in = SwingMainFrame.class.getResourceAsStream(syntaxThemePath)) {
             if (in != null) {
-                Theme.load(in).apply(editorArea);
+                Theme theme = Theme.load(in);
+                theme.apply(editorArea);
+                theme.apply(contentTextArea);
                 applied = true;
             } else {
                 logger.warn("editor syntax theme resource missing: {}", syntaxThemePath);
@@ -3847,21 +4105,19 @@ public final class SwingMainFrame extends JFrame {
             logger.warn("apply editor syntax theme failed: {}", ex.toString());
             applyEditorSyntaxFallback();
         }
-        if (darkTheme && (!applied || isColorBright(editorArea.getBackground()))) {
+        if (darkTheme && (!applied || isColorBright(editorArea.getBackground()) || isColorBright(contentTextArea.getBackground()))) {
             applyEditorDarkFallback();
         }
-        if (editorScrollPane != null) {
-            editorScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
-            if (editorScrollPane.getGutter() != null) {
-                editorScrollPane.getGutter().setBackground(uiColor("Panel.background", panelBg()));
-                editorScrollPane.getGutter().setBorderColor(shellLine());
-                editorScrollPane.getGutter().setLineNumberColor(uiColor("Label.disabledForeground",
-                        uiColor("Label.foreground", Color.GRAY)));
-                editorScrollPane.getGutter().setCurrentLineNumberColor(uiColor("Label.foreground", Color.WHITE));
-            }
-            editorScrollPane.repaint();
+        applyTextAreaChrome(editorArea, editorScrollPane);
+        applyTextAreaChrome(contentTextArea, contentTextScrollPane);
+        if (contentImageScrollPane != null) {
+            contentImageScrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+            contentImageScrollPane.getViewport().setBackground(contentBg());
         }
+        contentImageLabel.setBackground(contentBg());
         editorArea.repaint();
+        contentTextArea.repaint();
+        contentImageLabel.repaint();
     }
 
     private void applyEditorDarkFallback() {
@@ -3872,6 +4128,11 @@ public final class SwingMainFrame extends JFrame {
         editorArea.setCaretColor(new Color(0xC1CBC2));
         editorArea.setSelectionColor(new Color(0x404E51));
         editorArea.setCurrentLineHighlightColor(new Color(0x2F393C));
+        contentTextArea.setBackground(textBg);
+        contentTextArea.setForeground(textFg);
+        contentTextArea.setCaretColor(new Color(0xC1CBC2));
+        contentTextArea.setSelectionColor(new Color(0x404E51));
+        contentTextArea.setCurrentLineHighlightColor(new Color(0x2F393C));
     }
 
     private void applyEditorSyntaxFallback() {
@@ -3885,6 +4146,27 @@ public final class SwingMainFrame extends JFrame {
         editorArea.setCaretColor(caret);
         editorArea.setSelectionColor(selection);
         editorArea.setCurrentLineHighlightColor(currentLine);
+        contentTextArea.setBackground(textBg);
+        contentTextArea.setForeground(textFg);
+        contentTextArea.setCaretColor(caret);
+        contentTextArea.setSelectionColor(selection);
+        contentTextArea.setCurrentLineHighlightColor(currentLine);
+    }
+
+    private void applyTextAreaChrome(RSyntaxTextArea area, RTextScrollPane scrollPane) {
+        if (area == null || scrollPane == null) {
+            return;
+        }
+        scrollPane.setBorder(BorderFactory.createLineBorder(shellLine()));
+        if (scrollPane.getGutter() != null) {
+            scrollPane.getGutter().setBackground(uiColor("Panel.background", panelBg()));
+            scrollPane.getGutter().setBorderColor(shellLine());
+            scrollPane.getGutter().setLineNumberColor(uiColor("Label.disabledForeground",
+                    uiColor("Label.foreground", Color.GRAY)));
+            scrollPane.getGutter().setCurrentLineNumberColor(uiColor("Label.foreground", Color.WHITE));
+        }
+        scrollPane.repaint();
+        area.repaint();
     }
 
     private void applyMacTitleBarHints(String normalizedTheme) {
@@ -4232,6 +4514,17 @@ public final class SwingMainFrame extends JFrame {
             String className,
             Integer jarId,
             String jarName,
+            Component marker
+    ) {
+    }
+
+    private record ContentTabRef(
+            String key,
+            String title,
+            String statusText,
+            String content,
+            String filePath,
+            boolean image,
             Component marker
     ) {
     }

@@ -1,13 +1,13 @@
 package me.n1ar4.jar.analyzer.gui.runtime.model;
 
+import java.util.Objects;
+
 public record ToolingWindowRequest(
         ToolingWindowAction action,
         ToolingWindowPayload payload
 ) {
     public ToolingWindowRequest {
-        if (action == null) {
-            action = ToolingWindowAction.TEXT_VIEWER;
-        }
+        action = Objects.requireNonNull(action, "action");
         if (payload == null) {
             payload = new ToolingWindowPayload.EmptyPayload();
         }

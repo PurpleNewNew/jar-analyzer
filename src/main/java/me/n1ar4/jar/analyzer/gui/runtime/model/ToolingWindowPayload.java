@@ -4,6 +4,7 @@ import java.util.List;
 
 public sealed interface ToolingWindowPayload
         permits ToolingWindowPayload.EmptyPayload,
+        ToolingWindowPayload.EditorContentPayload,
         ToolingWindowPayload.MarkdownPayload,
         ToolingWindowPayload.PathPayload,
         ToolingWindowPayload.TextPayload,
@@ -16,6 +17,16 @@ public sealed interface ToolingWindowPayload
     }
 
     record PathPayload(String value) implements ToolingWindowPayload {
+    }
+
+    record EditorContentPayload(
+            String tabKey,
+            String title,
+            String statusText,
+            String content,
+            String filePath,
+            boolean image
+    ) implements ToolingWindowPayload {
     }
 
     record TextPayload(String title, String content) implements ToolingWindowPayload {

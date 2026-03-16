@@ -14,9 +14,7 @@ import me.n1ar4.jar.analyzer.core.facts.JarEntity;
 import me.n1ar4.jar.analyzer.core.facts.ResourceEntity;
 import me.n1ar4.jar.analyzer.gui.runtime.model.NavigationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.TreeNodeDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowAction;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowPayload;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ToolingWindowRequest;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
 
@@ -89,7 +87,7 @@ final class ProjectTreeSupport {
             case RESOURCE -> openResourceNode(nav.resourceId());
             case JAR_PATH -> openJarPathNode(nav.jarId());
             case FILE_PATH -> openPathNode(nav.path());
-            case MESSAGE -> ui.showText("Project Tree", nav.message());
+            case MESSAGE -> openMessageContent("Project Tree", nav.message());
             case CLASS -> {
                 String className = normalizeClass(nav.className());
                 if (className.endsWith(".class")) {
@@ -822,64 +820,89 @@ final class ProjectTreeSupport {
         }
         ResourceEntity resource = engine.getResourceById(rid);
         if (resource == null) {
-            ui.showText("Resource", "resource not found: " + rid);
+            openMessageContent("Resource", "resource not found: " + rid);
             return;
         }
         Path filePath;
         try {
             filePath = Paths.get(safe(resource.getPathStr()));
         } catch (Throwable ex) {
-            ui.showText("Resource", "invalid resource path: " + ex.getMessage());
+            openMessageContent("Resource", "invalid resource path: " + ex.getMessage());
             return;
         }
         if (Files.notExists(filePath)) {
-            ui.showText("Resource", "resource file not found: " + filePath);
+            openMessageContent("Resource", "resource file not found: " + filePath);
             return;
         }
-        String title = "Resource: " + safe(resource.getResourcePath());
+        String resourcePath = safe(resource.getResourcePath());
+        String title = safe(resourcePath).isBlank() ? "Resource" : leafName(resourcePath);
+        String status = buildResourceStatus(resource, filePath);
         if (resource.getIsText() == 1) {
-            ui.showTooling(new ToolingWindowRequest(
-                    ToolingWindowAction.TEXT_VIEWER,
-                    new ToolingWindowPayload.TextPayload(title, renderTextResource(resource, filePath))
-            ));
+            TextPreview preview = readPreviewText(filePath);
+            openContent("resource:" + rid,
+                    title,
+                    statusWithTruncation(status, preview.truncated()),
+                    preview.content(),
+                    filePath.toAbsolutePath().normalize().toString(),
+                    false);
+            return;
+        }
+        if (isPreviewableImage(filePath, resourcePath)) {
+            openContent("resource:" + rid,
+                    title,
+                    status,
+                    renderBinarySummary(resource, filePath),
+                    filePath.toAbsolutePath().normalize().toString(),
+                    true);
         } else {
-            StringBuilder sb = new StringBuilder();
-            sb.append("resource: ").append(safe(resource.getResourcePath())).append('\n');
-            sb.append("jar: ").append(safe(resource.getJarName())).append('\n');
-            sb.append("jar id: ").append(resource.getJarId()).append('\n');
-            sb.append("size: ").append(resource.getFileSize()).append('\n');
-            sb.append("text: ").append(resource.getIsText() == 1).append('\n');
-            sb.append("file: ").append(filePath.toAbsolutePath()).append('\n');
-            ui.showTooling(new ToolingWindowRequest(
-                    ToolingWindowAction.TEXT_VIEWER,
-                    new ToolingWindowPayload.TextPayload(title, sb.toString())
-            ));
+            openContent("resource:" + rid,
+                    title,
+                    status,
+                    renderBinarySummary(resource, filePath),
+                    filePath.toAbsolutePath().normalize().toString(),
+                    false);
         }
     }
 
-    private String renderTextResource(ResourceEntity resource, Path path) {
-        final int maxBytes = 512 * 1024;
-        try {
-            long size = Files.size(path);
-            byte[] bytes;
-            try (InputStream input = Files.newInputStream(path)) {
-                bytes = input.readNBytes(maxBytes + 1);
-            }
-            boolean truncated = bytes.length > maxBytes;
-            int len = truncated ? maxBytes : bytes.length;
-            String body = new String(bytes, 0, len, StandardCharsets.UTF_8);
-            StringBuilder sb = new StringBuilder();
-            sb.append("// resource: ").append(safe(resource.getResourcePath())).append('\n');
-            sb.append("// jar: ").append(safe(resource.getJarName())).append('\n');
-            sb.append("// size: ").append(size).append('\n');
-            if (truncated) {
-                sb.append("// preview truncated to ").append(maxBytes).append(" bytes").append('\n');
-            }
-            sb.append('\n').append(body);
-            return sb.toString();
-        } catch (Throwable ex) {
-            return "read resource failed: " + ex.getMessage();
+    private String buildResourceStatus(ResourceEntity resource, Path filePath) {
+        StringBuilder sb = new StringBuilder();
+        String resourcePath = safe(resource == null ? null : resource.getResourcePath());
+        if (!resourcePath.isBlank()) {
+            sb.append(resourcePath);
         }
+        String jarName = safe(resource == null ? null : resource.getJarName());
+        if (!jarName.isBlank()) {
+            if (sb.length() > 0) {
+                sb.append("  ");
+            }
+            sb.append('[').append(jarName).append(']');
+        }
+        long size = resource == null ? 0L : resource.getFileSize();
+        if (size <= 0L && filePath != null) {
+            try {
+                size = Files.size(filePath);
+            } catch (Exception ignored) {
+                size = 0L;
+            }
+        }
+        if (size > 0L) {
+            if (sb.length() > 0) {
+                sb.append("  ");
+            }
+            sb.append(size).append(" bytes");
+        }
+        return sb.toString();
+    }
+
+    private String renderBinarySummary(ResourceEntity resource, Path filePath) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("resource: ").append(safe(resource == null ? null : resource.getResourcePath())).append('\n');
+        sb.append("jar: ").append(safe(resource == null ? null : resource.getJarName())).append('\n');
+        sb.append("jar id: ").append(resource == null ? 0 : resource.getJarId()).append('\n');
+        sb.append("size: ").append(resource == null ? 0L : resource.getFileSize()).append('\n');
+        sb.append("text: ").append(resource != null && resource.getIsText() == 1).append('\n');
+        sb.append("file: ").append(filePath == null ? "" : filePath.toAbsolutePath()).append('\n');
+        return sb.toString();
     }
 
     private void openJarPathNode(int jarId) {
@@ -901,7 +924,7 @@ final class ProjectTreeSupport {
             }
         }
         if (matched == null) {
-            ui.showText("Dependency", "jar not found: " + jarId);
+            openMessageContent("Dependency", "jar not found: " + jarId);
             return;
         }
         String absPath = safe(matched.getJarAbsPath());
@@ -913,10 +936,13 @@ final class ProjectTreeSupport {
         if (path != null) {
             sb.append("exists: ").append(Files.exists(path)).append('\n');
         }
-        ui.showTooling(new ToolingWindowRequest(
-                ToolingWindowAction.TEXT_VIEWER,
-                new ToolingWindowPayload.TextPayload("Dependency Path", sb.toString())
-        ));
+        Path previewPath = path != null && Files.exists(path) ? path : null;
+        openContent("jar-path:" + jarId,
+                safe(matched.getJarName()).isBlank() ? "Dependency Path" : safe(matched.getJarName()),
+                absPath.isBlank() ? "Dependency Path" : absPath,
+                sb.toString(),
+                previewPath == null ? "" : previewPath.toAbsolutePath().normalize().toString(),
+                false);
     }
 
     private void openPathNode(String rawValue) {
@@ -926,7 +952,7 @@ final class ProjectTreeSupport {
         }
         Path path = normalizeFsPath(text);
         if (path == null) {
-            ui.showText("Path", "invalid path: " + text);
+            openMessageContent("Path", "invalid path: " + text);
             return;
         }
         StringBuilder sb = new StringBuilder();
@@ -940,10 +966,31 @@ final class ProjectTreeSupport {
                 sb.append("size: unknown (").append(ex.getMessage()).append(")").append('\n');
             }
         }
-        ui.showTooling(new ToolingWindowRequest(
-                ToolingWindowAction.TEXT_VIEWER,
-                new ToolingWindowPayload.TextPayload("Path", sb.toString())
-        ));
+        if (Files.isRegularFile(path) && isPreviewableImage(path, path.getFileName() == null ? "" : path.getFileName().toString())) {
+            openContent("path:" + pathKey(path),
+                    leafName(path.toString()),
+                    path.toAbsolutePath().normalize().toString(),
+                    sb.toString(),
+                    path.toAbsolutePath().normalize().toString(),
+                    true);
+            return;
+        }
+        if (Files.isRegularFile(path) && isPreviewableText(path)) {
+            TextPreview preview = readPreviewText(path);
+            openContent("path:" + pathKey(path),
+                    leafName(path.toString()),
+                    statusWithTruncation(path.toAbsolutePath().normalize().toString(), preview.truncated()),
+                    preview.content(),
+                    path.toAbsolutePath().normalize().toString(),
+                    false);
+            return;
+        }
+        openContent("path:" + pathKey(path),
+                leafName(path.toString()),
+                path.toAbsolutePath().normalize().toString(),
+                sb.toString(),
+                path.toAbsolutePath().normalize().toString(),
+                false);
     }
 
     private static Path normalizeFsPath(String raw) {
@@ -1000,9 +1047,7 @@ final class ProjectTreeSupport {
     interface UiActions {
         void openClass(String className, Integer jarId);
 
-        void showText(String title, String text);
-
-        void showTooling(ToolingWindowRequest request);
+        void openContent(ToolingWindowPayload.EditorContentPayload payload);
 
         static UiActions noop() {
             return new UiActions() {
@@ -1011,14 +1056,127 @@ final class ProjectTreeSupport {
                 }
 
                 @Override
-                public void showText(String title, String text) {
-                }
-
-                @Override
-                public void showTooling(ToolingWindowRequest request) {
+                public void openContent(ToolingWindowPayload.EditorContentPayload payload) {
                 }
             };
         }
+    }
+
+    private TextPreview readPreviewText(Path path) {
+        final int maxBytes = 512 * 1024;
+        if (path == null) {
+            return new TextPreview("", false);
+        }
+        try {
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(path)) {
+                bytes = input.readNBytes(maxBytes + 1);
+            }
+            boolean truncated = bytes.length > maxBytes;
+            int len = truncated ? maxBytes : bytes.length;
+            return new TextPreview(new String(bytes, 0, len, StandardCharsets.UTF_8), truncated);
+        } catch (Throwable ex) {
+            return new TextPreview("read file failed: " + safe(ex.getMessage()), false);
+        }
+    }
+
+    private static String statusWithTruncation(String status, boolean truncated) {
+        String value = safe(status);
+        if (!truncated) {
+            return value;
+        }
+        return value.isBlank()
+                ? "preview truncated to 524288 bytes"
+                : value + "  (preview truncated to 524288 bytes)";
+    }
+
+    private static boolean isPreviewableImage(Path path, String hint) {
+        String lower = safe(hint).toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".bmp") || lower.endsWith(".webp")) {
+            return true;
+        }
+        if (path == null) {
+            return false;
+        }
+        try {
+            String contentType = Files.probeContentType(path);
+            return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("image/");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isPreviewableText(Path path) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return false;
+        }
+        String lower = safe(path.getFileName() == null ? "" : path.getFileName().toString()).toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".txt") || lower.endsWith(".properties") || lower.endsWith(".xml")
+                || lower.endsWith(".json") || lower.endsWith(".yml") || lower.endsWith(".yaml")
+                || lower.endsWith(".md") || lower.endsWith(".html") || lower.endsWith(".htm")
+                || lower.endsWith(".css") || lower.endsWith(".js") || lower.endsWith(".java")
+                || lower.endsWith(".jsp") || lower.endsWith(".jspx") || lower.endsWith(".mf")
+                || lower.endsWith(".csv") || lower.endsWith(".sql") || lower.endsWith(".log")
+                || lower.endsWith(".conf") || lower.endsWith(".ini") || lower.endsWith(".sh")
+                || lower.endsWith(".bat")) {
+            return true;
+        }
+        try {
+            String contentType = Files.probeContentType(path);
+            if (contentType == null) {
+                return false;
+            }
+            String normalized = contentType.toLowerCase(Locale.ROOT);
+            return normalized.startsWith("text/")
+                    || normalized.contains("json")
+                    || normalized.contains("xml")
+                    || normalized.contains("yaml")
+                    || normalized.contains("javascript");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static String leafName(String value) {
+        String normalized = safe(value).replace('\\', '/');
+        if (normalized.isBlank()) {
+            return "";
+        }
+        int idx = normalized.lastIndexOf('/');
+        return idx >= 0 ? normalized.substring(idx + 1) : normalized;
+    }
+
+    private void openMessageContent(String title, String message) {
+        String safeTitle = safe(title).isBlank() ? "Project Tree" : safe(title);
+        String safeMessage = safe(message);
+        openContent(
+                "project-tree:" + Integer.toHexString((safeTitle + "\n" + safeMessage).hashCode()),
+                safeTitle,
+                safeTitle,
+                safeMessage,
+                "",
+                false
+        );
+    }
+
+    private void openContent(String tabKey,
+                             String title,
+                             String statusText,
+                             String content,
+                             String filePath,
+                             boolean image) {
+        ui.openContent(new ToolingWindowPayload.EditorContentPayload(
+                safe(tabKey),
+                safe(title),
+                safe(statusText),
+                safe(content),
+                safe(filePath),
+                image
+        ));
+    }
+
+    private record TextPreview(String content, boolean truncated) {
     }
 
     interface Services {
