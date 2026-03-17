@@ -7,18 +7,93 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.AbstractUnStru
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 
 final class StructureRecoveryPipeline {
     private static final int MAX_HEAVY_RECOVERY_PASSES = 6;
 
-    private final PatternSemanticsRewriter patternSemanticsRewriter;
+    private final RecoveryPassGroup initialCleanup;
+    private final RecoveryPassGroup heavyRecovery;
+    private final RecoveryPassGroup postModernCleanup;
+    private final RecoveryPassGroup outputPolish;
 
     StructureRecoveryPipeline(PatternSemanticsRewriter patternSemanticsRewriter) {
-        this.patternSemanticsRewriter = patternSemanticsRewriter;
+        this.initialCleanup = new RecoveryPassGroup(
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyEmptyCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyTryCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.convertUnstructuredIf(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteForwardIfGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteConditionLocalAliases(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.inlinePossibles(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeStructuredGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessBlocks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessReturn(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessControlFlow(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block)),
+                new NamedRecoveryPass((block, context) -> context.options.getOption(OptionsImpl.LABELLED_BLOCKS), (block, context) -> {
+                    Op04StructuredStatement.insertLabelledBlocks(block);
+                    Op04StructuredStatement.rewriteForwardIfGotos(block);
+                }),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.flattenNonReferencedBlocks(block))
+        );
+        this.heavyRecovery = new RecoveryPassGroup(
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyEmptyCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyTryCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.convertUnstructuredIf(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteForwardIfGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteConditionLocalAliases(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.prettifyBadLoops(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> patternSemanticsRewriter.rewrite(block, context.bytecodeMeta)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.inlinePossibles(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeStructuredGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessBlocks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessReturn(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessControlFlow(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block)),
+                new NamedRecoveryPass((block, context) -> context.options.getOption(OptionsImpl.LABELLED_BLOCKS), (block, context) -> {
+                    Op04StructuredStatement.insertLabelledBlocks(block);
+                    Op04StructuredStatement.rewriteForwardIfGotos(block);
+                }),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.flattenNonReferencedBlocks(block))
+        );
+        this.postModernCleanup = new RecoveryPassGroup(
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyEmptyCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.tidyTryCatch(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.convertUnstructuredIf(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteForwardIfGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteConditionLocalAliases(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.prettifyBadLoops(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> patternSemanticsRewriter.rewrite(block, context.bytecodeMeta)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.inlinePossibles(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeStructuredGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessBlocks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessReturn(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessControlFlow(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block)),
+                new NamedRecoveryPass((block, context) -> context.options.getOption(OptionsImpl.LABELLED_BLOCKS), (block, context) -> {
+                    Op04StructuredStatement.insertLabelledBlocks(block);
+                    Op04StructuredStatement.rewriteForwardIfGotos(block);
+                }),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.flattenNonReferencedBlocks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.cleanupStructuredExpressionBodies(block))
+        );
+        this.outputPolish = new RecoveryPassGroup(
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteForwardIfGotos(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.rewriteConditionLocalAliases(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessBlocks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePointlessControlFlow(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block)),
+                new NamedRecoveryPass((block, context) -> true, (block, context) -> Op04StructuredStatement.flattenNonReferencedBlocks(block))
+        );
     }
 
     void applyInitialCleanup(Op04StructuredStatement block, MethodAnalysisContext context) {
-        applyCleanupRound(block, context, false);
+        initialCleanup.run(block, context);
     }
 
     void recoverToFixedPoint(Op04StructuredStatement block, MethodAnalysisContext context) {
@@ -26,21 +101,7 @@ final class StructureRecoveryPipeline {
                 && !context.options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
             return;
         }
-        StructureRecoverySnapshot previous = StructureRecoverySnapshot.capture(block);
-        int stalledPasses = 0;
-        for (int pass = 0; pass < MAX_HEAVY_RECOVERY_PASSES && !block.isFullyStructured(); ++pass) {
-            applyCleanupRound(block, context, true);
-            StructureRecoverySnapshot current = StructureRecoverySnapshot.capture(block);
-            boolean improved = current.hasImprovedOver(previous);
-            if (!improved) {
-                if (current.sameShapeAs(previous) || ++stalledPasses >= 2) {
-                    break;
-                }
-            } else {
-                stalledPasses = 0;
-            }
-            previous = current;
-        }
+        heavyRecovery.runToFixedPoint(block, context, MAX_HEAVY_RECOVERY_PASSES);
     }
 
     void cleanupAfterModernSemantics(Op04StructuredStatement block, MethodAnalysisContext context) {
@@ -48,44 +109,74 @@ final class StructureRecoveryPipeline {
                 && !context.modernFeatures.prefersPatternOutput()) {
             return;
         }
-        applyCleanupRound(block, context, true);
-        Op04StructuredStatement.cleanupStructuredExpressionBodies(block);
+        postModernCleanup.run(block, context);
     }
 
     void applyOutputPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
-        Op04StructuredStatement.rewriteForwardIfGotos(block);
-        Op04StructuredStatement.rewriteConditionLocalAliases(block);
-        Op04StructuredStatement.removePointlessBlocks(block);
-        Op04StructuredStatement.removePointlessControlFlow(block);
-        Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block);
-        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
+        outputPolish.run(block, context);
     }
 
-    private void applyCleanupRound(Op04StructuredStatement block,
-                                   MethodAnalysisContext context,
-                                   boolean includePatternRecovery) {
-        Op04StructuredStatement.tidyEmptyCatch(block);
-        Op04StructuredStatement.tidyTryCatch(block);
-        Op04StructuredStatement.convertUnstructuredIf(block);
-        Op04StructuredStatement.rewriteForwardIfGotos(block);
-        Op04StructuredStatement.rewriteConditionLocalAliases(block);
-        if (includePatternRecovery) {
-            Op04StructuredStatement.prettifyBadLoops(block);
-            patternSemanticsRewriter.rewrite(block, context.bytecodeMeta);
+    private interface RecoveryPass {
+        boolean enabled(Op04StructuredStatement block, MethodAnalysisContext context);
+
+        void apply(Op04StructuredStatement block, MethodAnalysisContext context);
+    }
+
+    private static final class NamedRecoveryPass implements RecoveryPass {
+        private final BiPredicate<Op04StructuredStatement, MethodAnalysisContext> enabled;
+        private final BiConsumer<Op04StructuredStatement, MethodAnalysisContext> action;
+
+        private NamedRecoveryPass(BiPredicate<Op04StructuredStatement, MethodAnalysisContext> enabled,
+                                  BiConsumer<Op04StructuredStatement, MethodAnalysisContext> action) {
+            this.enabled = enabled;
+            this.action = action;
         }
-        Op04StructuredStatement.inlinePossibles(block);
-        Op04StructuredStatement.removeStructuredGotos(block);
-        Op04StructuredStatement.removePointlessBlocks(block);
-        Op04StructuredStatement.removePointlessReturn(block);
-        Op04StructuredStatement.removePointlessControlFlow(block);
-        Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block);
-        if (context.options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
-            Op04StructuredStatement.insertLabelledBlocks(block);
-            Op04StructuredStatement.rewriteForwardIfGotos(block);
+
+        @Override
+        public boolean enabled(Op04StructuredStatement block, MethodAnalysisContext context) {
+            return enabled.test(block, context);
         }
-        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
+
+        @Override
+        public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+            action.accept(block, context);
+        }
+    }
+
+    private static final class RecoveryPassGroup {
+        private final List<RecoveryPass> passes;
+
+        private RecoveryPassGroup(RecoveryPass... passes) {
+            this.passes = List.of(passes);
+        }
+
+        void run(Op04StructuredStatement block, MethodAnalysisContext context) {
+            for (RecoveryPass pass : passes) {
+                if (pass.enabled(block, context)) {
+                    pass.apply(block, context);
+                }
+            }
+        }
+
+        void runToFixedPoint(Op04StructuredStatement block,
+                             MethodAnalysisContext context,
+                             int maxPasses) {
+            StructureRecoverySnapshot previous = StructureRecoverySnapshot.capture(block);
+            int stalledPasses = 0;
+            for (int pass = 0; pass < maxPasses && !block.isFullyStructured(); ++pass) {
+                run(block, context);
+                StructureRecoverySnapshot current = StructureRecoverySnapshot.capture(block);
+                boolean improved = current.hasImprovedOver(previous);
+                if (!improved) {
+                    if (current.sameShapeAs(previous) || ++stalledPasses >= 2) {
+                        break;
+                    }
+                } else {
+                    stalledPasses = 0;
+                }
+                previous = current;
+            }
+        }
     }
 
     private static final class StructureRecoverySnapshot {
