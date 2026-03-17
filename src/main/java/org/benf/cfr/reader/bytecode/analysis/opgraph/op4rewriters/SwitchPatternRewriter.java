@@ -16,6 +16,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.StaticFunctionInvo
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.SwitchPatternCaseLabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -259,7 +260,18 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
             Block bodyBlock = (Block) structuredCase.getBody().getStatement();
             List<Op04StructuredStatement> statements = bodyBlock.getBlockStatements();
             PatternBinding patternBinding = findPatternBinding(statements, match.selector, match.caseTypes.get(caseIndex));
-            if (patternBinding == null) return null;
+            if (patternBinding == null) {
+                ConditionalGuardPlan conditionalGuardPlan = findConditionalGuardPlan(statements, match.selector, match.caseTypes.get(caseIndex), match.indexLValue, loopContext);
+                if (conditionalGuardPlan != null) {
+                    return new CaseRewritePlan(
+                            structuredCase,
+                            bodyBlock,
+                            new SwitchPatternCaseLabel(BytecodeLoc.NONE, conditionalGuardPlan.binding, conditionalGuardPlan.guard),
+                            conditionalGuardPlan.rewrittenBody
+                    );
+                }
+                return null;
+            }
 
             GuardPlan guardPlan = findGuardPlan(statements, patternBinding.bindingIndex, match.indexLValue, loopContext);
             if (guardPlan != null) {
@@ -370,6 +382,54 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
             return new GuardPlan(structuredIf.getConditionalExpression(), rewrittenStatements);
         }
 
+        private static ConditionalGuardPlan findConditionalGuardPlan(List<Op04StructuredStatement> statements,
+                                                                     Expression selector,
+                                                                     JavaTypeInstance expectedType,
+                                                                     LValue indexLValue,
+                                                                     PatternLoopContext loopContext) {
+            if (loopContext == null) return null;
+            int ifIdx = nextLeadingGuardIndex(statements);
+            if (ifIdx == -1) return null;
+            StructuredStatement statement = statements.get(ifIdx).getStatement();
+            if (!(statement instanceof StructuredIf)) return null;
+            StructuredIf structuredIf = (StructuredIf) statement;
+            if (structuredIf.hasElseBlock()) return null;
+
+            ConditionPatternBinding conditionBinding = ConditionPatternBinding.match(structuredIf.getConditionalExpression(), selector, expectedType);
+            if (conditionBinding == null) return null;
+
+            int assignIdx = nextMeaningfulIndex(statements, ifIdx + 1);
+            int continueIdx = nextMeaningfulIndex(statements, assignIdx + 1);
+            if (assignIdx == -1 || continueIdx == -1) return null;
+
+            StructuredStatement indexAssignment = statements.get(assignIdx).getStatement();
+            if (!(indexAssignment instanceof StructuredAssignment)) return null;
+            StructuredAssignment structuredAssignment = (StructuredAssignment) indexAssignment;
+            if (!indexLValue.equals(structuredAssignment.getLvalue())) return null;
+            if (!(structuredAssignment.getRvalue() instanceof Literal)) return null;
+
+            StructuredStatement continueStatement = statements.get(continueIdx).getStatement();
+            if (!(continueStatement instanceof AbstractStructuredContinue)) return null;
+            if (!loopContext.loop.getBlock().equals(((AbstractStructuredContinue) continueStatement).getContinueTgt())) return null;
+
+            if (nextMeaningfulIndex(statements, continueIdx + 1) != -1) return null;
+
+            LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
+            for (int x = 0; x < ifIdx; ++x) {
+                if (isBindingSetupStatement(statements.get(x).getStatement(), conditionBinding.binding)) {
+                    continue;
+                }
+                rewrittenStatements.add(statements.get(x));
+            }
+            StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
+            if (ifTaken instanceof Block) {
+                rewrittenStatements.addAll(((Block) ifTaken).getBlockStatements());
+            } else {
+                rewrittenStatements.add(structuredIf.getIfTaken());
+            }
+            return new ConditionalGuardPlan(conditionBinding.binding, conditionBinding.guard, rewrittenStatements);
+        }
+
         private static int nextMeaningfulIndex(List<Op04StructuredStatement> statements, int start) {
             for (int x = start; x < statements.size(); ++x) {
                 if (!statements.get(x).getStatement().isEffectivelyNOP()) {
@@ -377,6 +437,33 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
                 }
             }
             return -1;
+        }
+
+        private static int nextLeadingGuardIndex(List<Op04StructuredStatement> statements) {
+            for (int x = 0; x < statements.size(); ++x) {
+                StructuredStatement statement = statements.get(x).getStatement();
+                if (statement.isEffectivelyNOP() || statement instanceof StructuredComment) {
+                    continue;
+                }
+                if (statement instanceof StructuredIf) {
+                    return x;
+                }
+                if (statement instanceof StructuredDefinition) {
+                    continue;
+                }
+                return -1;
+            }
+            return -1;
+        }
+
+        private static boolean isBindingSetupStatement(StructuredStatement statement, LocalVariable binding) {
+            if (statement instanceof StructuredDefinition) {
+                return binding.equals(((StructuredDefinition) statement).getLvalue());
+            }
+            if (statement instanceof StructuredAssignment) {
+                return binding.equals(((StructuredAssignment) statement).getLvalue());
+            }
+            return false;
         }
 
         private static RecordPatternPlan findRecordPatternPlan(List<Op04StructuredStatement> statements,
@@ -470,6 +557,77 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
                 }
             }
             return false;
+        }
+    }
+
+    private static final class ConditionPatternBinding {
+        private final LocalVariable binding;
+        private final Expression guard;
+
+        private ConditionPatternBinding(LocalVariable binding, Expression guard) {
+            this.binding = binding;
+            this.guard = guard;
+        }
+
+        private static ConditionPatternBinding match(Expression expression,
+                                                     Expression selector,
+                                                     JavaTypeInstance expectedType) {
+            CloneHelper cloneHelper = new CloneHelper();
+            Expression cloned = cloneHelper.replaceOrClone(expression);
+            ConditionPatternBindingRewriter rewriter = new ConditionPatternBindingRewriter(selector, expectedType);
+            Expression rewritten = cloned.applyExpressionRewriter(rewriter, null, null, null);
+            if (rewriter.binding == null) {
+                return null;
+            }
+            return new ConditionPatternBinding(rewriter.binding, rewritten);
+        }
+    }
+
+    private static final class ConditionPatternBindingRewriter extends AbstractExpressionRewriter {
+        private final Expression selector;
+        private final JavaTypeInstance expectedType;
+        private LocalVariable binding;
+
+        private ConditionPatternBindingRewriter(Expression selector, JavaTypeInstance expectedType) {
+            this.selector = selector;
+            this.expectedType = expectedType;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                AssignmentExpression assignmentExpression = (AssignmentExpression) expression;
+                if (assignmentExpression.getlValue() instanceof LocalVariable
+                        && assignmentExpression.getrValue() instanceof CastExpression) {
+                    CastExpression castExpression = (CastExpression) assignmentExpression.getrValue();
+                    if (expectedType.equals(castExpression.getInferredJavaType().getJavaTypeInstance())) {
+                        Expression castChild = CastExpression.removeImplicit(castExpression.getChild());
+                        if (selector.equals(castChild)) {
+                            LocalVariable localVariable = (LocalVariable) assignmentExpression.getlValue();
+                            if (binding == null || binding.equals(localVariable)) {
+                                binding = localVariable;
+                                return new LValueExpression(localVariable);
+                            }
+                        }
+                    }
+                }
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+    }
+
+    private static final class ConditionalGuardPlan {
+        private final LocalVariable binding;
+        private final Expression guard;
+        private final LinkedList<Op04StructuredStatement> rewrittenBody;
+
+        private ConditionalGuardPlan(LocalVariable binding, Expression guard, LinkedList<Op04StructuredStatement> rewrittenBody) {
+            this.binding = binding;
+            this.guard = guard;
+            this.rewrittenBody = rewrittenBody;
         }
     }
 

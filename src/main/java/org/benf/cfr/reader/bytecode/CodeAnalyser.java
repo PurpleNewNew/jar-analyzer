@@ -764,7 +764,14 @@ public class CodeAnalyser {
          * Now we've got here, there's no benefit in having spurious inline assignments.  Where possible,
          * pull them out!
          */
-        InlineDeAssigner.extractAssignments(op03SimpleParseNodes);
+        if (InlineDeAssigner.extractAssignments(op03SimpleParseNodes)) {
+            op03SimpleParseNodes = recoverConditionalsAfterDeassignment(
+                    op03SimpleParseNodes,
+                    options,
+                    classFileVersion,
+                    blockIdentifierFactory
+            );
+        }
 
         // Introduce java 6 style for (x : array)
         boolean checkLoopTypeClash = false;
@@ -923,6 +930,7 @@ public class CodeAnalyser {
             Op04StructuredStatement.tidyObfuscation(options, block);
 
             Op04StructuredStatement.miscKeyholeTransforms(variableFactory, block);
+            applyLateStructurePolish(block, options, method);
 
 
             /*
@@ -959,6 +967,8 @@ public class CodeAnalyser {
         Op04StructuredStatement.tidyEmptyCatch(block);
         Op04StructuredStatement.tidyTryCatch(block);
         Op04StructuredStatement.convertUnstructuredIf(block);
+        Op04StructuredStatement.rewriteForwardIfGotos(block);
+        Op04StructuredStatement.rewriteConditionLocalAliases(block);
         if (includePatternRecovery) {
             Op04StructuredStatement.prettifyBadLoops(block);
             new SwitchPatternRewriter().rewrite(block);
@@ -971,9 +981,36 @@ public class CodeAnalyser {
         Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
         if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
             Op04StructuredStatement.insertLabelledBlocks(block);
+            Op04StructuredStatement.rewriteForwardIfGotos(block);
         }
         Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
         Op04StructuredStatement.flattenNonReferencedBlocks(block);
+    }
+
+    private List<Op03SimpleStatement> recoverConditionalsAfterDeassignment(List<Op03SimpleStatement> op03SimpleParseNodes,
+                                                                           Options options,
+                                                                           ClassFileVersion classFileVersion,
+                                                                           BlockIdentifierFactory blockIdentifierFactory) {
+        boolean reloop;
+        do {
+            Op03Rewriters.collapseAssignmentsIntoConditionals(op03SimpleParseNodes, options, classFileVersion);
+            reloop = Op03Rewriters.condenseConditionals(op03SimpleParseNodes);
+            reloop = reloop | Op03Rewriters.condenseConditionals2(op03SimpleParseNodes);
+            if (reloop) {
+                LValueProp.condenseLValues(op03SimpleParseNodes);
+            }
+            op03SimpleParseNodes = Cleaner.removeUnreachableCode(op03SimpleParseNodes, true);
+        } while (reloop);
+
+        Op03Rewriters.removePointlessJumps(op03SimpleParseNodes);
+        Op03Rewriters.rewriteBreakStatements(op03SimpleParseNodes);
+        Op03Rewriters.classifyGotos(op03SimpleParseNodes);
+        if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
+            Op03Rewriters.classifyAnonymousBlockGotos(op03SimpleParseNodes, true);
+        }
+        ConditionalRewriter.identifyNonjumpingConditionals(op03SimpleParseNodes, blockIdentifierFactory, options);
+        LValueProp.condenseLValues(op03SimpleParseNodes);
+        return Cleaner.sortAndRenumber(op03SimpleParseNodes);
     }
 
     private void attemptLateStructureRecovery(Op04StructuredStatement block,
@@ -984,7 +1021,7 @@ public class CodeAnalyser {
                 && !options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
             return;
         }
-        for (int pass = 0; pass < 2 && !block.isFullyStructured(); ++pass) {
+        for (int pass = 0; pass < 6 && !block.isFullyStructured(); ++pass) {
             applyStructuredCleanup(block, options, method, true);
         }
     }
@@ -998,6 +1035,18 @@ public class CodeAnalyser {
         }
         applyStructuredCleanup(block, options, method, true);
         Op04StructuredStatement.cleanupStructuredExpressionBodies(block);
+    }
+
+    private void applyLateStructurePolish(Op04StructuredStatement block,
+                                          Options options,
+                                          Method method) {
+        Op04StructuredStatement.rewriteForwardIfGotos(block);
+        Op04StructuredStatement.rewriteConditionLocalAliases(block);
+        Op04StructuredStatement.removePointlessBlocks(block);
+        Op04StructuredStatement.removePointlessControlFlow(block);
+        Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
+        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
+        Op04StructuredStatement.flattenNonReferencedBlocks(block);
     }
 
     private void generateUnverifiable(int x, List<Op01WithProcessedDataAndByteJumps> op1list, List<Op02WithProcessedDataAndRefs> op2list, Map<Integer, Integer> lutByIdx, SortedMap<Integer, Integer> lutByOffset, BytecodeLocFactory locFactory) {

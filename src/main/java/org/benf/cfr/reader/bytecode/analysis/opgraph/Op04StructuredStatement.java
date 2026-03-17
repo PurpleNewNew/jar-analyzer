@@ -691,6 +691,175 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
     }
 
+    private static class ConditionLocalAliasCleaner implements StructuredStatementTransformer {
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            in.transformStructuredChildren(this, scope);
+            if (!(in instanceof Block)) {
+                return in;
+            }
+            List<Op04StructuredStatement> statements = ((Block) in).getBlockStatements();
+            for (int x = 0; x < statements.size() - 1; ++x) {
+                StructuredStatement current = statements.get(x).getStatement();
+                StructuredStatement next = statements.get(x + 1).getStatement();
+                if (!(current instanceof StructuredAssignment) || !(next instanceof StructuredIf)) {
+                    continue;
+                }
+                StructuredAssignment assignment = (StructuredAssignment) current;
+                StructuredIf structuredIf = (StructuredIf) next;
+                if (assignment.getLvalue() instanceof LocalVariable) {
+                    LocalVariable assigned = (LocalVariable) assignment.getLvalue();
+                    LocalVariable alias = findEquivalentConditionLocal(assigned, structuredIf.getConditionalExpression());
+                    if (alias != null) {
+                        structuredIf.rewriteExpressions(new LocalAliasExpressionRewriter(alias, assigned));
+                    }
+                }
+                if (!shouldInlineAssignment(assignment, structuredIf.getConditionalExpression())) {
+                    continue;
+                }
+                structuredIf.rewriteExpressions(new InlineAssignmentExpressionRewriter(
+                        assignment.getLvalue(),
+                        new AssignmentExpression(BytecodeLoc.TODO, assignment.getLvalue(), assignment.getRvalue())
+                ));
+                if (assignment.isCreator(assignment.getLvalue())) {
+                    statements.set(x, new Op04StructuredStatement(new StructuredDefinition(assignment.getLvalue())));
+                } else {
+                    statements.remove(x);
+                    --x;
+                }
+            }
+            return in;
+        }
+
+        private LocalVariable findEquivalentConditionLocal(LocalVariable assigned, ConditionalExpression condition) {
+            LValueUsageCollectorSimple collector = new LValueUsageCollectorSimple();
+            condition.collectUsedLValues(collector);
+            LocalVariable match = null;
+            LocalVariable placeholderMatch = null;
+            for (LValue used : collector.getUsedLValues()) {
+                if (!(used instanceof LocalVariable)) {
+                    continue;
+                }
+                LocalVariable candidate = (LocalVariable) used;
+                if (candidate.equals(assigned)) {
+                    continue;
+                }
+                if (!isEquivalentLocal(assigned, candidate)) {
+                    if (!isPlaceholderLocal(candidate, assigned)) {
+                        continue;
+                    }
+                    if (placeholderMatch != null && !placeholderMatch.equals(candidate)) {
+                        return null;
+                    }
+                    placeholderMatch = candidate;
+                    continue;
+                }
+                if (match != null && !match.equals(candidate)) {
+                    return null;
+                }
+                match = candidate;
+            }
+            return match != null ? match : placeholderMatch;
+        }
+
+        private boolean isEquivalentLocal(LocalVariable assigned, LocalVariable candidate) {
+            return assigned.getIdx() == candidate.getIdx()
+                    && assigned.getInferredJavaType().getJavaTypeInstance().equals(candidate.getInferredJavaType().getJavaTypeInstance());
+        }
+
+        private boolean isPlaceholderLocal(LocalVariable candidate, LocalVariable assigned) {
+            return candidate.getIdx() == -1
+                    && candidate.getOriginalRawOffset() == -1
+                    && candidate.getIdent() == null
+                    && assigned.getInferredJavaType().getJavaTypeInstance().equals(candidate.getInferredJavaType().getJavaTypeInstance());
+        }
+
+        private boolean shouldInlineAssignment(StructuredAssignment assignment, ConditionalExpression condition) {
+            AssignmentUseCounter counter = new AssignmentUseCounter(assignment.getLvalue());
+            counter.rewriteExpression(condition, null, null, ExpressionRewriterFlags.RVALUE);
+            return counter.useCount == 1;
+        }
+    }
+
+    private static class LocalAliasExpressionRewriter extends AbstractExpressionRewriter {
+        private final LocalVariable alias;
+        private final LocalVariable replacement;
+
+        private LocalAliasExpressionRewriter(LocalVariable alias, LocalVariable replacement) {
+            this.alias = alias;
+            this.replacement = replacement;
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            if (alias.equals(lValue)) {
+                return replacement;
+            }
+            return lValue;
+        }
+    }
+
+    private static class AssignmentUseCounter extends AbstractExpressionRewriter {
+        private final LValue needle;
+        private int useCount;
+
+        private AssignmentUseCounter(LValue needle) {
+            this.needle = needle;
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            if (needle.equals(lValue)) {
+                useCount++;
+            }
+            return lValue;
+        }
+    }
+
+    private static class InlineAssignmentExpressionRewriter extends AbstractExpressionRewriter {
+        private final LValue target;
+        private final AssignmentExpression replacement;
+        private boolean replaced;
+
+        private InlineAssignmentExpressionRewriter(LValue target, AssignmentExpression replacement) {
+            this.target = target;
+            this.replacement = replacement;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (replaced) {
+                return expression;
+            }
+            if (expression instanceof LValueExpression) {
+                LValueExpression lValueExpression = (LValueExpression) expression;
+                if (target.equals(lValueExpression.getLValue())) {
+                    replaced = true;
+                    return replacement;
+                }
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            return lValue;
+        }
+
+    }
+
     public void transform(StructuredStatementTransformer transformer, StructuredScope scope) {
         StructuredStatement old = structuredStatement;
         StructuredStatement scopeBlock = structuredStatement.isScopeBlock() ? structuredStatement : null;
@@ -843,6 +1012,14 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
 
     public static void cleanupStructuredExpressionBodies(Op04StructuredStatement root) {
         new ExpressionRewriterTransformer(new StructuredExpressionBodyCleaner()).transform(root);
+    }
+
+    public static void rewriteForwardIfGotos(Op04StructuredStatement root) {
+        new ForwardIfGotoRewriter().transform(root);
+    }
+
+    public static void rewriteConditionLocalAliases(Op04StructuredStatement root) {
+        root.transform(new ConditionLocalAliasCleaner(), new StructuredScope());
     }
 
     /*

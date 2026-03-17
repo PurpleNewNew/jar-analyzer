@@ -79,6 +79,14 @@ public class StructuredIf extends AbstractStructuredStatement implements CanRemo
         return ifTaken;
     }
 
+    public Op04StructuredStatement getElseBlock() {
+        return elseBlock;
+    }
+
+    public void clearElseBlock() {
+        elseBlock = null;
+    }
+
     @Override
     public StructuredStatement informBlockHeirachy(Vector<BlockIdentifier> blockIdentifiers) {
         ifTaken.informBlockMembership(blockIdentifiers);

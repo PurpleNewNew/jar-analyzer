@@ -178,35 +178,31 @@ class ClassifyGotos {
                 Op03SimpleStatement targetStatement = (Op03SimpleStatement) jumpingStatement.getJumpTarget().getContainer();
                 boolean isForwardJump = targetStatement.getIndex().isBackJumpTo(statement);
                 if (isForwardJump) {
-                    Set<BlockIdentifier> targetBlocks = targetStatement.getBlockIdentifiers();
-                    Set<BlockIdentifier> srcBlocks = statement.getBlockIdentifiers();
+                    Set<BlockIdentifier> targetBlocks = stripSwitchCaseBlocks(targetStatement.getBlockIdentifiers());
+                    Set<BlockIdentifier> srcBlocks = stripSwitchCaseBlocks(statement.getBlockIdentifiers());
                     if (targetBlocks.size() < srcBlocks.size() + agressiveOffset  && srcBlocks.containsAll(targetBlocks)) {
                         /*
-                         * Remove all the switch blocks from srcBlocks.
+                         * Break out of an anonymous block
                          */
-                        srcBlocks = Functional.filterSet(srcBlocks, new Predicate<BlockIdentifier>() {
-                            @Override
-                            public boolean test(BlockIdentifier in) {
-                                BlockType blockType = in.getBlockType();
-                                if (blockType == BlockType.CASE) return false;
-                                if (blockType == BlockType.SWITCH) return false;
-                                return true;
-                            }
-                        });
-                        if (targetBlocks.size() < srcBlocks.size() + agressiveOffset && srcBlocks.containsAll(targetBlocks)) {
-                            /*
-                             * Break out of an anonymous block
-                             */
-                            /*
-                             * Should we now be re-looking at ALL other forward jumps to this target?
-                             */
-                            jumpingStatement.setJumpType(JumpType.BREAK_ANONYMOUS);
-                        }
+                        /*
+                         * Should we now be re-looking at ALL other forward jumps to this target?
+                         */
+                        jumpingStatement.setJumpType(JumpType.BREAK_ANONYMOUS);
                     }
                 }
             }
         }
 
+    }
+
+    private static Set<BlockIdentifier> stripSwitchCaseBlocks(Set<BlockIdentifier> blocks) {
+        return Functional.filterSet(blocks, new Predicate<BlockIdentifier>() {
+            @Override
+            public boolean test(BlockIdentifier in) {
+                BlockType blockType = in.getBlockType();
+                return blockType != BlockType.CASE && blockType != BlockType.SWITCH;
+            }
+        });
     }
 
 

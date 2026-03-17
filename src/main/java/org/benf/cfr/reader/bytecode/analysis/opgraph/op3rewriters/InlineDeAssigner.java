@@ -46,6 +46,60 @@ public class InlineDeAssigner {
     private InlineDeAssigner() {
     }
 
+    private static final class IfConditionComplexityProbe extends AbstractExpressionRewriter {
+        private int assignmentCount;
+        private boolean hasBooleanOperation;
+        private boolean hasTernary;
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                assignmentCount++;
+            } else if (expression instanceof BooleanOperation) {
+                hasBooleanOperation = true;
+            } else if (expression instanceof TernaryExpression) {
+                hasTernary = true;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        @Override
+        public ConditionalExpression rewriteExpression(ConditionalExpression expression,
+                                                       SSAIdentifiers ssaIdentifiers,
+                                                       StatementContainer statementContainer,
+                                                       ExpressionRewriterFlags flags) {
+            if (expression instanceof BooleanOperation) {
+                hasBooleanOperation = true;
+            } else if (expression instanceof TernaryExpression) {
+                hasTernary = true;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            return lValue;
+        }
+
+        @Override
+        public StackSSALabel rewriteExpression(StackSSALabel lValue,
+                                               SSAIdentifiers ssaIdentifiers,
+                                               StatementContainer statementContainer,
+                                               ExpressionRewriterFlags flags) {
+            return lValue;
+        }
+
+        private boolean shouldPreserveInlineAssignments() {
+            return hasBooleanOperation || hasTernary || assignmentCount > 1;
+        }
+    }
+
     private class Deassigner extends AbstractExpressionRewriter {
 
         Set<LValue> read = SetFactory.newSet();
@@ -202,7 +256,17 @@ public class InlineDeAssigner {
         rewrite(deassigner, container, added);
     }
 
-    public static void extractAssignments(List<Op03SimpleStatement> statements) {
+    private static boolean shouldPreserveInlineAssignments(Statement statement) {
+        if (!(statement instanceof IfStatement)) {
+            return false;
+        }
+        IfStatement ifStatement = (IfStatement) statement;
+        IfConditionComplexityProbe probe = new IfConditionComplexityProbe();
+        probe.rewriteExpression(ifStatement.getCondition(), null, ifStatement.getContainer(), ExpressionRewriterFlags.RVALUE);
+        return probe.shouldPreserveInlineAssignments();
+    }
+
+    public static boolean extractAssignments(List<Op03SimpleStatement> statements) {
         InlineDeAssigner inlineDeAssigner = new InlineDeAssigner();
         List<Op03SimpleStatement> newStatements = ListFactory.newList();
         for (Op03SimpleStatement statement : statements) {
@@ -214,12 +278,15 @@ public class InlineDeAssigner {
             } else if (clazz == WhileStatement.class) {
                 // skip. (just looks better!)
                 MiscUtils.handyBreakPoint();
+            } else if (shouldPreserveInlineAssignments(stmt)) {
+                continue;
             } else {
                 inlineDeAssigner.deAssign(statement, newStatements);
             }
         }
-        if (newStatements.isEmpty()) return;
+        if (newStatements.isEmpty()) return false;
         statements.addAll(newStatements);
         Cleaner.sortAndRenumberInPlace(statements);
+        return true;
     }
 }
