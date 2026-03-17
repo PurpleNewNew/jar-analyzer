@@ -61,7 +61,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
 
     public SwitchExpressionRewriter(DecompilerComments comments, Method method) {
         this.comments = comments;
-        this.experimental = OptionsImpl.switchExpressionVersion.isExperimentalIn(method.getClassFile().getClassFileVersion());
+        this.experimental = OptionsImpl.SWITCH_EXPRESSION_PREVIEW.isPreviewIn(method.getClassFile().getClassFileVersion());
         this.method = method;
     }
 
@@ -203,7 +203,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         if (structuredStatements == null) return;
 
         if (replaceSwitch(root, structuredStatements, scope) && experimental) {
-            comments.addComment(DecompilerComment.EXPERIMENTAL_FEATURE);
+            comments.addComment(DecompilerComment.PREVIEW_FEATURE);
         }
     }
 

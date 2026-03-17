@@ -28,7 +28,7 @@ public class DecompilerComment implements Dumpable {
     public static final DecompilerComment RENAME_MEMBERS = new DecompilerComment("Duplicate member names - consider using --" + OptionsImpl.RENAME_DUP_MEMBERS.getName() + " true");
     public static final DecompilerComment ILLEGAL_IDENTIFIERS = new DecompilerComment("Illegal identifiers - consider using --" + OptionsImpl.RENAME_ILLEGAL_IDENTS.getName() + " true");
     public static final DecompilerComment WHOLE_CLASS_EXCEPTION = new DecompilerComment("Exception performing whole class analysis.");
-    public static final DecompilerComment EXPERIMENTAL_FEATURE = new DecompilerComment("Uses preview features.  Disable with feature flag or --" + OptionsImpl.PREVIEW_FEATURES.getName() + " false");
+    public static final DecompilerComment PREVIEW_FEATURE = new DecompilerComment("Uses preview features.  Disable with feature flag or --" + OptionsImpl.PREVIEW_FEATURES.getName() + " false");
     public static final DecompilerComment PACKAGE_INFO_CODE = new DecompilerComment("package-info contains methods/fields - treating as interface");
     public static final DecompilerComment BAD_ANNOTATION = new DecompilerComment("Issues handling annotations - annotations may be inaccurate");
     public static final DecompilerComment BAD_ANNOTATION_ON_INNER = new DecompilerComment("Could not load outer class - annotation placement on inner may be incorrect");

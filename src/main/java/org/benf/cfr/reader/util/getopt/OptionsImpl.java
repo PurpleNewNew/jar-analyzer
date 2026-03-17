@@ -215,14 +215,14 @@ public class OptionsImpl implements Options {
 
     }
 
-    public static class ExperimentalVersionSpecificDefaulter implements OptionDecoderParam<Boolean, ClassFileVersion> {
+    public static class PreviewVersionSpecificDefaulter implements OptionDecoderParam<Boolean, ClassFileVersion> {
 
         private final ClassFileVersion releaseVersion;
-        private final ClassFileVersion[] experimentalVersions;
+        private final ClassFileVersion[] previewVersions;
 
-        private ExperimentalVersionSpecificDefaulter(ClassFileVersion releaseVersion, ClassFileVersion ... experimentalVersions) {
+        private PreviewVersionSpecificDefaulter(ClassFileVersion releaseVersion, ClassFileVersion ... previewVersions) {
             this.releaseVersion = releaseVersion;
-            this.experimentalVersions = experimentalVersions;
+            this.previewVersions = previewVersions;
         }
 
         @Override
@@ -232,13 +232,13 @@ public class OptionsImpl implements Options {
             if (classFileVersion == null) throw new IllegalStateException(); // ho ho ho.
             if (classFileVersion.equalOrLater(releaseVersion)) return true;
             if (!options.getOption(OptionsImpl.PREVIEW_FEATURES)) return false;
-            return isExperimentalIn(classFileVersion);
+            return isPreviewIn(classFileVersion);
         }
 
-        public boolean isExperimentalIn(ClassFileVersion classFileVersion) {
+        public boolean isPreviewIn(ClassFileVersion classFileVersion) {
             if (!classFileVersion.isExperimental()) return false;
-            for (ClassFileVersion experimental : experimentalVersions) {
-                if (experimental.sameMajor(classFileVersion)) return true;
+            for (ClassFileVersion preview : previewVersions) {
+                if (preview.sameMajor(classFileVersion)) return true;
             }
             return false;
         }
@@ -252,11 +252,11 @@ public class OptionsImpl implements Options {
         public String getDefaultValue() {
             boolean first = true;
             StringBuilder sb = new StringBuilder();
-            for (ClassFileVersion experimental : experimentalVersions) {
+            for (ClassFileVersion preview : previewVersions) {
                 first = StringUtils.comma(first, sb);
-                sb.append(experimental);
+                sb.append(preview);
             }
-            return "true if class file from version " + releaseVersion + " or greater, or experimental in " + sb.toString();
+            return "true if class file from version " + releaseVersion + " or greater, or preview in " + sb.toString();
         }
 
     }
@@ -292,20 +292,37 @@ public class OptionsImpl implements Options {
     public static final PermittedOptionProvider.Argument<Boolean> PREVIEW_FEATURES = register(new PermittedOptionProvider.Argument<Boolean>(
             "previewfeatures", defaultTrueBooleanDecoder,
             "Decompile preview features if class was compiled with 'javac --enable-preview'"));
-    public static final ExperimentalVersionSpecificDefaulter sealedExpressionVersion = new ExperimentalVersionSpecificDefaulter(ClassFileVersion.JAVA_18, ClassFileVersion.JAVA_16, ClassFileVersion.JAVA_17);
+    public static final PreviewVersionSpecificDefaulter SEALED_PREVIEW = new PreviewVersionSpecificDefaulter(
+            ClassFileVersion.JAVA_17,
+            ClassFileVersion.JAVA_15_Experimental,
+            ClassFileVersion.JAVA_16_Experimental
+    );
     public static final PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion> SEALED = register(new PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion>(
-            "sealed", sealedExpressionVersion,
+            "sealed", SEALED_PREVIEW,
             "Decompile 'sealed' constructs"));
-    public static final ExperimentalVersionSpecificDefaulter switchExpressionVersion = new ExperimentalVersionSpecificDefaulter(ClassFileVersion.JAVA_14, ClassFileVersion.JAVA_12, ClassFileVersion.JAVA_13);
+    public static final PreviewVersionSpecificDefaulter SWITCH_EXPRESSION_PREVIEW = new PreviewVersionSpecificDefaulter(
+            ClassFileVersion.JAVA_14,
+            ClassFileVersion.JAVA_12_Experimental,
+            ClassFileVersion.JAVA_13_Experimental
+    );
     public static final PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion> SWITCH_EXPRESSION = register(new PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion>(
-            "switchexpression", switchExpressionVersion,
+            "switchexpression", SWITCH_EXPRESSION_PREVIEW,
             "Re-sugar switch expression"));
-    private static final ExperimentalVersionSpecificDefaulter recordTypesVersion = new ExperimentalVersionSpecificDefaulter(ClassFileVersion.JAVA_16, ClassFileVersion.JAVA_14, ClassFileVersion.JAVA_15);
+    private static final PreviewVersionSpecificDefaulter RECORD_TYPES_PREVIEW = new PreviewVersionSpecificDefaulter(
+            ClassFileVersion.JAVA_16,
+            ClassFileVersion.JAVA_14_Experimental,
+            ClassFileVersion.JAVA_15_Experimental
+    );
     public static final PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion> RECORD_TYPES = register(new PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion>(
-            "recordtypes", recordTypesVersion,
+            "recordtypes", RECORD_TYPES_PREVIEW,
             "Re-sugar record types"));
+    private static final PreviewVersionSpecificDefaulter INSTANCEOF_PATTERN_PREVIEW = new PreviewVersionSpecificDefaulter(
+            ClassFileVersion.JAVA_16,
+            ClassFileVersion.JAVA_14_Experimental,
+            ClassFileVersion.JAVA_15_Experimental
+    );
     public static final PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion> INSTANCEOF_PATTERN = register(new PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion>(
-            "instanceofpattern", recordTypesVersion,
+            "instanceofpattern", INSTANCEOF_PATTERN_PREVIEW,
             "Re-sugar instanceof pattern matches"));
     public static final PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion> ARRAY_ITERATOR = register(new PermittedOptionProvider.ArgumentParam<Boolean, ClassFileVersion>(
             "arrayiter", new VersionSpecificDefaulter(ClassFileVersion.JAVA_5, true),
@@ -574,6 +591,9 @@ public class OptionsImpl implements Options {
     public static final PermittedOptionProvider.Argument<Boolean> DUMP_EXCEPTION_STACK_TRACE = register(new PermittedOptionProvider.Argument<Boolean>(
             "dumpexceptionstacktrace", defaultTrueBooleanDecoder,
             "Whether to dump the stack trace of exceptions which occurred during decompilation. Disabling this can be useful to get consistent decompilation output, regardless of how CFR is invoked."));
+    public static final PermittedOptionProvider.Argument<Integer> BATCH_THREADS = register(new PermittedOptionProvider.Argument<Integer>(
+            "threadcount", default0intDecoder,
+            "Number of worker threads used when decompiling jar/war batches. 0 means available processors."));
 
 
     public OptionsImpl(Map<String, String> opts) {

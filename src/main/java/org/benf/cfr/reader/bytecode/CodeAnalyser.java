@@ -886,8 +886,6 @@ public class CodeAnalyser {
             // If we are, this indicates that var was used.
             Op04StructuredStatement.rewriteExplicitTypeUsages(method, block, anonymousClassUsage, classFile);
 
-            Op04StructuredStatement.normalizeInstanceOf(block, options, classFileVersion);
-
             // Now we've got everything nicely block structured, we can have an easier time
             // We *have* to discover variable scopes BEFORE we rewrite lambdas, because
             // otherwise we have to perform some seriously expensive scope rewriting to
@@ -898,16 +896,10 @@ public class CodeAnalyser {
             // We therefore need a SEPARATE pass, post lambda, to ensure that local classes are
             // correctly processed.
             Op04StructuredStatement.discoverVariableScopes(method, block, variableFactory, options, classFileVersion, bytecodeMeta);
-            if (bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.INSTANCE_OF_MATCHES)) {
-                Op04StructuredStatement.tidyInstanceMatches(block);
-            }
             if (options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, classFileVersion)) {
                 Op04StructuredStatement.removeEndResource(method.getClassFile(), block);
             }
-
-            if (options.getOption(OptionsImpl.SWITCH_EXPRESSION, classFileVersion)) {
-                Op04StructuredStatement.switchExpression(method, block, comments);
-            }
+            ModernMethodFeatureRewriter.rewrite(method, block, options, classFileVersion, bytecodeMeta, comments);
 
             Op04StructuredStatement.rewriteLambdas(dcCommonState, method, block);
             // It's likely we'll only need to perform this due to lambdas in the previous stage, but

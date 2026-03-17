@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class InternalDumperFactoryImpl implements DumperFactory {
     private final boolean checkDupes;
     private final Set<String> seen = SetFactory.newSet();
-    private boolean seenCaseDupe = false;
+    private volatile boolean seenCaseDupe = false;
     private final Options options;
     private final ProgressDumper progressDumper;
     private final String prefix;
@@ -65,7 +65,7 @@ public class InternalDumperFactoryImpl implements DumperFactory {
     }
 
 
-    public Dumper getNewTopLevelDumper(JavaTypeInstance classType, SummaryDumper summaryDumper, TypeUsageInformation typeUsageInformation, IllegalIdentifierDump illegalIdentifierDump) {
+    public synchronized Dumper getNewTopLevelDumper(JavaTypeInstance classType, SummaryDumper summaryDumper, TypeUsageInformation typeUsageInformation, IllegalIdentifierDump illegalIdentifierDump) {
         Pair<String, Boolean> targetInfo = getPathAndClobber();
 
         if (targetInfo == null) return new StdIODumper(typeUsageInformation, options, illegalIdentifierDump, new MovableDumperContext());

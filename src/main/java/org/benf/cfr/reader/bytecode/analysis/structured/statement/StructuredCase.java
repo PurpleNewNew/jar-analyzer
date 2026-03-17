@@ -6,6 +6,8 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.Matc
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchResultCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
+import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.CaseLabelExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
@@ -21,6 +23,7 @@ import org.benf.cfr.reader.util.annotation.Nullable;
 import org.benf.cfr.reader.util.output.Dumper;
 
 import java.util.List;
+import java.util.ArrayList;
 
 public class StructuredCase extends AbstractStructuredBlockStatement {
     private List<Expression> values;
@@ -104,6 +107,10 @@ public class StructuredCase extends AbstractStructuredBlockStatement {
         return values;
     }
 
+    public void setValues(List<Expression> values) {
+        this.values = values;
+    }
+
     public BlockIdentifier getBlockIdentifier() {
         return blockIdentifier;
     }
@@ -136,10 +143,38 @@ public class StructuredCase extends AbstractStructuredBlockStatement {
 
     @Override
     public void rewriteExpressions(ExpressionRewriter expressionRewriter) {
-        // Values in a case statement must be literals, not amenable.
+        List<Expression> rewritten = new ArrayList<Expression>(values.size());
+        for (Expression value : values) {
+            rewritten.add(expressionRewriter.rewriteExpression(value, null, this.getContainer(), null));
+        }
+        values = rewritten;
     }
 
     public boolean isDefault() {
         return values.isEmpty();
+    }
+
+    @Override
+    public void markCreator(LValue scopedEntity, StatementContainer<StructuredStatement> hint) {
+        for (Expression value : values) {
+            if (value instanceof CaseLabelExpression && ((CaseLabelExpression) value).matches(scopedEntity)) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Being asked to mark creator for wrong variable");
+    }
+
+    @Override
+    public List<LValue> findCreatedHere() {
+        List<LValue> created = null;
+        for (Expression value : values) {
+            if (value instanceof CaseLabelExpression) {
+                if (created == null) {
+                    created = new ArrayList<LValue>();
+                }
+                created.addAll(((CaseLabelExpression) value).getCreatedLValues());
+            }
+        }
+        return created;
     }
 }

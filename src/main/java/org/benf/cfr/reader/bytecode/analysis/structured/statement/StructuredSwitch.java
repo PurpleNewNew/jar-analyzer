@@ -46,6 +46,10 @@ public class StructuredSwitch extends AbstractStructuredBlockStatement implement
         return switchOn;
     }
 
+    public void setSwitchOn(Expression switchOn) {
+        this.switchOn = switchOn;
+    }
+
     @Override
     public void collectTypeUsages(TypeUsageCollector collector) {
         switchOn.collectTypeUsages(collector);

@@ -115,6 +115,10 @@ public class StructuredCatch extends AbstractStructuredStatement {
         return (test.equals(inBlock));
     }
 
+    public Op04StructuredStatement getCatchBlock() {
+        return catchBlock;
+    }
+
     @Override
     public void traceLocalVariableScope(LValueScopeDiscoverer scopeDiscoverer) {
         if (catching instanceof LocalVariable) {

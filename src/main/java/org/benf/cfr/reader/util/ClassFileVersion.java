@@ -27,6 +27,8 @@ public class ClassFileVersion {
     public static ClassFileVersion parse(String arg) {
         ClassFileVersion named = byName.get(arg);
         if (named != null) return named;
+        ClassFileVersion inferred = parseNamedJavaVersion(arg);
+        if (inferred != null) return inferred;
         String[] parts = arg.split("\\.",2);
         try {
             int major = Integer.parseInt(parts[0]);
@@ -34,6 +36,26 @@ public class ClassFileVersion {
             return new ClassFileVersion(major, minor);
         } catch (Exception e) {
             throw new ConfusedCFRException("Can't parse classfile version " + arg);
+        }
+    }
+
+    private static ClassFileVersion parseNamedJavaVersion(String arg) {
+        if (arg == null || !arg.startsWith("j") || arg.length() < 2) {
+            return null;
+        }
+        boolean preview = arg.endsWith("pre");
+        String versionText = preview ? arg.substring(1, arg.length() - 3) : arg.substring(1);
+        if (versionText.indexOf('.') >= 0 || versionText.isEmpty()) {
+            return null;
+        }
+        try {
+            int javaVersion = Integer.parseInt(versionText);
+            if (javaVersion < 2) {
+                return null;
+            }
+            return new ClassFileVersion(javaVersion + 44, preview ? 65535 : 0, Integer.toString(javaVersion));
+        } catch (NumberFormatException ignore) {
+            return null;
         }
     }
 
@@ -79,13 +101,21 @@ public class ClassFileVersion {
     public static ClassFileVersion JAVA_12 = new ClassFileVersion(56, 0, "12");
     public static ClassFileVersion JAVA_12_Experimental = new ClassFileVersion(56, 65535, "12");
     public static ClassFileVersion JAVA_13 = new ClassFileVersion(57, 0, "13");
+    public static ClassFileVersion JAVA_13_Experimental = new ClassFileVersion(57, 65535, "13");
     public static ClassFileVersion JAVA_14 = new ClassFileVersion(58, 0, "14");
     public static ClassFileVersion JAVA_14_Experimental = new ClassFileVersion(58, 65535, "14");
     public static ClassFileVersion JAVA_15 = new ClassFileVersion(59, 0, "15");
+    public static ClassFileVersion JAVA_15_Experimental = new ClassFileVersion(59, 65535, "15");
     public static ClassFileVersion JAVA_16 = new ClassFileVersion(60, 0, "16");
     public static ClassFileVersion JAVA_16_Experimental = new ClassFileVersion(60, 65535, "16");
     public static ClassFileVersion JAVA_17 = new ClassFileVersion(61, 0, "17");
     public static ClassFileVersion JAVA_17_Experimental = new ClassFileVersion(61, 65535, "17");
     public static ClassFileVersion JAVA_18 = new ClassFileVersion(62, 0, "18");
     public static ClassFileVersion JAVA_18_Experimental = new ClassFileVersion(62, 65535, "18");
+    public static ClassFileVersion JAVA_19 = new ClassFileVersion(63, 0, "19");
+    public static ClassFileVersion JAVA_19_Experimental = new ClassFileVersion(63, 65535, "19");
+    public static ClassFileVersion JAVA_20 = new ClassFileVersion(64, 0, "20");
+    public static ClassFileVersion JAVA_20_Experimental = new ClassFileVersion(64, 65535, "20");
+    public static ClassFileVersion JAVA_21 = new ClassFileVersion(65, 0, "21");
+    public static ClassFileVersion JAVA_21_Experimental = new ClassFileVersion(65, 65535, "21");
 }

@@ -51,8 +51,8 @@ public class SealedClassChecker {
 
     public static void markExperimental(ClassFile classFile, DCCommonState state) {
         if (!state.getOptions().optionIsSet(OptionsImpl.SEALED) &&
-                OptionsImpl.sealedExpressionVersion.isExperimentalIn(classFile.getClassFileVersion())) {
-            classFile.addComment(DecompilerComment.EXPERIMENTAL_FEATURE);
+                OptionsImpl.SEALED_PREVIEW.isPreviewIn(classFile.getClassFileVersion())) {
+            classFile.addComment(DecompilerComment.PREVIEW_FEATURE);
         }
     }
 }

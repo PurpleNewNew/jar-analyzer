@@ -35,6 +35,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class Driver {
 
@@ -235,54 +240,152 @@ public class Driver {
                 options.getOption(OptionsImpl.RENAME_ENUM_MEMBERS)) {
             MemberNameResolver.resolveNames(dcCommonState, types);
         }
-        /*
-         * If we're working on a case insensitive file system (OH COME ON!) then make sure that
-         * we don't have any collisions.
-         */
-        for (JavaTypeInstance type : types) {
-            Dumper d = new ToStringDumper();  // Sentinel dumper.
-            try {
-                ClassFile c = dcCommonState.getClassFile(type);
-                // Don't explicitly dump inner classes.  But make sure we ask the CLASS if it's
-                // an inner class, rather than using the name, as scala tends to abuse '$'.
-                if (c.isInnerClass()) {
-                    d = null;
-                    continue;
-                }
-                if (!silent) {
-                    type = dcCommonState.getObfuscationMapping().get(type);
-                    progressDumper.analysingType(type);
-                }
-                if (options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
-                    c.loadInnerClasses(dcCommonState);
-                }
+        final DCCommonState batchState = dcCommonState;
+        final DumperFactory batchDumperFactory = dumperFactory;
+        final SummaryDumper sharedSummary = new SynchronizedSummaryDumper(summaryDumper);
+        final ProgressDumper sharedProgress = new SynchronizedProgressDumper(progressDumper);
+        int threadCount = options.getOption(OptionsImpl.BATCH_THREADS);
+        if (threadCount <= 0) {
+            threadCount = Runtime.getRuntime().availableProcessors();
+        }
+        threadCount = Math.max(1, Math.min(threadCount, types.size()));
+        if (threadCount <= 1) {
+            for (JavaTypeInstance type : types) {
+                dumpJarType(batchState, batchDumperFactory, illegalIdentifierDump, sharedSummary, sharedProgress, lomem, silent, type);
+            }
+            return;
+        }
 
-                TypeUsageCollectingDumper collectingDumper = new TypeUsageCollectingDumper(options, c);
-                c.analyseTop(dcCommonState, collectingDumper);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        List<Future<?>> futures = new ArrayList<>(types.size());
+        try {
+            for (JavaTypeInstance type : types) {
+                final JavaTypeInstance workType = type;
+                futures.add(executor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        dumpJarType(batchState.forkForBatchWorker(),
+                                batchDumperFactory,
+                                illegalIdentifierDump,
+                                sharedSummary,
+                                sharedProgress,
+                                lomem,
+                                silent,
+                                workType);
+                    }
+                }));
+            }
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while decompiling jar", e);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof Dumper.CannotCreate) {
+                        throw (Dumper.CannotCreate) cause;
+                    }
+                    if (cause instanceof RuntimeException) {
+                        throw (RuntimeException) cause;
+                    }
+                    throw new IllegalStateException(cause);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-                JavaTypeInstance classType = c.getClassType();
-                classType = dcCommonState.getObfuscationMapping().get(classType);
-                TypeUsageInformation typeUsageInformation = collectingDumper.getRealTypeUsageInformation();
+    private static void dumpJarType(DCCommonState dcCommonState,
+                                    DumperFactory dumperFactory,
+                                    IllegalIdentifierDump illegalIdentifierDump,
+                                    SummaryDumper summaryDumper,
+                                    ProgressDumper progressDumper,
+                                    boolean lomem,
+                                    boolean silent,
+                                    JavaTypeInstance inputType) {
+        JavaTypeInstance type = inputType;
+        Dumper d = new ToStringDumper();
+        try {
+            ClassFile c = dcCommonState.getClassFile(type);
+            if (c.isInnerClass()) {
+                d = null;
+                return;
+            }
+            if (!silent) {
+                type = dcCommonState.getObfuscationMapping().get(type);
+                progressDumper.analysingType(type);
+            }
+            Options options = dcCommonState.getOptions();
+            if (options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
+                c.loadInnerClasses(dcCommonState);
+            }
+            TypeUsageCollectingDumper collectingDumper = new TypeUsageCollectingDumper(options, c);
+            c.analyseTop(dcCommonState, collectingDumper);
+
+            JavaTypeInstance classType = dcCommonState.getObfuscationMapping().get(c.getClassType());
+            TypeUsageInformation typeUsageInformation = collectingDumper.getRealTypeUsageInformation();
+            synchronized (dumperFactory) {
                 d = dumperFactory.getNewTopLevelDumper(classType, summaryDumper, typeUsageInformation, illegalIdentifierDump);
-                d = dcCommonState.getObfuscationMapping().wrap(d);
                 if (options.getOption(OptionsImpl.TRACK_BYTECODE_LOC)) {
                     d = dumperFactory.wrapLineNoDumper(d);
                 }
-
-                c.dump(d);
-                d.newln();
-                d.newln();
-                if (lomem) {
-                    c.releaseCode();
-                }
-            } catch (Dumper.CannotCreate e) {
-                throw e;
-            } catch (RuntimeException e) {
-                d.print(e.toString()).newln().newln().newln();
-            } finally {
-                if (d != null) d.close();
             }
+            d = dcCommonState.getObfuscationMapping().wrap(d);
+            c.dump(d);
+            d.newln();
+            d.newln();
+            if (lomem) {
+                c.releaseCode();
+            }
+        } catch (Dumper.CannotCreate e) {
+            throw e;
+        } catch (RuntimeException e) {
+            d.print(e.toString()).newln().newln().newln();
+        } finally {
+            if (d != null) d.close();
+        }
+    }
 
+    private static final class SynchronizedSummaryDumper implements SummaryDumper {
+        private final SummaryDumper delegate;
+
+        private SynchronizedSummaryDumper(SummaryDumper delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized void notify(String message) {
+            delegate.notify(message);
+        }
+
+        @Override
+        public synchronized void notifyError(JavaTypeInstance controllingType, Method method, String error) {
+            delegate.notifyError(controllingType, method, error);
+        }
+
+        @Override
+        public synchronized void close() {
+            delegate.close();
+        }
+    }
+
+    private static final class SynchronizedProgressDumper implements ProgressDumper {
+        private final ProgressDumper delegate;
+
+        private SynchronizedProgressDumper(ProgressDumper delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized void analysingType(JavaTypeInstance type) {
+            delegate.analysingType(type);
+        }
+
+        @Override
+        public synchronized void analysingPath(String path) {
+            delegate.analysingPath(path);
         }
     }
 }

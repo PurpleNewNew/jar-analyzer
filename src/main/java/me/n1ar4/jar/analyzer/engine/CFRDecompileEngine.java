@@ -94,13 +94,7 @@ public class CFRDecompileEngine {
 
     private static String decompileInternal(String classFilePath, String cacheKey) {
         try {
-            // CFR反编译选项
-            Map<String, String> options = new HashMap<>();
-            options.put("showversion", "false");
-            options.put("hidelongstrings", "false");
-            options.put("hideutf", "false");
-            options.put("innerclasses", "true");
-            options.put("skipbatchinnerclasses", "false");
+            Map<String, String> options = buildCommonOptions(false);
 
             // 创建输出收集器
             StringBuilder decompiledCode = new StringBuilder();
@@ -192,13 +186,7 @@ public class CFRDecompileEngine {
 
     private static CfrDecompileResult decompileWithLineMappingInternal(String classFilePath, String cacheKey) {
         try {
-            Map<String, String> options = new HashMap<>();
-            options.put("showversion", "false");
-            options.put("hidelongstrings", "false");
-            options.put("hideutf", "false");
-            options.put("innerclasses", "true");
-            options.put("skipbatchinnerclasses", "false");
-            options.put("trackbytecodeloc", "true");
+            Map<String, String> options = buildCommonOptions(true);
             StringBuilder decompiledCode = new StringBuilder();
             List<SinkReturns.LineNumberMapping> lineMappings = new ArrayList<>();
             OutputSinkFactory outputSinkFactory = new OutputSinkFactory() {
@@ -301,16 +289,7 @@ public class CFRDecompileEngine {
             logger.info("decompile jar: {}", jarPath);
             logger.info("output dir: {}", exportRoot.toAbsolutePath());
 
-            Map<String, String> options = new HashMap<>();
-            options.put("showversion", "false");
-            options.put("hidelongstrings", "false");
-            options.put("hideutf", "false");
-            options.put("innerclasses", "true");
-            options.put("skipbatchinnerclasses", "false");
-            options.put("outputdir", srcDir.toAbsolutePath().toString());
-            options.put("clobber", "true");
-            options.put("outputencoding", "UTF-8");
-            options.put("silent", "true");
+            Map<String, String> options = buildBatchOptions(srcDir);
 
             try {
                 CfrDriver driver = new CfrDriver.Builder()
@@ -328,6 +307,29 @@ public class CFRDecompileEngine {
             }
         }
         return true;
+    }
+
+    static Map<String, String> buildCommonOptions(boolean trackBytecodeLoc) {
+        Map<String, String> options = new HashMap<>();
+        options.put("showversion", "false");
+        options.put("hidelongstrings", "false");
+        options.put("hideutf", "false");
+        options.put("innerclasses", "true");
+        options.put("skipbatchinnerclasses", "false");
+        if (trackBytecodeLoc) {
+            options.put("trackbytecodeloc", "true");
+        }
+        return options;
+    }
+
+    static Map<String, String> buildBatchOptions(Path srcDir) {
+        Map<String, String> options = buildCommonOptions(false);
+        options.put("outputdir", srcDir.toAbsolutePath().toString());
+        options.put("clobber", "true");
+        options.put("outputencoding", "UTF-8");
+        options.put("silent", "true");
+        options.put("threadcount", "0");
+        return options;
     }
 
     public static void cleanCache() {

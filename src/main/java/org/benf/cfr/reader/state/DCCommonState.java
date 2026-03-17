@@ -91,6 +91,25 @@ public class DCCommonState {
         this.permittedSealed = dcCommonState.permittedSealed;
     }
 
+    private DCCommonState(Options options,
+                          ClassFileSource2 classFileSource,
+                          Set<JavaTypeInstance> versionCollisions,
+                          ObfuscationMapping obfuscationMapping) {
+        this.options = options;
+        this.classFileSource = classFileSource;
+        this.classCache = new ClassCache(this);
+        this.classFileCache = MapFactory.newExceptionRetainingLazyMap(new UnaryFunction<String, ClassFile>() {
+            @Override
+            public ClassFile invoke(String arg) {
+                return loadClassFileAtPath(arg);
+            }
+        });
+        this.versionCollisions = versionCollisions;
+        this.obfuscationMapping = obfuscationMapping;
+        this.overloadMethodSetCache = new OverloadMethodSetCache();
+        this.permittedSealed = SetFactory.newSet();
+    }
+
     public void setCollisions(Set<JavaTypeInstance> versionCollisions) {
         this.versionCollisions = versionCollisions;
     }
@@ -242,5 +261,9 @@ public class DCCommonState {
 
     public OverloadMethodSetCache getOverloadMethodSetCache() {
         return overloadMethodSetCache;
+    }
+
+    public DCCommonState forkForBatchWorker() {
+        return new DCCommonState(options, classFileSource, versionCollisions, obfuscationMapping);
     }
 }
