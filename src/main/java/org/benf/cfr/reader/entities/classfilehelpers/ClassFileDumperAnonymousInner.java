@@ -2,10 +2,14 @@ package org.benf.cfr.reader.entities.classfilehelpers;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.entities.*;
 import org.benf.cfr.reader.entities.attributes.AttributeCode;
+import org.benf.cfr.reader.util.MiscConstants;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.StringUtils;
@@ -51,6 +55,7 @@ public class ClassFileDumperAnonymousInner extends AbstractClassFileDumper {
             boolean first = true;
             for (int i = 0, len = args.size(); i < len; ++i) {
                 if (usedMethod != null && usedMethod.isHiddenArg(i)) continue;
+                if (i == 0 && isSyntheticOuterArg(classFile, args.get(i))) continue;
                 Expression arg = args.get(i);
                 first = StringUtils.comma(first, d);
                 d.dump(arg);
@@ -96,6 +101,16 @@ public class ClassFileDumperAnonymousInner extends AbstractClassFileDumper {
         d.print("}").newln();
 
         return d;
+    }
+
+    private boolean isSyntheticOuterArg(ClassFile classFile, Expression arg) {
+        if (!classFile.isInnerClass() || classFile.testAccessFlag(AccessFlag.ACC_STATIC)) return false;
+        if (arg.toString().equals(MiscConstants.THIS)) return true;
+        if (!(arg instanceof LValueExpression)) return false;
+        LValue lValue = ((LValueExpression) arg).getLValue();
+        if (!(lValue instanceof FieldVariable)) return false;
+        ClassFileField classFileField = ((FieldVariable) lValue).getClassFileField();
+        return classFileField != null && classFileField.isSyntheticOuterRef();
     }
 
     @Override

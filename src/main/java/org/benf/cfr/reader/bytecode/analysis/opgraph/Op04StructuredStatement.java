@@ -1035,7 +1035,7 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
     }
 
-    private static void removeAnonymousSyntheticConstructorOuterArgs(Method method, Op04StructuredStatement root, boolean isInstance) {
+    private static void removeAnonymousSyntheticConstructorOuterArgs(Method method, Op04StructuredStatement root) {
         MethodPrototype prototype = method.getMethodPrototype();
         List<LocalVariable> vars = prototype.getComputedParameters();
         if (vars.isEmpty()) return;
@@ -1061,7 +1061,7 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             // can't handle this.  It's probably an enum synthetic.
             return;
         }
-        int start = isInstance ? 1 : 0;
+        int start = 0;
         ClassFile classFile = method.getClassFile();
         for (int x = start, len = vars.size(); x < len; ++x) {
             LocalVariable protoVar = vars.get(x);
@@ -1135,8 +1135,7 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
      */
     public static void fixInnerClassConstructorSyntheticOuterArgs(ClassFile classFile, Method method, Op04StructuredStatement root, Set<MethodPrototype> processed) {
         if (classFile.isInnerClass()) {
-            boolean instance = !classFile.testAccessFlag(AccessFlag.ACC_STATIC);
-            removeAnonymousSyntheticConstructorOuterArgs(method, root, instance);
+            removeAnonymousSyntheticConstructorOuterArgs(method, root);
             removeMethodScopedSyntheticConstructorOuterArgs(method, root, processed);
         }
     }
