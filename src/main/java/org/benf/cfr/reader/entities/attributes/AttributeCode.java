@@ -102,6 +102,10 @@ public class AttributeCode extends Attribute {
         return attributes.getByName(AttributeLocalVariableTable.ATTRIBUTE_NAME);
     }
 
+    public AttributeLocalVariableTypeTable getLocalVariableTypeTable() {
+        return attributes.getByName(AttributeLocalVariableTypeTable.ATTRIBUTE_NAME);
+    }
+
     public AttributeLineNumberTable getLineNumberTable() {
         return attributes.getByName(AttributeLineNumberTable.ATTRIBUTE_NAME);
     }

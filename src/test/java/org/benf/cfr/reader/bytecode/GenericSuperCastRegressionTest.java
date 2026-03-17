@@ -39,8 +39,11 @@ class GenericSuperCastRegressionTest {
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
 
+        assertTrue(Pattern.compile("Class<T> t = \\(Class<T>\\)inner\\.get\\(\\);").matcher(decompiled).find());
+        assertTrue(Pattern.compile("Class<\\? extends T> t = \\(Class<\\? extends T>\\)inner\\.get\\(\\);").matcher(decompiled).find());
         assertTrue(Pattern.compile("return \\(Class<T>\\)inner\\.get\\(\\);").matcher(decompiled).find());
         assertTrue(Pattern.compile("return \\(Class<\\? extends T>\\)inner\\.get\\(\\);").matcher(decompiled).find());
+        assertFalse(Pattern.compile("Class<\\? super T> t = inner\\.get\\(\\);").matcher(decompiled).find());
         assertFalse(Pattern.compile("Class<T> t = inner\\.get\\(\\);").matcher(decompiled).find());
         assertFalse(Pattern.compile("Class<\\? extends T> t = inner\\.get\\(\\);").matcher(decompiled).find());
     }

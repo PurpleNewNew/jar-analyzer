@@ -119,6 +119,10 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         return rvalue;
     }
 
+    public void setRvalue(Expression rvalue) {
+        this.rvalue = rvalue;
+    }
+
     @Override
     public boolean match(MatchIterator<StructuredStatement> matchIterator, MatchResultCollector matchResultCollector) {
         StructuredStatement o = matchIterator.getCurrent();
@@ -158,4 +162,3 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
 }
-

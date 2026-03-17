@@ -32,6 +32,7 @@ import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.entities.*;
 import org.benf.cfr.reader.entities.attributes.AttributeCode;
+import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTypeTable;
 import org.benf.cfr.reader.entities.attributes.AttributeTypeAnnotations;
 import org.benf.cfr.reader.state.ClassCache;
 import org.benf.cfr.reader.state.DCCommonState;
@@ -740,14 +741,15 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
     }
 
-    public static void applyTypeAnnotations(AttributeCode code, Op04StructuredStatement root, SortedMap<Integer, Integer> instrsByOffset,
-                                            DecompilerComments comments) {
+    public static void applyLocalVariableMetadata(AttributeCode code, Op04StructuredStatement root, SortedMap<Integer, Integer> instrsByOffset,
+                                                  DecompilerComments comments) {
+        AttributeLocalVariableTypeTable localVariableTypeTable = code.getLocalVariableTypeTable();
         AttributeTypeAnnotations vis = code.getRuntimeVisibleTypeAnnotations();
         AttributeTypeAnnotations invis = code.getRuntimeInvisibleTypeAnnotations();
-        if (vis == null && invis == null) {
+        if (vis == null && invis == null && localVariableTypeTable == null) {
             return;
         }
-        TypeAnnotationTransformer transformer = new TypeAnnotationTransformer(vis, invis, instrsByOffset, comments);
+        LocalVariableMetadataTransformer transformer = new LocalVariableMetadataTransformer(localVariableTypeTable, vis, invis, instrsByOffset, comments, code.getConstantPool());
         transformer.transform(root);
     }
 

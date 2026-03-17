@@ -939,7 +939,7 @@ public class CodeAnalyser {
             /*
              * And apply any type annotations we can.
              */
-            Op04StructuredStatement.applyTypeAnnotations(originalCodeAttribute, block, lutByOffset, comments);
+            Op04StructuredStatement.applyLocalVariableMetadata(originalCodeAttribute, block, lutByOffset, comments);
         }
 
         // Only check for type clashes on first pass.
