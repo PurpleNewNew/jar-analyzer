@@ -19,6 +19,7 @@ import {
   CHANNEL_SCRIPT_SAVE,
   CHANNEL_UI_CONTEXT,
   CHANNEL_UI_FULLSCREEN,
+  CHANNEL_UI_READY,
   clampInt,
   DEFAULT_QUERY_OPTIONS,
   type GraphEdgePayload,
@@ -226,9 +227,13 @@ const modeCallOnlyButton = getRequired<HTMLButtonElement>('mode-call-only')
 const modeCallAliasButton = getRequired<HTMLButtonElement>('mode-call-alias')
 
 let suppressFrameScrollSelection = false
-let frameViewportSyncScheduled = false
 let workbenchLayoutSyncScheduled = false
 let lastFrameViewportHeight = -1
+let lastHostViewportWidth = -1
+let lastHostViewportHeight = -1
+let lastFrameRailScrollTop = 0
+let frameScrollGuardToken = 0
+let frameScrollGuardRaf = 0
 
 let editor = new EditorView({
   state: EditorState.create({
@@ -327,11 +332,14 @@ window.JA_WORKBENCH = {
     state.hostVisible = !!visible
     updateSimulationVisibility()
   },
-  onHostResize: (_width: number, _height: number) => {
+  onHostResize: (width: number, height: number) => {
+    applyHostViewport(width, height)
+    updateFrameViewportHeight()
     requestWorkbenchLayoutSync(3)
   }
 }
 
+installBrowserZoomGuards()
 void bootstrap()
 
 function installFatalBootHandlers(): void {
@@ -383,6 +391,32 @@ function installFatalBootHandlers(): void {
   })
 }
 
+function installBrowserZoomGuards(): void {
+  window.addEventListener(
+    'wheel',
+    (event) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.cancelable) {
+        return
+      }
+      event.preventDefault()
+    },
+    { passive: false, capture: true }
+  )
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return
+      }
+      const key = event.key
+      if (key === '+' || key === '=' || key === '-' || key === '_' || key === '0') {
+        event.preventDefault()
+      }
+    },
+    { capture: true }
+  )
+}
+
 async function bootstrap(): Promise<void> {
   const uiContext = await safeBridgeCall<UiContext>(CHANNEL_UI_CONTEXT, {})
   if (uiContext) {
@@ -390,6 +424,7 @@ async function bootstrap(): Promise<void> {
   }
   await refreshScripts()
   renderAll()
+  void safeBridgeCall(CHANNEL_UI_READY, {})
 }
 
 function applyUiContext(ctx: UiContext): void {
@@ -402,6 +437,19 @@ function applyUiContext(ctx: UiContext): void {
   renderScripts()
   renderFrames()
   requestWorkbenchLayoutSync(2)
+}
+
+function applyHostViewport(width: number, height: number): void {
+  const nextWidth = Math.max(0, Math.round(width || 0))
+  const nextHeight = Math.max(0, Math.round(height || 0))
+  if (nextWidth > 0 && nextWidth !== lastHostViewportWidth) {
+    lastHostViewportWidth = nextWidth
+    root.style.setProperty('--host-width', `${nextWidth}px`)
+  }
+  if (nextHeight > 0 && nextHeight !== lastHostViewportHeight) {
+    lastHostViewportHeight = nextHeight
+    root.style.setProperty('--host-height', `${nextHeight}px`)
+  }
 }
 
 function refreshHeaderLabels(): void {
@@ -484,11 +532,16 @@ installFrameRailBehavior()
 function installFrameRailBehavior(): void {
   framesEl.addEventListener('scroll', handleFrameRailScroll, { passive: true })
   window.addEventListener('resize', handleWorkbenchResize)
-  scheduleFrameViewportHeightSync()
+  requestAnimationFrame(() => {
+    updateFrameViewportHeight()
+  })
 }
 
 function updateFrameViewportHeight(): void {
-  const nextHeight = Math.max(0, Math.round(framesEl.clientHeight))
+  const styles = window.getComputedStyle(framesEl)
+  const paddingTop = Number.parseFloat(styles.paddingTop || '0') || 0
+  const paddingBottom = Number.parseFloat(styles.paddingBottom || '0') || 0
+  const nextHeight = Math.max(0, Math.round((framesEl.clientHeight || 0) - paddingTop - paddingBottom))
   if (nextHeight === lastFrameViewportHeight) {
     return
   }
@@ -496,18 +549,8 @@ function updateFrameViewportHeight(): void {
   framesEl.style.setProperty('--frames-viewport-height', `${nextHeight}px`)
 }
 
-function scheduleFrameViewportHeightSync(): void {
-  if (frameViewportSyncScheduled) {
-    return
-  }
-  frameViewportSyncScheduled = true
-  requestAnimationFrame(() => {
-    frameViewportSyncScheduled = false
-    updateFrameViewportHeight()
-  })
-}
-
 function requestWorkbenchLayoutSync(passes = 1): void {
+  updateFrameViewportHeight()
   if (workbenchLayoutSyncScheduled) {
     return
   }
@@ -515,7 +558,7 @@ function requestWorkbenchLayoutSync(passes = 1): void {
   let remainingPasses = Math.max(1, passes)
   const runPass = (): void => {
     requestAnimationFrame(() => {
-      scheduleFrameViewportHeightSync()
+      updateFrameViewportHeight()
       const selectedFrameId = state.selectedFrameId || state.frames.find((item) => !item.collapsed)?.frameId || ''
       if (selectedFrameId) {
         frameControllers.get(selectedFrameId)?.requestLayoutSync()
@@ -542,38 +585,103 @@ function isIgnorableRuntimeMessage(message: string): boolean {
 }
 
 function handleFrameRailScroll(): void {
-  if (suppressFrameScrollSelection || state.frames.length <= 1) {
+  const scrollTop = framesEl.scrollTop
+  const scrollDelta = scrollTop - lastFrameRailScrollTop
+  lastFrameRailScrollTop = scrollTop
+  if (suppressFrameScrollSelection || state.frames.length <= 1 || Math.abs(scrollDelta) < 1) {
     return
   }
+  const direction = scrollDelta > 0 ? 'down' : 'up'
   requestAnimationFrame(() => {
     if (suppressFrameScrollSelection || state.frames.length <= 1) {
       return
     }
-    const anchorY = framesEl.scrollTop + FRAME_PREVIEW_HEIGHT + FRAME_STACK_GAP + 4
-    let candidateId = state.frames[0]?.frameId || ''
-    for (const frame of state.frames) {
-      const card = frameControllers.get(frame.frameId)?.card
-      if (!card) {
-        continue
-      }
-      if (card.offsetTop <= anchorY) {
-        candidateId = frame.frameId
-        continue
-      }
-      break
+    const selectedIndex = state.frames.findIndex((frame) => frame.frameId === state.selectedFrameId && !frame.collapsed)
+    if (selectedIndex < 0) {
+      return
     }
-    if (candidateId && candidateId !== state.selectedFrameId) {
-      expandFrame(candidateId, 'preserve')
+    const selectedCard = frameControllers.get(state.frames[selectedIndex].frameId)?.card
+    if (!selectedCard) {
+      return
+    }
+    const previewOffset = Math.max(0, FRAME_PREVIEW_HEIGHT + FRAME_STACK_GAP)
+    const handoffThreshold = previewOffset / 2
+    const selectedTop = selectedCard.offsetTop - framesEl.scrollTop
+    const expectedAnchor = selectedIndex > 0 ? previewOffset : 0
+    if (direction === 'down') {
+      const nextFrameId = state.frames[selectedIndex + 1]?.frameId || ''
+      if (nextFrameId && selectedTop <= expectedAnchor - handoffThreshold) {
+        expandFrame(nextFrameId, 'preserve')
+      }
+      return
+    }
+    const previousFrameId = state.frames[selectedIndex - 1]?.frameId || ''
+    if (previousFrameId && selectedTop >= expectedAnchor + handoffThreshold) {
+      expandFrame(previousFrameId, 'preserve')
     }
   })
 }
 
-function withSuppressedFrameScrollSelection(action: () => void, timeoutMs = 280): void {
+function clampFrameRailScrollTop(top: number): number {
+  const maxTop = Math.max(0, framesEl.scrollHeight - framesEl.clientHeight)
+  return Math.max(0, Math.min(Math.round(top), maxTop))
+}
+
+function measureFrameTransitionHeights(elements: HTMLElement[]): number[] {
+  return elements.map((element) => Math.round(element.getBoundingClientRect().height))
+}
+
+function sameFrameTransitionHeights(previous: number[], next: number[]): boolean {
+  if (previous.length !== next.length) {
+    return false
+  }
+  for (let index = 0; index < previous.length; index++) {
+    if (Math.abs(previous[index] - next[index]) > 1) {
+      return false
+    }
+  }
+  return true
+}
+
+function runProgrammaticFrameScroll(targetTop: number, action: () => void, layoutElements: Array<HTMLElement | null> = []): void {
+  const token = ++frameScrollGuardToken
+  let stableFrames = 0
+  let observedTop = framesEl.scrollTop
+  const expectedTop = clampFrameRailScrollTop(targetTop)
+  const trackedElements = layoutElements.filter((element): element is HTMLElement => !!element && element.isConnected)
+  let observedHeights = measureFrameTransitionHeights(trackedElements)
+  let sawActivity = Math.abs(observedTop - expectedTop) <= 1
   suppressFrameScrollSelection = true
+  lastFrameRailScrollTop = observedTop
+  if (frameScrollGuardRaf > 0) {
+    cancelAnimationFrame(frameScrollGuardRaf)
+    frameScrollGuardRaf = 0
+  }
   action()
-  window.setTimeout(() => {
-    suppressFrameScrollSelection = false
-  }, timeoutMs)
+  const settle = (): void => {
+    if (token !== frameScrollGuardToken) {
+      return
+    }
+    const currentTop = framesEl.scrollTop
+    const currentHeights = measureFrameTransitionHeights(trackedElements)
+    const scrollStable = Math.abs(currentTop - observedTop) <= 1
+    const layoutStable = sameFrameTransitionHeights(observedHeights, currentHeights)
+    if (!scrollStable || !layoutStable) {
+      sawActivity = true
+    }
+    const reachedTarget = Math.abs(currentTop - expectedTop) <= 1
+    observedTop = currentTop
+    observedHeights = currentHeights
+    lastFrameRailScrollTop = currentTop
+    stableFrames = reachedTarget && scrollStable && layoutStable ? stableFrames + 1 : 0
+    if ((sawActivity || reachedTarget) && stableFrames >= 2) {
+      suppressFrameScrollSelection = false
+      frameScrollGuardRaf = 0
+      return
+    }
+    frameScrollGuardRaf = requestAnimationFrame(settle)
+  }
+  frameScrollGuardRaf = requestAnimationFrame(settle)
 }
 
 function normalizeTraversalMode(value: unknown): TraversalMode {
@@ -687,9 +795,11 @@ function pushFrame(frame: FrameState): void {
   state.selectedFrameId = frame.frameId
   renderFrames()
   requestAnimationFrame(() => {
-    withSuppressedFrameScrollSelection(() => {
+    const selectedCard = frameControllers.get(frame.frameId)?.card || null
+    const nextCard = state.frames[1] ? frameControllers.get(state.frames[1].frameId)?.card || null : null
+    runProgrammaticFrameScroll(0, () => {
       framesEl.scrollTo({ top: 0, behavior: 'smooth' })
-    })
+    }, [selectedCard, nextCard])
   })
 }
 
@@ -833,6 +943,7 @@ function renderScripts(): void {
 }
 
 function renderFrames(): void {
+  framesEl.classList.toggle('has-history', state.frames.length > 1)
   if (state.frames.length === 0) {
     disposeAllFrameResources()
     framesRailEl.innerHTML = ''
@@ -1058,6 +1169,10 @@ function expandFrame(frameId: string, mode: 'anchor' | 'preserve' | 'none' = 'an
   if (state.selectedFrameId === frameId && !selected.collapsed) {
     return
   }
+  const previousSelectedFrameId = state.selectedFrameId
+  const previousSelectedCard = previousSelectedFrameId
+    ? frameControllers.get(previousSelectedFrameId)?.card || null
+    : null
   const selectedCard = frameControllers.get(frameId)?.card || null
   const previousTop = selectedCard?.offsetTop || 0
   const previewOffset = Math.max(0, FRAME_PREVIEW_HEIGHT + FRAME_STACK_GAP)
@@ -1074,11 +1189,14 @@ function expandFrame(frameId: string, mode: 'anchor' | 'preserve' | 'none' = 'an
     if (!nextCard) {
       return
     }
+    const transitionCards = previousSelectedCard && previousSelectedCard !== nextCard
+      ? [previousSelectedCard, nextCard]
+      : [nextCard]
     if (mode === 'anchor') {
       const targetTop = Math.max(0, nextCard.offsetTop - previewOffset)
-      withSuppressedFrameScrollSelection(() => {
+      runProgrammaticFrameScroll(targetTop, () => {
         framesEl.scrollTo({ top: targetTop, behavior: 'smooth' })
-      })
+      }, transitionCards)
       return
     }
     const nextTop = nextCard.offsetTop
@@ -1086,9 +1204,10 @@ function expandFrame(frameId: string, mode: 'anchor' | 'preserve' | 'none' = 'an
     if (Math.abs(delta) < 1) {
       return
     }
-    withSuppressedFrameScrollSelection(() => {
+    const targetTop = framesEl.scrollTop + delta
+    runProgrammaticFrameScroll(targetTop, () => {
       framesEl.scrollTop += delta
-    })
+    }, transitionCards)
   })
 }
 
@@ -1507,15 +1626,12 @@ function mountGraphView(
     .attr('stroke-width', (item) => (focus.nodeIds.has(item.id) ? 2.4 : 1.1))
     .attr('stroke-dasharray', (item) => (pinnedNodeIds.has(item.id) ? '4 2' : null))
     .attr('opacity', (item) => (focus.active && !focus.nodeIds.has(item.id) && !focus.edgeNodeIds.has(item.id) ? 0.42 : 1))
-    .style('cursor', 'pointer')
     .on('mouseenter', (_, item) => {
       hoveredNodeId = item.id
-      stage.classList.add('graph-hovering')
       updateGraphVisualState()
     })
     .on('mouseleave', () => {
       hoveredNodeId = -1
-      stage.classList.remove('graph-hovering')
       updateGraphVisualState()
     })
     .on('click', (_, item) => {
@@ -1567,12 +1683,10 @@ function mountGraphView(
   links
     .on('mouseenter', (_, item) => {
       hoveredEdgeId = item.id
-      stage.classList.add('graph-hovering')
       updateGraphVisualState()
     })
     .on('mouseleave', () => {
       hoveredEdgeId = -1
-      stage.classList.remove('graph-hovering')
       updateGraphVisualState()
     })
   links.on('click', (_, item) => {

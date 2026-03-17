@@ -4,6 +4,7 @@ export const CHANNEL_SCRIPT_SAVE = 'ja.script.save'
 export const CHANNEL_SCRIPT_DELETE = 'ja.script.delete'
 export const CHANNEL_UI_CONTEXT = 'ja.ui.context'
 export const CHANNEL_UI_FULLSCREEN = 'ja.ui.fullscreen'
+export const CHANNEL_UI_READY = 'ja.ui.ready'
 
 export interface UiContext {
   language: 'zh' | 'en'

@@ -80,9 +80,10 @@ body,
 
 .workbench {
   display: grid;
-  grid-template-rows: 40px 48px 1fr;
-  width: 100%;
-  height: 100%;
+  grid-template-rows: 40px 48px minmax(0, 1fr);
+  width: var(--host-width, 100%);
+  height: var(--host-height, 100%);
+  min-height: 0;
   background: var(--bg);
 }
 
@@ -249,11 +250,25 @@ body,
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--cmd-bg);
-  color: var(--text);
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
   font-size: 12px;
   height: 100%;
   padding: 0 6px;
   font-family: inherit;
+}
+
+.opt-item > input::placeholder,
+.opt-item > select::placeholder {
+  color: var(--subtext);
+  opacity: 1;
+}
+
+.opt-item > select:focus,
+.opt-item > input:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 #editor {
@@ -264,6 +279,36 @@ body,
 .cm-editor {
   height: 100%;
   background: var(--cmd-bg) !important;
+  color: var(--text) !important;
+  caret-color: var(--accent);
+}
+
+.cm-editor .cm-scroller,
+.cm-editor .cm-content,
+.cm-editor .cm-line {
+  color: var(--text);
+}
+
+.cm-editor .cm-gutters {
+  background: var(--cmd-bg);
+  color: var(--subtext);
+  border-right: 1px solid var(--line);
+}
+
+.cm-editor .cm-activeLine,
+.cm-editor .cm-activeLineGutter {
+  background: var(--hover);
+}
+
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left-color: var(--accent);
+}
+
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-selectionBackground,
+.cm-editor ::selection {
+  background: var(--accent-soft);
 }
 
 .cm-content {
@@ -273,9 +318,9 @@ body,
 
 .main-grid {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0;
-  height: 100%;
+  min-width: 0;
 }
 
 .scripts-pane {
@@ -369,22 +414,29 @@ body,
 .frames-pane {
   --frame-preview-height: 86px;
   --frame-gap: 8px;
+  --frame-preview-reserve: 0px;
   overflow: auto;
   padding: 8px;
   min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.frames-pane.has-history {
+  --frame-preview-reserve: calc(var(--frame-preview-height) + var(--frame-gap));
 }
 
 .frames-rail {
   display: flex;
   flex-direction: column;
   gap: var(--frame-gap);
-  min-height: calc(100% - 16px);
+  min-height: 100%;
+  min-width: 0;
 }
 
 .frame {
   display: flex;
   flex-direction: column;
-  min-height: 0;
   min-height: var(--frame-preview-height);
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -407,7 +459,7 @@ body,
 }
 
 .frame.selected {
-  min-height: max(360px, calc(var(--frames-viewport-height, 720px) - var(--frame-preview-height) - var(--frame-gap)));
+  min-height: max(360px, calc(var(--frames-viewport-height, 720px) - var(--frame-preview-reserve, 0px)));
 }
 
 .frame-head {
@@ -504,27 +556,31 @@ body,
 }
 
 .frame-body-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
   overflow: hidden;
-  max-height: 720px;
-  opacity: 1;
-  transform-origin: top;
+  opacity: 0;
   transition:
-    max-height 240ms cubic-bezier(0.2, 0.7, 0.2, 1),
-    opacity 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
-    transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    grid-template-rows 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .frame.collapsed .frame-body-shell {
-  max-height: 0;
   opacity: 0;
-  transform: translateY(-6px);
   pointer-events: none;
 }
 
 .frame.selected .frame-body-shell {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: none;
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.frame-body-shell > .frame-body {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .frame-filter-title {
@@ -583,14 +639,9 @@ body,
 
 .frame-body {
   display: grid;
-  grid-template-columns: 78px 1fr 320px;
+  grid-template-columns: 78px minmax(0, 1fr) 320px;
   min-height: 360px;
-  max-height: 720px;
-}
-
-.frame.selected .frame-body {
   height: 100%;
-  max-height: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -668,11 +719,13 @@ body,
   overflow: hidden;
 }
 
-.graph-canvas {
+.graph-canvas,
+.graph-canvas * {
   cursor: grab;
 }
 
-.graph-interacting .graph-canvas {
+.graph-interacting .graph-canvas,
+.graph-interacting .graph-canvas * {
   cursor: grabbing;
 }
 

@@ -27,4 +27,11 @@ class CypherToolPanelLoadStateTest {
                 "ResizeObserver loop limit exceeded"));
         Assertions.assertFalse(CypherToolPanel.isIgnorableWorkbenchConsoleMessage("real workbench failure"));
     }
+
+    @Test
+    void shouldOnlyPushExplicitHostResizeCallback() {
+        String script = CypherToolPanel.buildHostResizeScript(1280, 720);
+        Assertions.assertTrue(script.contains("window.JA_WORKBENCH.onHostResize(1280, 720);"));
+        Assertions.assertFalse(script.contains("window.dispatchEvent"));
+    }
 }

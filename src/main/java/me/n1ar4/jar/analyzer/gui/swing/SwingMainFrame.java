@@ -4276,6 +4276,8 @@ public final class SwingMainFrame extends JFrame {
         }
         removeGlobalSearchDispatcher();
         RuntimeFacades.setToolingWindowConsumer(null);
+        setVisible(false);
+        dispose();
         try {
             cypherPanel.shutdown();
             JcefRuntime.shutdown();
@@ -4294,7 +4296,7 @@ public final class SwingMainFrame extends JFrame {
         } catch (Throwable ex) {
             logger.warn("cleanup temporary project failed on exit: {}", ex.toString(), ex);
             JOptionPane.showMessageDialog(
-                    this,
+                    isDisplayable() ? this : null,
                     tr("临时项目清理失败，磁盘上可能残留旧项目库：", "temporary project cleanup failed; old project data may remain on disk: ")
                             + safe(ex.getMessage()),
                     tr("退出警告", "Exit Warning"),

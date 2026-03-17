@@ -59,6 +59,7 @@ public final class CypherToolPanel extends JPanel {
     private static final String CHANNEL_SCRIPT_DELETE = "ja.script.delete";
     private static final String CHANNEL_UI_CONTEXT = "ja.ui.context";
     private static final String CHANNEL_UI_FULLSCREEN = "ja.ui.fullscreen";
+    private static final String CHANNEL_UI_READY = "ja.ui.ready";
 
     private final CypherWorkbenchService service = new CypherWorkbenchService();
 
@@ -154,14 +155,7 @@ public final class CypherToolPanel extends JPanel {
                                                 int line) {
                     String normalized = safe(message);
                     if (!normalized.isBlank() && !isIgnorableWorkbenchConsoleMessage(normalized)) {
-                        if (normalized.contains("__JA_WORKBENCH_READY__")) {
-                            logger.info("cypher workbench ready: {}", normalized);
-                        } else if (normalized.contains("__JA_WORKBENCH")) {
-                            logger.error("cypher workbench bootstrap issue: {} ({}, line={})",
-                                    normalized, safe(source), line);
-                        } else {
-                            logger.debug("cypher console [{}] {}:{} {}", String.valueOf(level), safe(source), line, normalized);
-                        }
+                        logger.debug("cypher console [{}] {}:{} {}", String.valueOf(level), safe(source), line, normalized);
                     }
                     return false;
                 }
@@ -181,14 +175,14 @@ public final class CypherToolPanel extends JPanel {
                     if (frame != null && frame.isMain()) {
                         entryLoadState = EntryLoadState.LOADED;
                         stopWatchdog();
+                        resetBrowserZoom(browser);
                         logger.debug("cypher workbench load end: status={}, url={}",
                                 httpStatusCode, safe(frame.getURL()));
                         SwingUtilities.invokeLater(() -> {
                             pushUiContextToFrontend();
                             pushFullscreenToFrontend();
                             pushHostVisibilityToFrontend();
-                            scheduleHostResizeSync();
-                            scheduleBootstrapProbe();
+                            pushHostResizeToFrontend();
                         });
                     }
                 }
@@ -224,7 +218,7 @@ public final class CypherToolPanel extends JPanel {
                         cefBrowser.setWindowVisibility(true);
                     }
                     pushHostVisibilityToFrontend();
-                    scheduleHostResizeSync();
+                    pushHostResizeToFrontend();
                 }
 
                 @Override
@@ -423,6 +417,11 @@ public final class CypherToolPanel extends JPanel {
             SwingUtilities.invokeLater(() -> service.requestFullscreen(value));
             return Map.of("ok", true, "fullscreen", value);
         });
+        router.register(CHANNEL_UI_READY, payload -> {
+            entryLoadState = EntryLoadState.READY;
+            logger.info("cypher workbench frontend ready");
+            return Map.of("ok", true);
+        });
     }
 
     private QueryFrameRequest parseExecuteRequest(JSONObject payload) {
@@ -522,12 +521,7 @@ public final class CypherToolPanel extends JPanel {
         Component uiComponent = cefBrowser.getUIComponent();
         int width = Math.max(0, uiComponent == null ? getWidth() : Math.max(uiComponent.getWidth(), getWidth()));
         int height = Math.max(0, uiComponent == null ? getHeight() : Math.max(uiComponent.getHeight(), getHeight()));
-        evalJs("""
-                if (window.JA_WORKBENCH) {
-                  window.JA_WORKBENCH.onHostResize(%d, %d);
-                }
-                window.dispatchEvent(new Event('resize'));
-                """.formatted(width, height));
+        evalJs(buildHostResizeScript(width, height));
     }
 
     private void evalJs(String script) {
@@ -541,23 +535,23 @@ public final class CypherToolPanel extends JPanel {
         }
     }
 
-    private void scheduleBootstrapProbe() {
-        evalJs("""
-                setTimeout(function () {
-                  try {
-                    var app = document.getElementById('app');
-                    var children = app ? app.children.length : -1;
-                    var marker = (window.__JA_BOOT_ERROR || '');
-                    if (!app || children <= 0) {
-                      console.error('__JA_WORKBENCH_EMPTY__ children=' + children + ' ready=' + document.readyState + ' err=' + marker);
-                    } else {
-                      console.info('__JA_WORKBENCH_READY__ children=' + children);
-                    }
-                  } catch (e) {
-                    console.error('__JA_WORKBENCH_PROBE_ERROR__ ' + String(e));
-                  }
-                }, 700);
-                """);
+    private void resetBrowserZoom(CefBrowser browser) {
+        if (browser == null) {
+            return;
+        }
+        try {
+            browser.setZoomLevel(0.0);
+        } catch (Throwable ex) {
+            logger.debug("reset cypher browser zoom failed: {}", ex.toString());
+        }
+    }
+
+    static String buildHostResizeScript(int width, int height) {
+        return """
+                if (window.JA_WORKBENCH) {
+                  window.JA_WORKBENCH.onHostResize(%d, %d);
+                }
+                """.formatted(width, height);
     }
 
     private boolean isBrowserUnloaded() {
@@ -625,6 +619,7 @@ public final class CypherToolPanel extends JPanel {
     private enum EntryLoadState {
         UNSTARTED,
         LOADING,
-        LOADED
+        LOADED,
+        READY
     }
 }
