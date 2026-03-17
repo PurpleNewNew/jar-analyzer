@@ -11,9 +11,11 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.MemberFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.NewAnonymousArray;
-import org.benf.cfr.reader.bytecode.analysis.parse.expression.RecordSwitchPatternCaseLabel;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.PatternCaseLabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.StaticFunctionInvokation;
-import org.benf.cfr.reader.bytecode.analysis.parse.expression.SwitchPatternCaseLabel;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.BindingPattern;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.GuardedPattern;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.RecordPattern;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
@@ -126,7 +128,7 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
         for (Op04StructuredStatement statement : ((Block) structuredSwitch.getBody().getStatement()).getBlockStatements()) {
             if (!(statement.getStatement() instanceof StructuredCase)) continue;
             for (Expression value : ((StructuredCase) statement.getStatement()).getValues()) {
-                if (value instanceof SwitchPatternCaseLabel) {
+                if (value instanceof PatternCaseLabel) {
                     return true;
                 }
             }
@@ -266,7 +268,13 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
                     return new CaseRewritePlan(
                             structuredCase,
                             bodyBlock,
-                            new SwitchPatternCaseLabel(BytecodeLoc.NONE, conditionalGuardPlan.binding, conditionalGuardPlan.guard),
+                            new PatternCaseLabel(
+                                    BytecodeLoc.NONE,
+                                    new GuardedPattern(
+                                            new BindingPattern(conditionalGuardPlan.binding.getInferredJavaType().getJavaTypeInstance(), conditionalGuardPlan.binding),
+                                            conditionalGuardPlan.guard
+                                    )
+                            ),
                             conditionalGuardPlan.rewrittenBody
                     );
                 }
@@ -278,7 +286,13 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
                 return new CaseRewritePlan(
                         structuredCase,
                         bodyBlock,
-                        new SwitchPatternCaseLabel(BytecodeLoc.NONE, patternBinding.binding, guardPlan.guard),
+                        new PatternCaseLabel(
+                                BytecodeLoc.NONE,
+                                new GuardedPattern(
+                                        new BindingPattern(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding),
+                                        guardPlan.guard
+                                )
+                        ),
                         guardPlan.rewrittenBody
                 );
             }
@@ -288,10 +302,13 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
                 return new CaseRewritePlan(
                         structuredCase,
                         bodyBlock,
-                        new RecordSwitchPatternCaseLabel(BytecodeLoc.NONE,
-                                patternBinding.binding.getInferredJavaType().getJavaTypeInstance(),
-                                recordPatternPlan.components,
-                                null),
+                        new PatternCaseLabel(
+                                BytecodeLoc.NONE,
+                                new RecordPattern(
+                                        patternBinding.binding.getInferredJavaType().getJavaTypeInstance(),
+                                        recordPatternPlan.components
+                                )
+                        ),
                         recordPatternPlan.rewrittenBody
                 );
             }
@@ -304,7 +321,10 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
             return new CaseRewritePlan(
                     structuredCase,
                     bodyBlock,
-                    new SwitchPatternCaseLabel(BytecodeLoc.NONE, patternBinding.binding, null),
+                    new PatternCaseLabel(
+                            BytecodeLoc.NONE,
+                            new BindingPattern(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding)
+                    ),
                     rewrittenStatements
             );
         }

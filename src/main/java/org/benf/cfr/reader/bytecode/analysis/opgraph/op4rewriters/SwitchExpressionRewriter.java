@@ -44,8 +44,6 @@ import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.util.functors.Predicate;
 import org.benf.cfr.reader.util.functors.UnaryFunction;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
-
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -54,14 +52,14 @@ import java.util.Map;
 import java.util.Set;
 
 public class SwitchExpressionRewriter extends AbstractExpressionRewriter implements StructuredStatementTransformer {
-    private final boolean experimental;
+    private final boolean emitPreviewComment;
     private final Method method;
     private DecompilerComments comments;
     private final Set<StructuredStatement> classifiedEmpty = SetFactory.newIdentitySet();
 
-    public SwitchExpressionRewriter(DecompilerComments comments, Method method) {
+    public SwitchExpressionRewriter(DecompilerComments comments, Method method, boolean emitPreviewComment) {
         this.comments = comments;
-        this.experimental = OptionsImpl.SWITCH_EXPRESSION_PREVIEW.isPreviewIn(method.getClassFile().getClassFileVersion());
+        this.emitPreviewComment = emitPreviewComment;
         this.method = method;
     }
 
@@ -202,7 +200,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(root);
         if (structuredStatements == null) return;
 
-        if (replaceSwitch(root, structuredStatements, scope) && experimental) {
+        if (replaceSwitch(root, structuredStatements, scope) && emitPreviewComment) {
             comments.addComment(DecompilerComment.PREVIEW_FEATURE);
         }
     }

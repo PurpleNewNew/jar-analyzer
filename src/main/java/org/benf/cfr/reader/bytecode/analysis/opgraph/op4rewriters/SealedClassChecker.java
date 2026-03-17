@@ -7,7 +7,6 @@ import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.CannotLoadClassException;
 import org.benf.cfr.reader.util.DecompilerComment;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 import java.util.Set;
 
@@ -34,24 +33,23 @@ public class SealedClassChecker {
         return false;
     }
 
-    public static void rewrite(ClassFile classFile, DCCommonState state) {
+    public static void rewrite(ClassFile classFile, DCCommonState state, boolean emitPreviewComment) {
         Set<AccessFlag> accessFlags = classFile.getAccessFlags();
         if (accessFlags.contains(AccessFlag.ACC_FAKE_SEALED)) {
-            markExperimental(classFile, state);
+            markExperimental(classFile, emitPreviewComment);
             return;
         }
         if (accessFlags.contains(AccessFlag.ACC_FINAL)) {
             return;
         }
         if (anySealed(classFile.getClassSignature(), state)) {
-            markExperimental(classFile, state);
+            markExperimental(classFile, emitPreviewComment);
             accessFlags.add(AccessFlag.ACC_FAKE_NON_SEALED);
         }
     }
 
-    public static void markExperimental(ClassFile classFile, DCCommonState state) {
-        if (!state.getOptions().optionIsSet(OptionsImpl.SEALED) &&
-                OptionsImpl.SEALED_PREVIEW.isPreviewIn(classFile.getClassFileVersion())) {
+    public static void markExperimental(ClassFile classFile, boolean emitPreviewComment) {
+        if (emitPreviewComment) {
             classFile.addComment(DecompilerComment.PREVIEW_FEATURE);
         }
     }

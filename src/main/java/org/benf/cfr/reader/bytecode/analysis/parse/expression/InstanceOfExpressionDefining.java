@@ -5,6 +5,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.misc.Precedence;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.BindingPattern;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
@@ -13,24 +14,25 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
-import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntry;
-import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryClass;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.Troolean;
 import org.benf.cfr.reader.util.output.Dumper;
 
 public class InstanceOfExpressionDefining extends AbstractExpression {
     private Expression lhs;
-    private JavaTypeInstance typeInstance;
-    private LValue defines;
+    private BindingPattern pattern;
 
     public InstanceOfExpressionDefining(BytecodeLoc loc, InferredJavaType inferredJavaType, Expression lhs, JavaTypeInstance typeInstance, LValue defines) {
         super(loc, inferredJavaType);
         this.lhs = lhs;
-        this.typeInstance = typeInstance;
-        this.defines = defines;
+        this.pattern = new BindingPattern(typeInstance, defines);
+    }
+
+    public InstanceOfExpressionDefining(BytecodeLoc loc, InferredJavaType inferredJavaType, Expression lhs, BindingPattern pattern) {
+        super(loc, inferredJavaType);
+        this.lhs = lhs;
+        this.pattern = pattern;
     }
 
     @Override
@@ -41,16 +43,16 @@ public class InstanceOfExpressionDefining extends AbstractExpression {
     @Override
     public void collectTypeUsages(TypeUsageCollector collector) {
         lhs.collectTypeUsages(collector);
-        collector.collect(typeInstance);
+        pattern.collectTypeUsages(collector);
     }
 
     public InstanceOfExpressionDefining withReplacedExpression(Expression e) {
-        return new InstanceOfExpressionDefining(getLoc(), this.getInferredJavaType(), e, typeInstance, defines);
+        return new InstanceOfExpressionDefining(getLoc(), this.getInferredJavaType(), e, pattern);
     }
 
     @Override
     public Expression deepClone(CloneHelper cloneHelper) {
-        return new InstanceOfExpressionDefining(getLoc(), getInferredJavaType(), cloneHelper.replaceOrClone(lhs), typeInstance, defines);
+        return new InstanceOfExpressionDefining(getLoc(), getInferredJavaType(), cloneHelper.replaceOrClone(lhs), (BindingPattern) pattern.deepClone(cloneHelper));
     }
 
     @Override
@@ -61,8 +63,8 @@ public class InstanceOfExpressionDefining extends AbstractExpression {
     @Override
     public Dumper dumpInner(Dumper d) {
         lhs.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
-        d.print(" instanceof ").dump(typeInstance);
-        d.print(" ").dump(defines);
+        d.print(" instanceof ");
+        pattern.dump(d);
         return d;
     }
 
@@ -93,6 +95,18 @@ public class InstanceOfExpressionDefining extends AbstractExpression {
         return lhs;
     }
 
+    public BindingPattern getPattern() {
+        return pattern;
+    }
+
+    public JavaTypeInstance getTypeInstance() {
+        return pattern.getTypeInstance();
+    }
+
+    public LValue getDefines() {
+        return pattern.getBinding();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (o == null) return false;
@@ -100,8 +114,7 @@ public class InstanceOfExpressionDefining extends AbstractExpression {
         if (!(o instanceof InstanceOfExpressionDefining)) return false;
         InstanceOfExpressionDefining other = (InstanceOfExpressionDefining) o;
         if (!lhs.equals(other.lhs)) return false;
-        if (!typeInstance.equals(other.typeInstance)) return false;
-        if (!defines.equals(other.defines)) return false;
+        if (!pattern.equals(other.pattern)) return false;
         return true;
     }
 
@@ -112,8 +125,7 @@ public class InstanceOfExpressionDefining extends AbstractExpression {
         if (getClass() != o.getClass()) return false;
         InstanceOfExpressionDefining other = (InstanceOfExpressionDefining) o;
         if (!constraint.equivalent(lhs, other.lhs)) return false;
-        if (!constraint.equivalent(typeInstance, other.typeInstance)) return false;
-        if (!constraint.equivalent(defines, other.defines)) return false;
+        if (!pattern.equivalentUnder(other.pattern, constraint)) return false;
         return true;
     }
 

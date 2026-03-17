@@ -5,7 +5,6 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SealedClassChe
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.getopt.Options;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 final class ModernClassFeatureRewriter {
     private ModernClassFeatureRewriter() {
@@ -13,11 +12,12 @@ final class ModernClassFeatureRewriter {
 
     static void rewrite(ClassFile classFile, DCCommonState state) {
         Options options = state.getOptions();
-        if (options.getOption(OptionsImpl.RECORD_TYPES, classFile.getClassFileVersion())) {
+        ModernFeatureStrategy modernFeatures = ModernFeatureStrategy.from(options, classFile.getClassFileVersion());
+        if (modernFeatures.supportsRecordTypes()) {
             RecordRewriter.rewrite(classFile, state);
         }
-        if (options.getOption(OptionsImpl.SEALED, classFile.getClassFileVersion())) {
-            SealedClassChecker.rewrite(classFile, state);
+        if (modernFeatures.supportsSealedTypes()) {
+            SealedClassChecker.rewrite(classFile, state, modernFeatures.shouldEmitPreviewSealedComment());
         }
     }
 }

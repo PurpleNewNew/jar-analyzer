@@ -67,6 +67,16 @@ public class InstanceOfAssignRewriter {
         ASSIGN_SIMPLE
     }
 
+    private static class GuardedMatch {
+        final InstanceOfExpression instanceOf;
+        final ConditionalExpression guard;
+
+        private GuardedMatch(InstanceOfExpression instanceOf, ConditionalExpression guard) {
+            this.instanceOf = instanceOf;
+            this.guard = guard;
+        }
+    }
+
     private static class ConditionTest {
         final ConditionalExpression expression;
         final boolean isPositive;
@@ -148,7 +158,7 @@ public class InstanceOfAssignRewriter {
         @Override
         public ConditionalExpression rewriteExpression(ConditionalExpression expression, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
             if (found) return expression;
-            if (getMatchingTest(expression) != null) {
+            if (getMatchingTest(expression) != null || getGuardedMatch(expression, false) != null) {
                 found = true;
                 return expression;
             }
@@ -174,35 +184,125 @@ public class InstanceOfAssignRewriter {
         return new Rewriter().rewriteExpression(ce, null, null, null);
     }
 
+    private GuardedMatch getGuardedMatch(ConditionalExpression ce, boolean rewrite) {
+        if (!(ce instanceof BooleanOperation)) {
+            return null;
+        }
+        BooleanOperation booleanOperation = (BooleanOperation) ce;
+        if (booleanOperation.getOp() != BoolOp.AND) {
+            return null;
+        }
+        ConditionalExpression lhs = booleanOperation.getLhs();
+        if (!(lhs instanceof BooleanExpression)) {
+            return null;
+        }
+        Expression inner = ((BooleanExpression) lhs).getInner();
+        if (!(inner instanceof InstanceOfExpression)) {
+            return null;
+        }
+        InstanceOfExpression instanceOf = (InstanceOfExpression) inner;
+        if (!scopedEntity.getInferredJavaType().getJavaTypeInstance().equals(instanceOf.getTypeInstance())) {
+            return null;
+        }
+        GuardedPatternUseRewriter guardedPatternUseRewriter =
+                new GuardedPatternUseRewriter(instanceOf.getLhs(), instanceOf.getTypeInstance(), rewrite);
+        ConditionalExpression rewrittenGuard =
+                guardedPatternUseRewriter.rewriteExpression(booleanOperation.getRhs(), null, null, null);
+        if (!guardedPatternUseRewriter.isMatched()) {
+            return null;
+        }
+        return new GuardedMatch(instanceOf, rewrittenGuard);
+    }
+
     private ConditionalExpression rewriteInner(ConditionalExpression ce) {
         ConditionTest ct = getMatchingTest(ce);
-        if (ct == null) {
+        if (ct != null) {
+            if (ct.matchType == MatchType.SIMPLE) {
+                LValue obj = objWildcard.getMatch();
+
+                ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
+                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                        new LValueExpression(obj),
+                        scopedEntity.getInferredJavaType().getJavaTypeInstance(),
+                        scopedEntity
+                ));
+            } else {
+                LValue obj = objWildcard.getMatch();
+                LValue tmp = tmpWildcard.getMatch();
+
+                ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
+                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                        new AssignmentExpression(BytecodeLoc.TODO, tmp, new LValueExpression(BytecodeLoc.TODO, obj)),
+                        scopedEntity.getInferredJavaType().getJavaTypeInstance(),
+                        scopedEntity
+                ));
+            }
+            if (!ct.isPositive) {
+                ce = ce.getNegated();
+            }
             return ce;
         }
-
-        if (ct.matchType == MatchType.SIMPLE) {
-            LValue obj = objWildcard.getMatch();
-
-            ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
-                    new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
-                    new LValueExpression(obj),
-                    scopedEntity.getInferredJavaType().getJavaTypeInstance(),
-                    scopedEntity
-            ));
-        } else {
-            LValue obj = objWildcard.getMatch();
-            LValue tmp = tmpWildcard.getMatch();
-
-            ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
-                    new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
-                    new AssignmentExpression(BytecodeLoc.TODO,tmp, new LValueExpression(BytecodeLoc.TODO,obj)),
-                    scopedEntity.getInferredJavaType().getJavaTypeInstance(),
-                    scopedEntity
-            ));
+        GuardedMatch guardedMatch = getGuardedMatch(ce, true);
+        if (guardedMatch == null) {
+            return ce;
         }
-        if (!ct.isPositive) {
-            ce = ce.getNegated();
+        return new BooleanOperation(ce.getLoc(),
+                new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
+                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                        guardedMatch.instanceOf.getLhs(),
+                        guardedMatch.instanceOf.getTypeInstance(),
+                        scopedEntity
+                )),
+                guardedMatch.guard,
+                BoolOp.AND);
+    }
+
+    private class GuardedPatternUseRewriter extends AbstractExpressionRewriter {
+        private final Expression matchedObject;
+        private final JavaTypeInstance matchedType;
+        private final boolean rewrite;
+        private boolean matched;
+
+        private GuardedPatternUseRewriter(Expression matchedObject, JavaTypeInstance matchedType, boolean rewrite) {
+            this.matchedObject = matchedObject;
+            this.matchedType = matchedType;
+            this.rewrite = rewrite;
         }
-        return ce;
+
+        private boolean isMatchedCast(Expression expression) {
+            expression = CastExpression.removeImplicit(expression);
+            if (!(expression instanceof CastExpression)) {
+                return false;
+            }
+            CastExpression castExpression = (CastExpression) expression;
+            return matchedType.equals(castExpression.getInferredJavaType().getJavaTypeInstance()) &&
+                    matchedObject.equals(castExpression.getChild());
+        }
+
+        boolean isMatched() {
+            return matched;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                AssignmentExpression assignmentExpression = (AssignmentExpression) expression;
+                if (scopedEntity.equals(assignmentExpression.getlValue()) && isMatchedCast(assignmentExpression.getrValue())) {
+                    matched = true;
+                    if (rewrite) {
+                        return new LValueExpression(BytecodeLoc.TODO, scopedEntity);
+                    }
+                    return expression;
+                }
+            }
+            if (isMatchedCast(expression)) {
+                matched = true;
+                if (rewrite) {
+                    return new LValueExpression(BytecodeLoc.TODO, scopedEntity);
+                }
+                return expression;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
     }
 }

@@ -100,8 +100,8 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         block.transform(new UnusedAnonymousBlockFlattener(), new StructuredScope());
     }
 
-    public static void switchExpression(Method method, Op04StructuredStatement root , DecompilerComments comments) {
-        SwitchExpressionRewriter switchExpressionRewriter = new SwitchExpressionRewriter(comments, method);
+    public static void switchExpression(Method method, Op04StructuredStatement root, DecompilerComments comments, boolean emitPreviewComment) {
+        SwitchExpressionRewriter switchExpressionRewriter = new SwitchExpressionRewriter(comments, method, emitPreviewComment);
         switchExpressionRewriter.transform(root);
     }
 
@@ -111,8 +111,8 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
     }
 
     // Later stages assume that certain instanceof operations are leaf nodes in boolean op trees.
-    public static void normalizeInstanceOf(Op04StructuredStatement root, Options options, ClassFileVersion classFileVersion) {
-        if (options.getOption(OptionsImpl.INSTANCEOF_PATTERN, classFileVersion)) {
+    public static void normalizeInstanceOf(Op04StructuredStatement root, boolean enabled) {
+        if (enabled) {
             new InstanceOfTreeTransformer().transform(root);
         }
     }

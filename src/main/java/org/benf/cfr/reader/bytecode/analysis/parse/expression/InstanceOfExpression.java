@@ -60,6 +60,10 @@ public class InstanceOfExpression extends AbstractExpression {
         return lhs;
     }
 
+    public JavaTypeInstance getTypeInstance() {
+        return typeInstance;
+    }
+
     @Override
     public Dumper dumpInner(Dumper d) {
         lhs.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);

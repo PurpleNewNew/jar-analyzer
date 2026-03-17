@@ -38,12 +38,6 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.RemoveDetermin
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.StaticInitReturnRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.SwitchReplacer;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.SynchronizedBlocks;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchEnumRewriter;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchPatternRewriter;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchStringRewriter;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.IllegalReturnChecker;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.LooseCatchChecker;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.VoidVariableChecker;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExplicitTypeCallRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.StringBuilderRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.XorRewriter;
@@ -855,100 +849,23 @@ public class CodeAnalyser {
 
         Op03SimpleStatement.noteInterestingLifetimes(op03SimpleParseNodes);
 
-        Op04StructuredStatement block = Op03SimpleStatement.createInitialStructuredBlock(op03SimpleParseNodes);
-
-        applyStructuredCleanup(block, options, method, false);
-
-        /*
-         * If we can't fully structure the code, we bow out here.
-         */
-
-        if (!block.isFullyStructured()) {
-            attemptLateStructureRecovery(block, options, method, bytecodeMeta);
-        }
-        if (!block.isFullyStructured()) {
-            comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
-        } else {
-            Op04StructuredStatement.tidyTypedBooleans(block);
-            Op04StructuredStatement.prettifyBadLoops(block);
-
-            // Replace with a more generic interface, etc.
-
-            new SwitchStringRewriter(options, classFileVersion, bytecodeMeta).rewrite(block);
-            new SwitchEnumRewriter(dcCommonState, classFile, blockIdentifierFactory).rewrite(block);
-
-            // Just prior to variable scopes, if we've got any anonymous classes, and we're J10+,
-            // then see if we are addressing non-existent content of anonymous objects.
-            // If we are, this indicates that var was used.
-            Op04StructuredStatement.rewriteExplicitTypeUsages(method, block, anonymousClassUsage, classFile);
-
-            // Now we've got everything nicely block structured, we can have an easier time
-            // We *have* to discover variable scopes BEFORE we rewrite lambdas, because
-            // otherwise we have to perform some seriously expensive scope rewriting to
-            // understand the scope of variables declared inside lambda expressions, which otherwise
-            // are completely free.
-            //
-            // The downside of this is local classes inside lambdas are not handled correctly.
-            // We therefore need a SEPARATE pass, post lambda, to ensure that local classes are
-            // correctly processed.
-            Op04StructuredStatement.discoverVariableScopes(method, block, variableFactory, options, classFileVersion, bytecodeMeta);
-            if (options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, classFileVersion)) {
-                Op04StructuredStatement.removeEndResource(method.getClassFile(), block);
-            }
-            ModernMethodFeatureRewriter.rewrite(method, block, options, classFileVersion, bytecodeMeta, comments);
-            cleanupAfterModernRewrites(block, options, method, bytecodeMeta);
-
-            Op04StructuredStatement.rewriteLambdas(dcCommonState, method, block);
-            // It's likely we'll only need to perform this due to lambdas in the previous stage, but
-            // for now keep more general.
-            Op04StructuredStatement.removeRedundantIntersectionCasts(dcCommonState, method, block);
-            // Now lambdas have been rewritten, reprocess ONLY to insert local class
-            // definitions.
-            // Note that local class definitions are removed at the point of lambda rewrite.
-            Op04StructuredStatement.discoverLocalClassScopes(method, block, variableFactory, options);
-                                            
-            if (options.getOption(OptionsImpl.REMOVE_BOILERPLATE)) {
-                // Note - we ALSO try to do this in whole pass analysis.
-                if (this.method.isConstructor()) {
-                    Op04StructuredStatement.removeConstructorBoilerplate(block);
-                }
-            }
-
-            // Some misc translations.
-            Op04StructuredStatement.removeUnnecessaryVarargArrays(options, method, block);
-
-            Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
-            // After the final boxing rewrite, go back and check for inconvertible type cast
-            // chains.  (BoxingTest37b)
-            Op04StructuredStatement.rewriteBadCastChains(options, method, block);
-            // Or narrowing casts which are no longer needed because boxed assignments allow them.
-            Op04StructuredStatement.rewriteNarrowingAssignments(options, method, block);
-
-            // Tidy variable names
-            Op04StructuredStatement.tidyVariableNames(method, block, bytecodeMeta, comments, cp.getClassCache());
-
-            Op04StructuredStatement.tidyObfuscation(options, block);
-
-            Op04StructuredStatement.miscKeyholeTransforms(variableFactory, block);
-            applyLateStructurePolish(block, options, method);
-
-
-            /*
-             * Now finally run some extra checks to spot wierdness.
-             */
-            Op04StructuredStatement.applyChecker(new LooseCatchChecker(), block, comments);
-            Op04StructuredStatement.applyChecker(new VoidVariableChecker(), block, comments);
-            Op04StructuredStatement.applyChecker(new IllegalReturnChecker(), block, comments);
-
-            Op04StructuredStatement.flattenNonReferencedBlocks(block);
-
-            Op04StructuredStatement.reduceClashDeclarations(block, bytecodeMeta);
-
-            /*
-             * And apply any type annotations we can.
-             */
-            Op04StructuredStatement.applyLocalVariableMetadata(originalCodeAttribute, block, lutByOffset, comments);
-        }
+        MethodAnalysisContext analysisContext = new MethodAnalysisContext(
+                dcCommonState,
+                options,
+                method,
+                classFile,
+                classFileVersion,
+                bytecodeMeta,
+                comments,
+                variableFactory,
+                anonymousClassUsage,
+                originalCodeAttribute,
+                lutByOffset,
+                cp,
+                blockIdentifierFactory,
+                ModernFeatureStrategy.from(options, classFileVersion)
+        );
+        Op04StructuredStatement block = new StructuredAnalysisPipeline(analysisContext).analyse(op03SimpleParseNodes, analysisContext);
 
         // Only check for type clashes on first pass.
         if (passIdx == 0) {
@@ -958,33 +875,6 @@ public class CodeAnalyser {
         }
 
         return new AnalysisResultSuccessful(comments, block, anonymousClassUsage);
-    }
-
-    private void applyStructuredCleanup(Op04StructuredStatement block,
-                                        Options options,
-                                        Method method,
-                                        boolean includePatternRecovery) {
-        Op04StructuredStatement.tidyEmptyCatch(block);
-        Op04StructuredStatement.tidyTryCatch(block);
-        Op04StructuredStatement.convertUnstructuredIf(block);
-        Op04StructuredStatement.rewriteForwardIfGotos(block);
-        Op04StructuredStatement.rewriteConditionLocalAliases(block);
-        if (includePatternRecovery) {
-            Op04StructuredStatement.prettifyBadLoops(block);
-            new SwitchPatternRewriter().rewrite(block);
-        }
-        Op04StructuredStatement.inlinePossibles(block);
-        Op04StructuredStatement.removeStructuredGotos(block);
-        Op04StructuredStatement.removePointlessBlocks(block);
-        Op04StructuredStatement.removePointlessReturn(block);
-        Op04StructuredStatement.removePointlessControlFlow(block);
-        Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
-        if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
-            Op04StructuredStatement.insertLabelledBlocks(block);
-            Op04StructuredStatement.rewriteForwardIfGotos(block);
-        }
-        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
     }
 
     private List<Op03SimpleStatement> recoverConditionalsAfterDeassignment(List<Op03SimpleStatement> op03SimpleParseNodes,
@@ -1011,42 +901,6 @@ public class CodeAnalyser {
         ConditionalRewriter.identifyNonjumpingConditionals(op03SimpleParseNodes, blockIdentifierFactory, options);
         LValueProp.condenseLValues(op03SimpleParseNodes);
         return Cleaner.sortAndRenumber(op03SimpleParseNodes);
-    }
-
-    private void attemptLateStructureRecovery(Op04StructuredStatement block,
-                                              Options options,
-                                              Method method,
-                                              BytecodeMeta bytecodeMeta) {
-        if (!bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES)
-                && !options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
-            return;
-        }
-        for (int pass = 0; pass < 6 && !block.isFullyStructured(); ++pass) {
-            applyStructuredCleanup(block, options, method, true);
-        }
-    }
-
-    private void cleanupAfterModernRewrites(Op04StructuredStatement block,
-                                            Options options,
-                                            Method method,
-                                            BytecodeMeta bytecodeMeta) {
-        if (!bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES)) {
-            return;
-        }
-        applyStructuredCleanup(block, options, method, true);
-        Op04StructuredStatement.cleanupStructuredExpressionBodies(block);
-    }
-
-    private void applyLateStructurePolish(Op04StructuredStatement block,
-                                          Options options,
-                                          Method method) {
-        Op04StructuredStatement.rewriteForwardIfGotos(block);
-        Op04StructuredStatement.rewriteConditionLocalAliases(block);
-        Op04StructuredStatement.removePointlessBlocks(block);
-        Op04StructuredStatement.removePointlessControlFlow(block);
-        Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
-        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
     }
 
     private void generateUnverifiable(int x, List<Op01WithProcessedDataAndByteJumps> op1list, List<Op02WithProcessedDataAndRefs> op2list, Map<Integer, Integer> lutByIdx, SortedMap<Integer, Integer> lutByOffset, BytecodeLocFactory locFactory) {
