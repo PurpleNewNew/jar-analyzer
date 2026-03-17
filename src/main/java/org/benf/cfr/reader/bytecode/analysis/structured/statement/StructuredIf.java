@@ -185,6 +185,10 @@ public class StructuredIf extends AbstractStructuredStatement implements CanRemo
 
     @Override
     public void removePointlessBlocks(StructuredScope scope) {
+        if (elseBlock == null && ifTaken.getStatement().isEffectivelyNOP()) {
+            getContainer().nopOut();
+            return;
+        }
         if (elseBlock != null && elseBlock.getStatement().isEffectivelyNOP()) {
             elseBlock = null;
         }

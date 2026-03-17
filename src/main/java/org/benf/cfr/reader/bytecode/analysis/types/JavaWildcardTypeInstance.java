@@ -27,12 +27,11 @@ public class JavaWildcardTypeInstance implements JavaGenericBaseInstance {
 
     @Override
     public JavaTypeInstance getBoundInstance(GenericTypeBinder genericTypeBinder) {
-        // TODO : Loses wildcard, do we care?
+        JavaTypeInstance boundUnderlying = underlyingType;
         if (underlyingType instanceof JavaGenericBaseInstance) {
-            return ((JavaGenericBaseInstance) underlyingType).getBoundInstance(genericTypeBinder);
-        } else {
-            return underlyingType;
+            boundUnderlying = ((JavaGenericBaseInstance) underlyingType).getBoundInstance(genericTypeBinder);
         }
+        return new JavaWildcardTypeInstance(wildcardType, boundUnderlying);
     }
 
     @Override
@@ -91,6 +90,10 @@ public class JavaWildcardTypeInstance implements JavaGenericBaseInstance {
 
     public JavaTypeInstance getUnderlyingType() {
         return underlyingType;
+    }
+
+    public WildcardType getWildcardType() {
+        return wildcardType;
     }
 
     @Override

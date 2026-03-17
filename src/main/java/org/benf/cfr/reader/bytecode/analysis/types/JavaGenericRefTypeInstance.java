@@ -302,6 +302,12 @@ public class JavaGenericRefTypeInstance implements JavaGenericBaseInstance, Comp
     @Override
     public boolean implicitlyCastsTo(JavaTypeInstance other, GenericTypeBinder gtb) {
         if (other == TypeConstants.OBJECT) return true;
+        if (other instanceof JavaGenericRefTypeInstance) {
+            JavaGenericRefTypeInstance otherGeneric = (JavaGenericRefTypeInstance) other;
+            if (typeInstance.equals(otherGeneric.typeInstance)) {
+                return genericArgumentsAssignable(genericTypes, otherGeneric.genericTypes, gtb);
+            }
+        }
         if (this.equivalentUnder(other, WILDCARD_CONSTRAINT)) return true;
         BindingSuperContainer bindingSuperContainer = getBindingSupers();
         if (bindingSuperContainer == null) return false;
@@ -322,6 +328,49 @@ public class JavaGenericRefTypeInstance implements JavaGenericBaseInstance, Comp
 
             JavaTypeInstance reboundOther = (gtb.getBindingFor(other));
             if (this.equivalentUnder(reboundOther, WILDCARD_CONSTRAINT)) return true;
+        }
+        return false;
+    }
+
+    private static boolean genericArgumentsAssignable(List<JavaTypeInstance> sourceArgs,
+                                                      List<JavaTypeInstance> targetArgs,
+                                                      GenericTypeBinder gtb) {
+        if (sourceArgs.size() != targetArgs.size()) {
+            return false;
+        }
+        for (int x = 0; x < sourceArgs.size(); ++x) {
+            if (!genericArgumentAssignable(sourceArgs.get(x), targetArgs.get(x), gtb)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean genericArgumentAssignable(JavaTypeInstance sourceArg,
+                                                     JavaTypeInstance targetArg,
+                                                     GenericTypeBinder gtb) {
+        if (sourceArg.equals(targetArg)) {
+            return true;
+        }
+        if (targetArg instanceof JavaWildcardTypeInstance) {
+            JavaWildcardTypeInstance targetWildcard = (JavaWildcardTypeInstance) targetArg;
+            JavaTypeInstance sourceBound = sourceArg;
+            if (sourceArg instanceof JavaWildcardTypeInstance) {
+                JavaWildcardTypeInstance sourceWildcard = (JavaWildcardTypeInstance) sourceArg;
+                if (sourceWildcard.getWildcardType() != targetWildcard.getWildcardType()) {
+                    return false;
+                }
+                sourceBound = sourceWildcard.getUnderlyingType();
+            }
+            JavaTypeInstance targetBound = targetWildcard.getUnderlyingType();
+            switch (targetWildcard.getWildcardType()) {
+                case EXTENDS:
+                    return sourceBound.equals(targetBound) || sourceBound.implicitlyCastsTo(targetBound, gtb);
+                case SUPER:
+                    return targetBound.equals(sourceBound) || targetBound.implicitlyCastsTo(sourceBound, gtb);
+                default:
+                    return sourceBound.equals(targetBound);
+            }
         }
         return false;
     }

@@ -39,6 +39,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.StaticInitRetu
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.SwitchReplacer;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters.SynchronizedBlocks;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchEnumRewriter;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchPatternRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchStringRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.IllegalReturnChecker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.LooseCatchChecker;
@@ -849,27 +850,15 @@ public class CodeAnalyser {
 
         Op04StructuredStatement block = Op03SimpleStatement.createInitialStructuredBlock(op03SimpleParseNodes);
 
-        Op04StructuredStatement.tidyEmptyCatch(block);
-        Op04StructuredStatement.tidyTryCatch(block);
-        Op04StructuredStatement.convertUnstructuredIf(block);
-        Op04StructuredStatement.inlinePossibles(block);
-        Op04StructuredStatement.removeStructuredGotos(block);
-        Op04StructuredStatement.removePointlessBlocks(block);
-        Op04StructuredStatement.removePointlessReturn(block);
-        Op04StructuredStatement.removePointlessControlFlow(block);
-        Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
-        if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
-            Op04StructuredStatement.insertLabelledBlocks(block);
-        }
-        // It seems perverse to do a second pass for removal of pointless blocks - but now everything is in place
-        // the logic is much cleaner.
-        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
+        applyStructuredCleanup(block, options, method, false);
 
         /*
          * If we can't fully structure the code, we bow out here.
          */
 
+        if (!block.isFullyStructured()) {
+            attemptLateStructureRecovery(block, options, method, bytecodeMeta);
+        }
         if (!block.isFullyStructured()) {
             comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
         } else {
@@ -900,6 +889,7 @@ public class CodeAnalyser {
                 Op04StructuredStatement.removeEndResource(method.getClassFile(), block);
             }
             ModernMethodFeatureRewriter.rewrite(method, block, options, classFileVersion, bytecodeMeta, comments);
+            cleanupAfterModernRewrites(block, options, method, bytecodeMeta);
 
             Op04StructuredStatement.rewriteLambdas(dcCommonState, method, block);
             // It's likely we'll only need to perform this due to lambdas in the previous stage, but
@@ -960,6 +950,54 @@ public class CodeAnalyser {
         }
 
         return new AnalysisResultSuccessful(comments, block, anonymousClassUsage);
+    }
+
+    private void applyStructuredCleanup(Op04StructuredStatement block,
+                                        Options options,
+                                        Method method,
+                                        boolean includePatternRecovery) {
+        Op04StructuredStatement.tidyEmptyCatch(block);
+        Op04StructuredStatement.tidyTryCatch(block);
+        Op04StructuredStatement.convertUnstructuredIf(block);
+        if (includePatternRecovery) {
+            Op04StructuredStatement.prettifyBadLoops(block);
+            new SwitchPatternRewriter().rewrite(block);
+        }
+        Op04StructuredStatement.inlinePossibles(block);
+        Op04StructuredStatement.removeStructuredGotos(block);
+        Op04StructuredStatement.removePointlessBlocks(block);
+        Op04StructuredStatement.removePointlessReturn(block);
+        Op04StructuredStatement.removePointlessControlFlow(block);
+        Op04StructuredStatement.removePrimitiveDeconversion(options, method, block);
+        if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
+            Op04StructuredStatement.insertLabelledBlocks(block);
+        }
+        Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
+        Op04StructuredStatement.flattenNonReferencedBlocks(block);
+    }
+
+    private void attemptLateStructureRecovery(Op04StructuredStatement block,
+                                              Options options,
+                                              Method method,
+                                              BytecodeMeta bytecodeMeta) {
+        if (!bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES)
+                && !options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
+            return;
+        }
+        for (int pass = 0; pass < 2 && !block.isFullyStructured(); ++pass) {
+            applyStructuredCleanup(block, options, method, true);
+        }
+    }
+
+    private void cleanupAfterModernRewrites(Op04StructuredStatement block,
+                                            Options options,
+                                            Method method,
+                                            BytecodeMeta bytecodeMeta) {
+        if (!bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES)) {
+            return;
+        }
+        applyStructuredCleanup(block, options, method, true);
+        Op04StructuredStatement.cleanupStructuredExpressionBodies(block);
     }
 
     private void generateUnverifiable(int x, List<Op01WithProcessedDataAndByteJumps> op1list, List<Op02WithProcessedDataAndRefs> op2list, Map<Integer, Integer> lutByIdx, SortedMap<Integer, Integer> lutByOffset, BytecodeLocFactory locFactory) {

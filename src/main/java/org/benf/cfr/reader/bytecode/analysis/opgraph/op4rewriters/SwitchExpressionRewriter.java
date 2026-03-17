@@ -378,7 +378,9 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
             return transformer.singleValue;
         }
 
-        return new StructuredStatementExpression(target.getInferredJavaType(), body.getStatement());
+        StructuredStatementExpression structuredStatementExpression = new StructuredStatementExpression(target.getInferredJavaType(), body.getStatement());
+        structuredStatementExpression.cleanupContent();
+        return structuredStatementExpression;
     }
 
     /*

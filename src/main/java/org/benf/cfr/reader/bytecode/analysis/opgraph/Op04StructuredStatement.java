@@ -13,12 +13,15 @@ import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ConstantFoldingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverImpl;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.AbstractLValueScopeDiscoverer;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LocalClassScopeDiscoverImpl;
+import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.*;
@@ -667,8 +670,23 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             in.transformStructuredChildren(this, scope);
             if (in instanceof CanRemovePointlessBlock) {
                 ((CanRemovePointlessBlock) in).removePointlessBlocks(scope);
+                return in.getContainer().getStatement();
             }
             return in;
+        }
+    }
+
+    private static class StructuredExpressionBodyCleaner extends AbstractExpressionRewriter {
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof StructuredStatementExpression) {
+                StructuredStatementExpression structuredStatementExpression = (StructuredStatementExpression) expression;
+                structuredStatementExpression.cleanupContent();
+            }
+            return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
         }
     }
 
@@ -819,6 +837,10 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
 
     public static void removePointlessBlocks(Op04StructuredStatement root) {
         root.transform(new PointlessBlockRemover(), new StructuredScope());
+    }
+
+    public static void cleanupStructuredExpressionBodies(Op04StructuredStatement root) {
+        new ExpressionRewriterTransformer(new StructuredExpressionBodyCleaner()).transform(root);
     }
 
     /*

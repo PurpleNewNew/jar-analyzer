@@ -72,7 +72,7 @@ public class ConditionalRewriter {
                 takenTarget.getTargets().get(0) == notTakenTarget.getTargets().get(0))) {
             return false;
         }
-        notTakenTarget.replaceStatement(new CommentStatement("empty if block"));
+        notTakenTarget.replaceStatement(new Nop());
         // Replace the not taken target with an 'empty if statement'.
 
         return false;
@@ -344,7 +344,7 @@ lbl10: // 1 sources:
         if (idxCurrent == idxEnd) {
             // It's a trivial tautology? We can't nop it out unless it's side effect free.
             // Instead insert a comment.
-            Op03SimpleStatement taken = new Op03SimpleStatement(blocksAtStart, new CommentStatement("empty if block"), notTakenTarget.getIndex().justBefore());
+            Op03SimpleStatement taken = new Op03SimpleStatement(blocksAtStart, new Nop(), notTakenTarget.getIndex().justBefore());
             taken.addSource(ifStatement);
             taken.addTarget(notTakenTarget);
             Op03SimpleStatement emptyTarget = ifStatement.getTargets().get(0);

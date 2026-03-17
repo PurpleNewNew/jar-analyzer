@@ -7,11 +7,11 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredReturn;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
 import org.benf.cfr.reader.util.output.Dumper;
@@ -74,13 +74,24 @@ public class ReturnValueStatement extends ReturnStatement {
          * until now.
          */
         Expression rvalueUse = rvalue;
-        if (fnReturnType instanceof RawJavaType) {
-            if (!rvalue.getInferredJavaType().getJavaTypeInstance().implicitlyCastsTo(fnReturnType, null)) {
-                InferredJavaType inferredJavaType = new InferredJavaType(fnReturnType, InferredJavaType.Source.FUNCTION, true);
-                rvalueUse = new CastExpression(BytecodeLoc.NONE, inferredJavaType, rvalue, true);
-            }
+        if (requiresExplicitReturnCast(rvalue.getInferredJavaType().getJavaTypeInstance(), fnReturnType)) {
+            InferredJavaType inferredJavaType = new InferredJavaType(fnReturnType, InferredJavaType.Source.FUNCTION, true);
+            rvalueUse = new CastExpression(BytecodeLoc.NONE, inferredJavaType, rvalue, true);
         }
         return new StructuredReturn(getLoc(), rvalueUse, fnReturnType);
+    }
+
+    private static boolean requiresExplicitReturnCast(JavaTypeInstance valueType, JavaTypeInstance targetType) {
+        if (!valueType.implicitlyCastsTo(targetType, null)) {
+            return true;
+        }
+        if (!(targetType instanceof JavaGenericRefTypeInstance)) {
+            return false;
+        }
+        if (!valueType.getDeGenerifiedType().equals(targetType.getDeGenerifiedType())) {
+            return false;
+        }
+        return !(valueType instanceof JavaGenericRefTypeInstance);
     }
 
     @Override
