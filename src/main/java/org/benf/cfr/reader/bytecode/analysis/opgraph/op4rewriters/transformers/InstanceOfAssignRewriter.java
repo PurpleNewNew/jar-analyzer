@@ -16,6 +16,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.InstanceOfExpressi
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.InstanceOfExpressionDefining;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.NotOperation;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.PatternFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -219,9 +220,7 @@ public class InstanceOfAssignRewriter {
         if (ct != null) {
             if (ct.matchType == MatchType.SIMPLE) {
                 LValue obj = objWildcard.getMatch();
-
-                ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
-                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                ce = new BooleanExpression(PatternFactory.defining(
                         new LValueExpression(obj),
                         scopedEntity.getInferredJavaType().getJavaTypeInstance(),
                         scopedEntity
@@ -229,9 +228,7 @@ public class InstanceOfAssignRewriter {
             } else {
                 LValue obj = objWildcard.getMatch();
                 LValue tmp = tmpWildcard.getMatch();
-
-                ce = new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
-                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                ce = new BooleanExpression(PatternFactory.defining(
                         new AssignmentExpression(BytecodeLoc.TODO, tmp, new LValueExpression(BytecodeLoc.TODO, obj)),
                         scopedEntity.getInferredJavaType().getJavaTypeInstance(),
                         scopedEntity
@@ -247,8 +244,7 @@ public class InstanceOfAssignRewriter {
             return ce;
         }
         return new BooleanOperation(ce.getLoc(),
-                new BooleanExpression(new InstanceOfExpressionDefining(BytecodeLoc.TODO,
-                        new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION),
+                new BooleanExpression(PatternFactory.defining(
                         guardedMatch.instanceOf.getLhs(),
                         guardedMatch.instanceOf.getTypeInstance(),
                         scopedEntity

@@ -9,12 +9,9 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.MemberFunctionInvokation;
-import org.benf.cfr.reader.bytecode.analysis.parse.expression.PatternCaseLabel;
-import org.benf.cfr.reader.bytecode.analysis.parse.pattern.BindingPattern;
-import org.benf.cfr.reader.bytecode.analysis.parse.pattern.GuardedPattern;
-import org.benf.cfr.reader.bytecode.analysis.parse.pattern.RecordPattern;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.pattern.PatternFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
@@ -113,10 +110,9 @@ final class SwitchPatternCasePlanner {
                 return new CaseRewritePlan(
                         structuredCase,
                         bodyBlock,
-                        new PatternCaseLabel(
-                                BytecodeLoc.NONE,
-                                new GuardedPattern(
-                                        new BindingPattern(conditionalGuardPlan.binding.getInferredJavaType().getJavaTypeInstance(), conditionalGuardPlan.binding),
+                        PatternFactory.caseLabel(
+                                PatternFactory.guarded(
+                                        PatternFactory.binding(conditionalGuardPlan.binding.getInferredJavaType().getJavaTypeInstance(), conditionalGuardPlan.binding),
                                         conditionalGuardPlan.guard
                                 )
                         ),
@@ -129,10 +125,9 @@ final class SwitchPatternCasePlanner {
                 return new CaseRewritePlan(
                         structuredCase,
                         bodyBlock,
-                        new PatternCaseLabel(
-                                BytecodeLoc.NONE,
-                                new GuardedPattern(
-                                        new BindingPattern(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding),
+                        PatternFactory.caseLabel(
+                                PatternFactory.guarded(
+                                        PatternFactory.binding(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding),
                                         guardPlan.guard
                                 )
                         ),
@@ -145,9 +140,8 @@ final class SwitchPatternCasePlanner {
                 return new CaseRewritePlan(
                         structuredCase,
                         bodyBlock,
-                        new PatternCaseLabel(
-                                BytecodeLoc.NONE,
-                                new RecordPattern(
+                        PatternFactory.caseLabel(
+                                PatternFactory.record(
                                         patternBinding.binding.getInferredJavaType().getJavaTypeInstance(),
                                         recordPatternPlan.components
                                 )
@@ -164,9 +158,8 @@ final class SwitchPatternCasePlanner {
             return new CaseRewritePlan(
                     structuredCase,
                     bodyBlock,
-                    new PatternCaseLabel(
-                            BytecodeLoc.NONE,
-                            new BindingPattern(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding)
+                    PatternFactory.caseLabel(
+                            PatternFactory.binding(patternBinding.binding.getInferredJavaType().getJavaTypeInstance(), patternBinding.binding)
                     ),
                     rewrittenStatements
             );
