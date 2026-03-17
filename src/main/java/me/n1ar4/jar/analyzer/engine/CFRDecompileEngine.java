@@ -10,7 +10,6 @@
 
 package me.n1ar4.jar.analyzer.engine;
 
-import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.cache.BuildScopedLru;
 import me.n1ar4.jar.analyzer.core.notify.NotifierContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRuntimeState;
@@ -66,12 +65,6 @@ public class CFRDecompileEngine {
     public static String decompile(String classFilePath) {
         if (classFilePath == null || classFilePath.trim().isEmpty()) {
             logger.warn("class file path is null or empty");
-            return null;
-        }
-        if (DatabaseManager.isBuilding()) {
-            logger.info("decompile blocked during build");
-            NotifierContext.get().warn("Jar Analyzer",
-                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
             return null;
         }
 
@@ -173,12 +166,6 @@ public class CFRDecompileEngine {
             logger.warn("class file path is null or empty");
             return null;
         }
-        if (DatabaseManager.isBuilding()) {
-            logger.info("decompile blocked during build");
-            NotifierContext.get().warn("Jar Analyzer",
-                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
-            return null;
-        }
         ensureFreshCaches();
         ProjectRuntimeState runtimeState = ProjectRuntimeContext.getState();
         String key = buildCacheKey(classFilePath, runtimeState);
@@ -273,10 +260,6 @@ public class CFRDecompileEngine {
             logger.warn("cfr decompile fail: " + ex.getMessage());
             return null;
         }
-    }
-
-    public static String getCFR_PREFIX() {
-        return CFR_PREFIX;
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
@@ -401,8 +384,10 @@ public class CFRDecompileEngine {
             if (mapping == null) {
                 continue;
             }
-            NavigableMap<Integer, Integer> offsetToDecompiled = mapping.getClassFileMappings();
-            NavigableMap<Integer, Integer> offsetToSource = mapping.getMappings();
+            // CFR exposes two coordinate systems keyed by the same bytecode offsets:
+            // getMappings() -> decompiled line numbers, getClassFileMappings() -> original class-file lines.
+            NavigableMap<Integer, Integer> offsetToDecompiled = mapping.getMappings();
+            NavigableMap<Integer, Integer> offsetToSource = mapping.getClassFileMappings();
             if (offsetToDecompiled == null || offsetToDecompiled.isEmpty()
                     || offsetToSource == null || offsetToSource.isEmpty()) {
                 continue;

@@ -30,14 +30,12 @@ class DecompiledMethodLocatorTest {
                 + "}\n";
 
         // Hint line inside the second overload body ("println(s);").
-        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(7, 7);
+        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(7);
         DecompiledMethodLocator.JumpTarget target =
                 DecompiledMethodLocator.locate(code, "A", "foo", "(Ljava/lang/String;)V", hint);
 
         assertNotNull(target);
-        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
-                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
-                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
+        assertEquals(DecompiledMethodLocator.Confidence.AST_NAME, target.confidence);
 
         int expected = code.indexOf("foo(String");
         assertTrue(expected >= 0);
@@ -58,14 +56,12 @@ class DecompiledMethodLocatorTest {
                 + "}\n";
 
         // Hint line inside the second constructor body ("this();").
-        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(6, 6);
+        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(6);
         DecompiledMethodLocator.JumpTarget target =
                 DecompiledMethodLocator.locate(code, "B", "<init>", "(I)V", hint);
 
         assertNotNull(target);
-        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
-                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
-                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
+        assertEquals(DecompiledMethodLocator.Confidence.AST_NAME, target.confidence);
 
         int expected = code.indexOf("B(int");
         assertTrue(expected >= 0);
@@ -74,7 +70,7 @@ class DecompiledMethodLocatorTest {
     }
 
     @Test
-    void staticInitializer_shouldJumpToStaticKeyword() {
+    void staticInitializer_shouldJumpToInitializerLine() {
         String code = ""
                 + "public class C {\n"
                 + "    static {\n"
@@ -82,23 +78,21 @@ class DecompiledMethodLocatorTest {
                 + "    }\n"
                 + "}\n";
 
-        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(3, 3);
+        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(3);
         DecompiledMethodLocator.JumpTarget target =
                 DecompiledMethodLocator.locate(code, "C", "<clinit>", "()V", hint);
 
         assertNotNull(target);
-        assertTrue(target.confidence == DecompiledMethodLocator.Confidence.AST_NAME
-                        || target.confidence == DecompiledMethodLocator.Confidence.TEXT_SIGNATURE,
-                "expected AST_NAME or TEXT_SIGNATURE but was " + target.confidence);
+        assertEquals(DecompiledMethodLocator.Confidence.AST_RANGE, target.confidence);
 
-        int expected = code.indexOf("static {");
+        int expected = code.indexOf("    static {");
         assertTrue(expected >= 0);
         assertEquals(expected, target.startOffset);
-        assertEquals("static", code.substring(target.startOffset, target.endOffset));
+        assertEquals(" ", code.substring(target.startOffset, target.endOffset));
     }
 
     @Test
-    void parseFail_shouldUseLocalTextSignatureWhenHintExists() {
+    void parseFail_shouldFallbackToMappingLineWhenHintExists() {
         // Invalid Java on purpose (anonymous class-like name), to force JavaParser parse failure.
         String code = ""
                 + "class 1 implements Runnable {\n"
@@ -107,38 +101,55 @@ class DecompiledMethodLocatorTest {
                 + "    }\n"
                 + "}\n";
 
-        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(3, 3);
+        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(2);
         DecompiledMethodLocator.JumpTarget target =
                 DecompiledMethodLocator.locate(code, "pkg/Outer$1", "run", "()V", hint);
 
         assertNotNull(target);
-        assertEquals(DecompiledMethodLocator.Confidence.TEXT_SIGNATURE, target.confidence);
+        assertEquals(DecompiledMethodLocator.Confidence.MAPPING_LINE, target.confidence);
 
-        int expected = code.indexOf("run()");
+        int expected = code.indexOf("    public void run()");
         assertTrue(expected >= 0);
         assertEquals(expected, target.startOffset);
-        assertEquals("run", code.substring(target.startOffset, target.endOffset));
     }
 
     @Test
-    void parseFail_shouldFallbackToMappingLineWhenSignatureNotFound() {
+    void overloadWithoutDescriptor_shouldFallbackToMappingLineWhenHintExists() {
         String code = ""
-                + "class 1 implements Runnable {\n"
-                + "    public void run() {\n"
-                + "        System.out.println(\"x\");\n"
+                + "public class A {\n"
+                + "    public void foo(int x) {\n"
+                + "    }\n"
+                + "\n"
+                + "    public void foo(String s) {\n"
                 + "    }\n"
                 + "}\n";
 
-        // Ask for a non-existing symbol, but hint exists.
-        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(3, 3);
+        DecompiledMethodLocator.RangeHint hint = new DecompiledMethodLocator.RangeHint(5);
         DecompiledMethodLocator.JumpTarget target =
-                DecompiledMethodLocator.locate(code, "pkg/Outer$1", "missing", "()V", hint);
+                DecompiledMethodLocator.locate(code, "A", "foo", "", hint);
 
         assertNotNull(target);
         assertEquals(DecompiledMethodLocator.Confidence.MAPPING_LINE, target.confidence);
 
-        int expected = code.indexOf("        System.out.println");
+        int expected = code.indexOf("    public void foo(String s) {");
         assertTrue(expected >= 0);
         assertEquals(expected, target.startOffset);
+    }
+
+    @Test
+    void overloadWithoutDescriptor_shouldNotGuessWithoutHint() {
+        String code = ""
+                + "public class A {\n"
+                + "    public void foo(int x) {\n"
+                + "    }\n"
+                + "\n"
+                + "    public void foo(String s) {\n"
+                + "    }\n"
+                + "}\n";
+
+        DecompiledMethodLocator.JumpTarget target =
+                DecompiledMethodLocator.locate(code, "A", "foo", "", null);
+
+        assertNull(target);
     }
 }

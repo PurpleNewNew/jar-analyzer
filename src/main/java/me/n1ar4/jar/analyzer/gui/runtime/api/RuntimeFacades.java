@@ -132,6 +132,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -677,6 +678,7 @@ public final class RuntimeFacades {
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
                 "", "", null, "", "", "", 0, initialTr("就绪", "ready"));
+        private volatile List<CFRDecompileEngine.CfrLineMapping> editorLineMappings = List.of();
         private final AtomicLong editorOpenTicket = new AtomicLong(0L);
         private final Object navLock = new Object();
         private final List<NavState> navStates = new ArrayList<>();
@@ -2526,6 +2528,7 @@ public final class RuntimeFacades {
             int caretOffset = Math.max(0, doc.caretOffset());
             STATE.currentClass = className;
             STATE.currentJar = jarName;
+            STATE.editorLineMappings = List.of();
             if (methodName.isBlank()) {
                 STATE.currentMethod = null;
             } else {
@@ -2729,6 +2732,7 @@ public final class RuntimeFacades {
                 if (!isEditorOpenTicketActive(ticket)) {
                     return false;
                 }
+                STATE.editorLineMappings = List.of();
                 STATE.editorDocument = new EditorDocumentDto(
                         safe(className),
                         "",
@@ -2751,23 +2755,28 @@ public final class RuntimeFacades {
             }
             String content = "";
             String status = "ready";
+            List<CFRDecompileEngine.CfrLineMapping> lineMappings = List.of();
             if (safe(absPath).isEmpty()) {
                 status = "class bytecode path not found";
             } else {
                 try {
                     Path classPath = Paths.get(absPath);
-                    if (isSourceTextPath(classPath)) {
-                        content = readSourceText(classPath);
-                        status = content.isEmpty() ? "source file is empty" : "source opened";
+                    CFRDecompileEngine.CfrDecompileResult result =
+                            DecompileDispatcher.decompileWithLineMapping(classPath);
+                    if (result == null || result.getCode() == null) {
+                        status = "decompile output is empty";
+                        content = "";
+                        lineMappings = List.of();
                     } else {
-                        content = DecompileDispatcher.decompile(classPath);
-                        if (content == null) {
-                            status = "decompile output is empty";
-                            content = "";
-                        }
+                        content = result.getCode();
+                        List<CFRDecompileEngine.CfrLineMapping> resolvedMappings = result.getLineMappings();
+                        lineMappings = resolvedMappings == null || resolvedMappings.isEmpty()
+                                ? List.of()
+                                : List.copyOf(resolvedMappings);
                     }
                 } catch (Throwable ex) {
                     status = "decompile failed: " + ex.getMessage();
+                    lineMappings = List.of();
                 }
             }
             String jarName = "";
@@ -2786,6 +2795,7 @@ public final class RuntimeFacades {
             STATE.currentClass = normalizedClass;
             STATE.currentJar = jarName;
             STATE.currentMethod = null;
+            STATE.editorLineMappings = lineMappings;
             STATE.editorDocument = new EditorDocumentDto(
                     normalizedClass,
                     jarName,
@@ -2800,29 +2810,6 @@ public final class RuntimeFacades {
                 pushNavigation(normalizedClass, "", "", normalizedJarId);
             }
             return true;
-        }
-
-        private boolean isSourceTextPath(Path path) {
-            if (path == null) {
-                return false;
-            }
-            String name = safe(path.getFileName() == null ? "" : path.getFileName().toString())
-                    .toLowerCase(Locale.ROOT);
-            return name.endsWith(".java")
-                    || name.endsWith(".kt")
-                    || name.endsWith(".groovy");
-        }
-
-        private String readSourceText(Path path) {
-            if (path == null || Files.notExists(path) || !Files.isRegularFile(path)) {
-                return "";
-            }
-            try {
-                return Files.readString(path, StandardCharsets.UTF_8);
-            } catch (Exception ex) {
-                logger.debug("read source text failed: {}", ex.toString());
-                return "";
-            }
         }
 
         private void openMethodInternal(
@@ -2845,7 +2832,14 @@ public final class RuntimeFacades {
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
             try {
-                DecompiledMethodLocator.RangeHint rangeHint = toRangeHint(lineNumberHint);
+                Integer anchorLine = resolveEditorAnchorLine(
+                        safe(methodName),
+                        safe(methodDesc),
+                        lineNumberHint
+                );
+                DecompiledMethodLocator.RangeHint rangeHint = anchorLine == null
+                        ? null
+                        : new DecompiledMethodLocator.RangeHint(anchorLine);
                 DecompiledMethodLocator.JumpTarget jump = DecompiledMethodLocator.locate(
                         STATE.editorDocument.content(),
                         normalizedClass,
@@ -2855,13 +2849,6 @@ public final class RuntimeFacades {
                 );
                 if (jump != null) {
                     caretOffset = Math.max(0, jump.startOffset);
-                } else if (lineNumberHint != null && lineNumberHint > 0) {
-                    caretOffset = Math.max(0, offsetByLineNumber(STATE.editorDocument.content(), lineNumberHint));
-                } else {
-                    int fallbackOffset = offsetByMethodName(STATE.editorDocument.content(), safe(methodName));
-                    if (fallbackOffset > 0) {
-                        caretOffset = fallbackOffset;
-                    }
                 }
             } catch (Throwable ex) {
                 logger.debug("editor locate method failed: {}", ex.toString());
@@ -2902,47 +2889,111 @@ public final class RuntimeFacades {
             }
         }
 
-        private DecompiledMethodLocator.RangeHint toRangeHint(Integer lineNumberHint) {
+        private Integer resolveEditorAnchorLine(String methodName,
+                                                String methodDesc,
+                                                Integer lineNumberHint) {
             if (lineNumberHint == null || lineNumberHint <= 0) {
                 return null;
             }
-            int min = Math.max(1, lineNumberHint - 2);
-            int max = Math.max(min, lineNumberHint + 2);
-            return new DecompiledMethodLocator.RangeHint(min, max);
+            return findMappedDecompiledLine(methodName, methodDesc, lineNumberHint);
         }
 
-        private int offsetByLineNumber(String content, int lineNumber) {
-            String text = safe(content);
-            if (text.isEmpty() || lineNumber <= 1) {
-                return 0;
+        private Integer findMappedDecompiledLine(String methodName,
+                                                 String methodDesc,
+                                                 Integer sourceLineHint) {
+            if (sourceLineHint == null || sourceLineHint <= 0) {
+                return null;
             }
-            int currentLine = 1;
-            int offset = 0;
-            while (offset < text.length() && currentLine < lineNumber) {
-                if (text.charAt(offset) == '\n') {
-                    currentLine++;
-                }
-                offset++;
-            }
-            return Math.max(0, Math.min(text.length(), offset));
-        }
-
-        private int offsetByMethodName(String content, String methodName) {
-            String text = safe(content);
             String name = safe(methodName).trim();
-            if (text.isEmpty() || name.isEmpty()) {
-                return 0;
+            if (name.isEmpty()) {
+                return null;
             }
-            if ("<clinit>".equals(name)) {
-                int staticIdx = text.indexOf("static {");
-                return staticIdx >= 0 ? staticIdx : 0;
+            String desc = safe(methodDesc).trim();
+            if (!desc.isEmpty()) {
+                return findMappedDecompiledLine(name, desc, sourceLineHint, true);
             }
-            if ("<init>".equals(name)) {
-                int ctorIdx = text.indexOf('(');
-                return ctorIdx >= 0 ? ctorIdx : 0;
+            List<CFRDecompileEngine.CfrLineMapping> namedMappings = collectNamedLineMappings(name);
+            if (namedMappings.size() != 1) {
+                return null;
             }
-            int idx = text.indexOf(name + "(");
-            return idx >= 0 ? idx : 0;
+            return findClosestMappedLine(namedMappings.get(0).getDecompiledToSource(), sourceLineHint);
+        }
+
+        private Integer findMappedDecompiledLine(String methodName,
+                                                 String methodDesc,
+                                                 int sourceLineHint,
+                                                 boolean requireDescriptor) {
+            List<CFRDecompileEngine.CfrLineMapping> mappings = STATE.editorLineMappings;
+            if (mappings == null || mappings.isEmpty()) {
+                return null;
+            }
+            Integer bestLine = null;
+            int bestDistance = Integer.MAX_VALUE;
+            for (CFRDecompileEngine.CfrLineMapping mapping : mappings) {
+                if (mapping == null) {
+                    continue;
+                }
+                if (!methodName.equals(safe(mapping.getMethodName()).trim())) {
+                    continue;
+                }
+                if (requireDescriptor && !methodDesc.equals(safe(mapping.getMethodDesc()).trim())) {
+                    continue;
+                }
+                Integer candidate = findClosestMappedLine(mapping.getDecompiledToSource(), sourceLineHint);
+                if (candidate == null) {
+                    continue;
+                }
+                Integer sourceLine = mapping.getDecompiledToSource().get(candidate);
+                int distance = sourceLine == null
+                        ? Integer.MAX_VALUE
+                        : Math.abs(sourceLine - sourceLineHint);
+                if (bestLine == null
+                        || distance < bestDistance
+                        || (distance == bestDistance && candidate < bestLine)) {
+                    bestLine = candidate;
+                    bestDistance = distance;
+                }
+            }
+            return bestLine;
+        }
+
+        private List<CFRDecompileEngine.CfrLineMapping> collectNamedLineMappings(String methodName) {
+            List<CFRDecompileEngine.CfrLineMapping> mappings = STATE.editorLineMappings;
+            if (mappings == null || mappings.isEmpty()) {
+                return List.of();
+            }
+            List<CFRDecompileEngine.CfrLineMapping> out = new ArrayList<>();
+            for (CFRDecompileEngine.CfrLineMapping mapping : mappings) {
+                if (mapping == null) {
+                    continue;
+                }
+                if (methodName.equals(safe(mapping.getMethodName()).trim())) {
+                    out.add(mapping);
+                }
+            }
+            return out;
+        }
+
+        private Integer findClosestMappedLine(NavigableMap<Integer, Integer> decompiledToSource,
+                                              int sourceLineHint) {
+            if (decompiledToSource == null || decompiledToSource.isEmpty()) {
+                return null;
+            }
+            Integer bestLine = null;
+            int bestDistance = Integer.MAX_VALUE;
+            for (Map.Entry<Integer, Integer> entry : decompiledToSource.entrySet()) {
+                if (entry == null || entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                int distance = Math.abs(entry.getValue() - sourceLineHint);
+                if (bestLine == null
+                        || distance < bestDistance
+                        || (distance == bestDistance && entry.getKey() < bestLine)) {
+                    bestLine = entry.getKey();
+                    bestDistance = distance;
+                }
+            }
+            return bestLine;
         }
 
         private void pushNavigation(String className, String methodName, String methodDesc, Integer jarId) {
@@ -3042,6 +3093,7 @@ public final class RuntimeFacades {
         @Override
         public void applyEditorText(String content, int caretOffset) {
             EditorDocumentDto doc = STATE.editorDocument;
+            STATE.editorLineMappings = List.of();
             STATE.editorDocument = new EditorDocumentDto(
                     doc.className(),
                     doc.jarName(),

@@ -25,19 +25,19 @@ public final class DecompileDispatcher {
     }
 
     public static String decompile(Path path) {
-        if (path == null) {
+        Path decompilePath = resolveDecompilePath(path);
+        if (decompilePath == null) {
             return null;
         }
-        if (DatabaseManager.isBuilding()) {
-            logger.info("decompile blocked during build");
-            NotifierContext.get().warn("Jar Analyzer",
-                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
+        return CFRDecompileEngine.decompile(decompilePath.toString());
+    }
+
+    public static CFRDecompileEngine.CfrDecompileResult decompileWithLineMapping(Path path) {
+        Path decompilePath = resolveDecompilePath(path);
+        if (decompilePath == null) {
             return null;
         }
-        if (isModuleInfoPath(path)) {
-            return null;
-        }
-        return CFRDecompileEngine.decompile(path.toAbsolutePath().toString());
+        return CFRDecompileEngine.decompileWithLineMapping(decompilePath.toString());
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
@@ -51,15 +51,20 @@ public final class DecompileDispatcher {
         return CFRDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
     }
 
-    public static String stripPrefix(String code) {
-        if (code == null) {
+    private static Path resolveDecompilePath(Path path) {
+        if (path == null) {
             return null;
         }
-        String cfrPrefix = CFRDecompileEngine.getCFR_PREFIX();
-        if (cfrPrefix != null && code.startsWith(cfrPrefix)) {
-            return code.substring(cfrPrefix.length());
+        if (DatabaseManager.isBuilding()) {
+            logger.info("decompile blocked during build");
+            NotifierContext.get().warn("Jar Analyzer",
+                    "Build is running, index not ready.\n构建中索引未完成，已禁止反编译。");
+            return null;
         }
-        return code;
+        if (isModuleInfoPath(path)) {
+            return null;
+        }
+        return path.toAbsolutePath();
     }
 
     private static boolean isModuleInfoPath(Path path) {

@@ -87,6 +87,35 @@ class EditorFacadeNavigationTest {
         assertFalse(owners.contains("me/n1ar4/cb/Task"));
     }
 
+    @Test
+    void openMethodWithLineHintShouldUseMappedDecompiledLineForOverload() throws Exception {
+        bootstrapCallbackFixture();
+
+        RuntimeFacades.editor().openMethod(
+                "me/n1ar4/cb/ReflectionTarget",
+                "overloaded",
+                "(Ljava/lang/String;)V",
+                null,
+                24
+        );
+        EditorDocumentDto doc = RuntimeFacades.editor().current();
+
+        assertNotNull(doc);
+        String content = safe(doc.content());
+        int wrong = content.indexOf("overloaded()");
+        assertTrue(doc.caretOffset() >= 0);
+        assertTrue(content.startsWith("overloaded(String", doc.caretOffset()),
+                "expected caret to land on overloaded(String...) but was: "
+                        + content.substring(
+                        Math.max(0, doc.caretOffset()),
+                        Math.min(content.length(), doc.caretOffset() + 40)
+                ));
+        assertFalse(doc.caretOffset() == wrong,
+                "line mapping should not land on the no-arg overload");
+        assertEquals("overloaded", doc.methodName());
+        assertEquals("(Ljava/lang/String;)V", doc.methodDesc());
+    }
+
     private static void bootstrapCallbackFixture() throws Exception {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);

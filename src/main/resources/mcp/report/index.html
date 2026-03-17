@@ -287,12 +287,6 @@
                     <el-form-item label="API Token">
                         <el-input v-model="settings.token" placeholder="Token (optional)"></el-input>
                     </el-form-item>
-                    <el-form-item label="Decompiler">
-                        <el-select v-model="settings.decompiler" placeholder="Select decompiler">
-                            <el-option label="Fernflower" value="fernflower"></el-option>
-                            <el-option label="CFR" value="cfr"></el-option>
-                        </el-select>
-                    </el-form-item>
                 </el-form>
                 <template #footer>
                     <span class="dialog-footer">
@@ -333,9 +327,9 @@
                 
                 const settings = ref({
                     apiUrl: localStorage.getItem('ja_api_url') || 'http://127.0.0.1:8088',
-                    decompiler: localStorage.getItem('ja_decompiler') || 'fernflower',
                     token: localStorage.getItem('ja_api_token') || ''
                 });
+                localStorage.removeItem('ja_decompiler');
 
                 let ws = null;
                 let myPieChart = null;
@@ -375,8 +369,8 @@
 
                 const saveSettings = () => {
                     localStorage.setItem('ja_api_url', settings.value.apiUrl);
-                    localStorage.setItem('ja_decompiler', settings.value.decompiler);
                     localStorage.setItem('ja_api_token', settings.value.token || '');
+                    localStorage.removeItem('ja_decompiler');
                     settingsVisible.value = false;
                     ElementPlus.ElMessage.success('Settings saved');
                 };
@@ -390,8 +384,7 @@
 
                     try {
                         const baseUrl = settings.value.apiUrl.replace(/\/$/, '');
-                        const decompiler = settings.value.decompiler;
-                        const targetUrl = `${baseUrl}/api/${decompiler}_code?class=${encodeURIComponent(trace.class)}&method=${encodeURIComponent(trace.method)}&desc=${encodeURIComponent(trace.desc || '')}`;
+                        const targetUrl = `${baseUrl}/api/code?class=${encodeURIComponent(trace.class)}&method=${encodeURIComponent(trace.method)}&desc=${encodeURIComponent(trace.desc || '')}&engine=cfr&full=true`;
                         
                         const headers = {};
                         if (settings.value.token && settings.value.token.trim()) {

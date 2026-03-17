@@ -24,7 +24,6 @@ import me.n1ar4.jar.analyzer.core.facts.CallSiteEntity;
 import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
 import me.n1ar4.jar.analyzer.engine.model.ClassView;
 import me.n1ar4.jar.analyzer.core.facts.JarEntity;
-import me.n1ar4.jar.analyzer.entity.LineMappingEntity;
 import me.n1ar4.jar.analyzer.core.facts.LocalVarEntity;
 import me.n1ar4.jar.analyzer.core.facts.MemberEntity;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
@@ -60,7 +59,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -70,7 +68,6 @@ public class CoreEngine {
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
 
     private final GraphStore graphStore = new GraphStore();
-    private final Map<String, List<LineMappingEntity>> lineMappings = new ConcurrentHashMap<>();
     private volatile CallGraphCache callGraphCache;
 
     public boolean isEnabled() {
@@ -733,32 +730,6 @@ public class CoreEngine {
             return normalizeJarId(file.getJarId());
         }
         return null;
-    }
-
-    public ArrayList<LineMappingEntity> getLineMappings(String className,
-                                                        Integer jarId,
-                                                        String decompiler) {
-        if (StringUtil.isNull(className)) {
-            return new ArrayList<>();
-        }
-        String key = lineMappingKey(className, jarId, decompiler);
-        List<LineMappingEntity> rows = lineMappings.get(key);
-        return rows == null ? new ArrayList<>() : new ArrayList<>(rows);
-    }
-
-    public void saveLineMappings(String className,
-                                 Integer jarId,
-                                 String decompiler,
-                                 List<LineMappingEntity> mappings) {
-        if (StringUtil.isNull(className)) {
-            return;
-        }
-        String key = lineMappingKey(className, jarId, decompiler);
-        if (mappings == null || mappings.isEmpty()) {
-            lineMappings.remove(key);
-            return;
-        }
-        lineMappings.put(key, new ArrayList<>(mappings));
     }
 
     public String getJarNameById(Integer jarId) {
@@ -1851,11 +1822,6 @@ public class CoreEngine {
             return "";
         }
         return value.substring(0, idx);
-    }
-
-    private String lineMappingKey(String className, Integer jarId, String decompiler) {
-        String cls = normalizeClassName(className);
-        return cls + "#" + normalizeJarId(jarId) + "#" + safe(decompiler).trim().toLowerCase(Locale.ROOT);
     }
 
     private static boolean matchesLike(String target, String expected) {
