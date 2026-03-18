@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredLocalVariableRecovery;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.IllegalReturnChecker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.LooseCatchChecker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.VoidVariableChecker;
@@ -17,6 +18,12 @@ final class OutputPolishStage {
         if (!block.isFullyStructured()) {
             return;
         }
+        applyExpressionPolish(block, context);
+        applyRecoveryPolish(block, context);
+        applyValidationAndMetadata(block, context);
+    }
+
+    private void applyExpressionPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
         if (context.options.getOption(OptionsImpl.REMOVE_BOILERPLATE) && context.method.isConstructor()) {
             Op04StructuredStatement.removeConstructorBoilerplate(block);
         }
@@ -35,13 +42,14 @@ final class OutputPolishStage {
         Op04StructuredStatement.tidyObfuscation(context.options, block);
         Op04StructuredStatement.miscKeyholeTransforms(context.variableFactory, block);
         structureRecoveryPipeline.applyOutputPolish(block, context);
+    }
+
+    private void applyRecoveryPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
         Op04StructuredStatement.reduceClashDeclarations(block, context.bytecodeMeta);
-        Op04StructuredStatement.sinkDefinitionsToFirstUse(block);
-        Op04StructuredStatement.restoreCreatorDependencyOrder(block);
-        Op04StructuredStatement.restoreCreatorsBeforeFirstUse(block);
-        Op04StructuredStatement.restoreLiftableDefinitionAssignments(block);
-        Op04StructuredStatement.restoreTrailingCreatorAssignments(block);
-        Op04StructuredStatement.restorePrefixEmbeddedAssignments(block);
+        StructuredLocalVariableRecovery.applyOutputRecovery(block);
+    }
+
+    private void applyValidationAndMetadata(Op04StructuredStatement block, MethodAnalysisContext context) {
         Op04StructuredStatement.applyChecker(new LooseCatchChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new VoidVariableChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new IllegalReturnChecker(), block, context.comments);

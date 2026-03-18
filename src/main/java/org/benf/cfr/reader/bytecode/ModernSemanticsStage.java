@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredLocalVariableRecovery;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 final class ModernSemanticsStage {
@@ -29,7 +30,7 @@ final class ModernSemanticsStage {
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
         Op04StructuredStatement.rewriteLambdas(context.commonState, context.method, block);
         Op04StructuredStatement.markLambdaCapturedVariables(block);
-        Op04StructuredStatement.restoreLiftableDefinitionAssignments(block);
+        StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
         Op04StructuredStatement.removeRedundantIntersectionCasts(context.commonState, context.method, block);
         Op04StructuredStatement.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }
