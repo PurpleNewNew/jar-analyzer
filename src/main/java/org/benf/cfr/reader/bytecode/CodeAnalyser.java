@@ -105,6 +105,8 @@ public class CodeAnalyser {
     );
 
     private static final RecoveryOptions[] recoveryOptionsArr = new RecoveryOptions[]{recover0, recover0a, recoverPre1, recover1, recover2, recoverExAgg, recover3, recover3a, recoverIgnoreExceptions, recoverMalformed2a};
+    // TODO: Continue extracting the op01/op02 half into named decode/CFG/op03-prep stages so this class only orchestrates
+    // recovery selection and result assembly, rather than acting as the front-half mega dispatcher.
 
     /*
      * This method should not throw.  If it does, something serious has gone wrong.

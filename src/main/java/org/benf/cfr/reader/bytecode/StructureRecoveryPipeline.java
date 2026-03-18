@@ -48,6 +48,8 @@ final class StructureRecoveryPipeline {
         outputPolish.run(block, context);
     }
 
+    // TODO: Promote the remaining wrapper-style passes to dedicated pass classes with their own local state and
+    // improvement checks so recovery groups stop looking like ordered adapters over Op04StructuredStatement statics.
     private List<StructureRecoveryPass> commonRecoveryPasses(boolean includeLoopPrettifier,
                                                              boolean includeStructuredExpressionCleanup,
                                                              PatternSemanticsRewriter patternSemanticsRewriter) {
