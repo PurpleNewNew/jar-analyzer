@@ -17,7 +17,7 @@ final class ModernSemanticsStage {
         if (!block.isFullyStructured()) {
             return;
         }
-        Op04StructuredStatement.rewriteExplicitTypeUsages(context.method, block, context.anonymousClassUsage, context.classFile);
+        Op04StructuredStatement.rewriteExplicitTypeUsages(context.method, block, context.anonymousClassUsage, context.modernFeatures);
         Op04StructuredStatement.discoverVariableScopes(context.method, block, context.variableFactory, context.options, context.classFileVersion, context.bytecodeMeta);
         if (context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion)) {
             Op04StructuredStatement.removeEndResource(context.classFile, block);

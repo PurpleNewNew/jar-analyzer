@@ -2,6 +2,7 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
 import org.benf.cfr.reader.bytecode.AnonymousClassUsage;
 import org.benf.cfr.reader.bytecode.BytecodeMeta;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.*;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.Op04Checker;
@@ -92,8 +93,11 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
      * then see if we are addressing non-existent content of anonymous objects.
      * If we are, this indicates that var was used.
      */
-    public static void rewriteExplicitTypeUsages(Method method, Op04StructuredStatement block, AnonymousClassUsage anonymousClassUsage, ClassFile classFile) {
-        new ObjectTypeUsageRewriter(anonymousClassUsage, classFile).transform(block);
+    public static void rewriteExplicitTypeUsages(Method method,
+                                                 Op04StructuredStatement block,
+                                                 AnonymousClassUsage anonymousClassUsage,
+                                                 ModernFeatureStrategy modernFeatures) {
+        new ObjectTypeUsageRewriter(anonymousClassUsage, modernFeatures).transform(block);
     }
 
     public static void flattenNonReferencedBlocks(Op04StructuredStatement block) {
@@ -901,8 +905,18 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         root.transform(new UnstructuredIfConverter(), new StructuredScope());
     }
 
-    public static void tidyVariableNames(Method method, Op04StructuredStatement root, BytecodeMeta bytecodeMeta, DecompilerComments comments, ClassCache classCache) {
-        VariableNameTidier variableNameTidier = new VariableNameTidier(method, VariableNameTidier.NameDiscoverer.getUsedLambdaNames(bytecodeMeta, root), classCache);
+    public static void tidyVariableNames(Method method,
+                                         Op04StructuredStatement root,
+                                         BytecodeMeta bytecodeMeta,
+                                         DecompilerComments comments,
+                                         ClassCache classCache,
+                                         ModernFeatureStrategy modernFeatures) {
+        VariableNameTidier variableNameTidier = new VariableNameTidier(
+                method,
+                VariableNameTidier.NameDiscoverer.getUsedLambdaNames(bytecodeMeta, root),
+                classCache,
+                modernFeatures
+        );
         variableNameTidier.transform(root);
 
         if (variableNameTidier.isClassRenamed()) {

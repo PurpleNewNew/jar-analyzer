@@ -230,6 +230,7 @@ public class CodeAnalyser {
 
         ClassFile classFile = method.getClassFile();
         ClassFileVersion classFileVersion = classFile.getClassFileVersion();
+        ModernFeatureStrategy modernFeatures = ModernFeatureStrategy.from(options, classFileVersion);
 
         DecompilerComments comments = new DecompilerComments();
 
@@ -250,7 +251,8 @@ public class CodeAnalyser {
                 cp,
                 willSort,
                 aggressiveSizeReductions,
-                passIdx
+                passIdx,
+                modernFeatures
         );
         Op03PipelineState pipelineState = new Op03AnalysisPipeline(pipelineContext).analyse(instrs, pipelineContext);
         MethodAnalysisContext analysisContext = new MethodAnalysisContext(
@@ -267,7 +269,7 @@ public class CodeAnalyser {
                 pipelineState.lutByOffset,
                 cp,
                 pipelineState.blockIdentifierFactory,
-                ModernFeatureStrategy.from(options, classFileVersion)
+                modernFeatures
         );
         Op04StructuredStatement block = new StructuredAnalysisPipeline(analysisContext).analyse(pipelineState.op03SimpleParseNodes, analysisContext);
 

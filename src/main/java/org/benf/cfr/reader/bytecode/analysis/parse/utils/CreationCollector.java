@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.utils;
 
 import org.benf.cfr.reader.bytecode.AnonymousClassUsage;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.InstrIndex;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03SimpleStatement;
@@ -23,7 +24,6 @@ import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.CannotLoadClassException;
-import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.functors.UnaryFunction;
@@ -64,9 +64,11 @@ public class CreationCollector {
     });
 
     private final AnonymousClassUsage anonymousClassUsage;
+    private final ModernFeatureStrategy modernFeatures;
 
-    public CreationCollector(AnonymousClassUsage anonymousClassUsage) {
+    public CreationCollector(AnonymousClassUsage anonymousClassUsage, ModernFeatureStrategy modernFeatures) {
         this.anonymousClassUsage = anonymousClassUsage;
+        this.modernFeatures = modernFeatures;
     }
 
     public void collectCreation(LValue lValue, Expression rValue, StatementContainer container) {
@@ -170,7 +172,7 @@ public class CreationCollector {
                      * var x = new Object(){int bob = 3};
                      * x.bob;
                      */
-                    if (classFile.getClassFileVersion().equalOrLater(ClassFileVersion.JAVA_10)) {
+                    if (modernFeatures.supportsVarOutput()) {
                         inferredJavaType.shallowSetCanBeVar();
                     }
                 } else {

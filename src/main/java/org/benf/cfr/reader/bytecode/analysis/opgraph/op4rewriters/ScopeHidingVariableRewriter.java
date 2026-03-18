@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters;
 
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.VariableNameTidier;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
@@ -31,6 +32,7 @@ public class ScopeHidingVariableRewriter implements Op04Rewriter {
 
     private final Method method;
     private final ClassCache classCache;
+    private final ModernFeatureStrategy modernFeatures;
 
     private final Set<String> outerNames = SetFactory.newSet();
     private final Set<String> usedNames = SetFactory.newSet();
@@ -39,9 +41,13 @@ public class ScopeHidingVariableRewriter implements Op04Rewriter {
      */
     private List<LocalVariable> collisions = ListFactory.newList();
 
-    public ScopeHidingVariableRewriter(List<ClassFileField> fieldVariables, Method method, ClassCache classCache) {
+    public ScopeHidingVariableRewriter(List<ClassFileField> fieldVariables,
+                                       Method method,
+                                       ClassCache classCache,
+                                       ModernFeatureStrategy modernFeatures) {
         this.method = method;
         this.classCache = classCache;
+        this.modernFeatures = modernFeatures;
         MethodPrototype prototype = method.getMethodPrototype();
         for (ClassFileField field : fieldVariables) {
             String fieldName = field.getFieldName();
@@ -79,7 +85,7 @@ public class ScopeHidingVariableRewriter implements Op04Rewriter {
 
         if (collisions.isEmpty()) return;
 
-        VariableNameTidier variableNameTidier = new VariableNameTidier(method, classCache);
+        VariableNameTidier variableNameTidier = new VariableNameTidier(method, classCache, modernFeatures);
         variableNameTidier.renameToAvoidHiding(usedNames, collisions);
     }
 

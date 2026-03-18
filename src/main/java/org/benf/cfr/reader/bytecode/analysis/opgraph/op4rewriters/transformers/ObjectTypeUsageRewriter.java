@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers;
 
 import org.benf.cfr.reader.bytecode.AnonymousClassUsage;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
@@ -20,7 +21,6 @@ import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.ClassFile;
-import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.functors.UnaryFunction;
 
@@ -33,10 +33,10 @@ import java.util.Map;
 public class ObjectTypeUsageRewriter extends AbstractExpressionRewriter implements StructuredStatementTransformer {
 
     private final Map<InferredJavaType, Boolean> isAnonVar = MapFactory.newIdentityMap();
-    private boolean canHaveVar;
+    private final boolean canHaveVar;
 
-    public ObjectTypeUsageRewriter(AnonymousClassUsage anonymousClassUsage, ClassFile classFile) {
-        this.canHaveVar = !anonymousClassUsage.isEmpty() && classFile.getClassFileVersion().equalOrLater(ClassFileVersion.JAVA_10);
+    public ObjectTypeUsageRewriter(AnonymousClassUsage anonymousClassUsage, ModernFeatureStrategy modernFeatures) {
+        this.canHaveVar = modernFeatures.supportsAnonymousObjectVarOutput(!anonymousClassUsage.isEmpty());
     }
 
     public void transform(Op04StructuredStatement root) {

@@ -185,8 +185,12 @@ public class Op03Rewriters {
         PointlessExpressions.removePointlessExpressionStatements(op03SimpleParseNodes);
     }
 
-    public static void condenseConstruction(DCCommonState dcCommonState, Method method, List<Op03SimpleStatement> op03SimpleParseNodes, AnonymousClassUsage anonymousClassUsage) {
-        CondenseConstruction.condenseConstruction(dcCommonState, method, op03SimpleParseNodes, anonymousClassUsage);
+    public static void condenseConstruction(DCCommonState dcCommonState,
+                                            Method method,
+                                            List<Op03SimpleStatement> op03SimpleParseNodes,
+                                            AnonymousClassUsage anonymousClassUsage,
+                                            org.benf.cfr.reader.bytecode.ModernFeatureStrategy modernFeatures) {
+        CondenseConstruction.condenseConstruction(dcCommonState, method, op03SimpleParseNodes, anonymousClassUsage, modernFeatures);
     }
 
     public static void nopIsolatedStackValues(List<Op03SimpleStatement> op03SimpleParseNodes) {

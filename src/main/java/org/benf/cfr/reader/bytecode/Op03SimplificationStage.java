@@ -77,7 +77,13 @@ final class Op03SimplificationStage {
         }
 
         state.anonymousClassUsage = new AnonymousClassUsage();
-        Op03Rewriters.condenseConstruction(context.commonState, context.method, state.op03SimpleParseNodes, state.anonymousClassUsage);
+        Op03Rewriters.condenseConstruction(
+                context.commonState,
+                context.method,
+                state.op03SimpleParseNodes,
+                state.anonymousClassUsage,
+                context.modernFeatures
+        );
         state.op03SimpleParseNodes = Cleaner.sortAndRenumber(state.op03SimpleParseNodes);
         LValueProp.condenseLValues(state.op03SimpleParseNodes);
         Op03Rewriters.condenseLValueChain1(state.op03SimpleParseNodes);

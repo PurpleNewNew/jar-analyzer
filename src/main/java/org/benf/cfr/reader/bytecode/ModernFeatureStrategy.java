@@ -133,4 +133,16 @@ public final class ModernFeatureStrategy {
     public boolean prefersPatternOutput() {
         return supportsBindingPatterns() || supportsRecordPatterns() || supportsGuardedPatterns();
     }
+
+    public boolean supportsVarOutput() {
+        return classFileVersion.equalOrLater(ClassFileVersion.JAVA_10);
+    }
+
+    public boolean supportsAnonymousObjectVarOutput(boolean hasAnonymousClassUsage) {
+        return hasAnonymousClassUsage && supportsVarOutput();
+    }
+
+    public boolean forbidsStandaloneUnderscoreIdentifier() {
+        return classFileVersion.equalOrLater(ClassFileVersion.JAVA_9);
+    }
 }

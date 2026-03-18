@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers;
 
 import org.benf.cfr.reader.bytecode.BytecodeMeta;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
@@ -41,16 +42,18 @@ public class VariableNameTidier implements StructuredStatementTransformer {
     private final JavaTypeInstance ownerClassType;
     private final Set<String> bannedNames;
     private final ClassCache classCache;
+    private final ModernFeatureStrategy modernFeatures;
 
-    public VariableNameTidier(Method method, Set<String> bannedNames, ClassCache classCache) {
+    public VariableNameTidier(Method method, Set<String> bannedNames, ClassCache classCache, ModernFeatureStrategy modernFeatures) {
         this.method = method;
         this.ownerClassType = method.getClassFile().getClassType();
         this.bannedNames = bannedNames;
         this.classCache = classCache;
+        this.modernFeatures = modernFeatures;
     }
 
-    public VariableNameTidier(Method method, ClassCache classCache) {
-        this(method, new HashSet<String>(), classCache);
+    public VariableNameTidier(Method method, ClassCache classCache, ModernFeatureStrategy modernFeatures) {
+        this(method, new HashSet<String>(), classCache, modernFeatures);
     }
 
     public void transform(Op04StructuredStatement root) {
@@ -305,7 +308,7 @@ public class VariableNameTidier implements StructuredStatementTransformer {
             
             // "_" as variable name is illegal since java 9: https://en.wikipedia.org/wiki/List_of_Java_keywords#Special_identifiers
             boolean illegalUnderscore = namedVariable.getStringName().equals("_") &&
-                method.getClassFile().getClassFileVersion().equalOrLater(ClassFileVersion.JAVA_9);
+                modernFeatures.forbidsStandaloneUnderscoreIdentifier();
             
             if (!namedVariable.isGoodName() || illegalUnderscore) {
                 String suggestion = null;

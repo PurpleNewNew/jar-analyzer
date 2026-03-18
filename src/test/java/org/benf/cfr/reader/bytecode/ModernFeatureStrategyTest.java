@@ -23,6 +23,9 @@ class ModernFeatureStrategyTest {
         assertTrue(strategy.supportsRecordPatterns());
         assertTrue(strategy.supportsGuardedPatterns());
         assertTrue(strategy.prefersPatternOutput());
+        assertTrue(strategy.supportsVarOutput());
+        assertTrue(strategy.supportsAnonymousObjectVarOutput(true));
+        assertTrue(strategy.forbidsStandaloneUnderscoreIdentifier());
         assertFalse(strategy.shouldEmitPreviewSealedComment());
         assertFalse(strategy.shouldEmitPreviewSwitchExpressionComment());
     }
@@ -43,9 +46,12 @@ class ModernFeatureStrategyTest {
         assertFalse(previewDisabled.supportsInstanceOfPatterns());
         assertFalse(previewDisabled.supportsRecordTypes());
         assertFalse(previewDisabled.supportsPatternSwitches());
+        assertTrue(previewDisabled.supportsVarOutput());
+        assertFalse(previewDisabled.supportsAnonymousObjectVarOutput(false));
 
         ModernFeatureStrategy switchPreview = ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_13_Experimental);
         assertTrue(switchPreview.supportsSwitchExpressions());
         assertTrue(switchPreview.shouldEmitPreviewSwitchExpressionComment());
+        assertTrue(switchPreview.forbidsStandaloneUnderscoreIdentifier());
     }
 }

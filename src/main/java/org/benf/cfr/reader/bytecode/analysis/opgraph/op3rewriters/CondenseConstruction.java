@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters;
 
 import org.benf.cfr.reader.bytecode.AnonymousClassUsage;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03SimpleStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.CreationCollector;
 import org.benf.cfr.reader.entities.Method;
@@ -21,8 +22,12 @@ class CondenseConstruction {
      *
      * a1 = new foo(x,y,z)
      */
-    static void condenseConstruction(DCCommonState state, Method method, List<Op03SimpleStatement> statements, AnonymousClassUsage anonymousClassUsage) {
-        CreationCollector creationCollector = new CreationCollector(anonymousClassUsage);
+    static void condenseConstruction(DCCommonState state,
+                                     Method method,
+                                     List<Op03SimpleStatement> statements,
+                                     AnonymousClassUsage anonymousClassUsage,
+                                     ModernFeatureStrategy modernFeatures) {
+        CreationCollector creationCollector = new CreationCollector(anonymousClassUsage, modernFeatures);
         for (Op03SimpleStatement statement : statements) {
             statement.findCreation(creationCollector);
         }

@@ -126,6 +126,10 @@ public class CodeAnalyserWholeClass {
             }
         });
         if (fields.isEmpty()) return;
+        ModernFeatureStrategy modernFeatures = ModernFeatureStrategy.from(
+                classFile.getConstantPool().getDCCommonState().getOptions(),
+                classFile.getClassFileVersion()
+        );
 
 
         for (Method method : classFile.getMethods()) {
@@ -134,7 +138,12 @@ public class CodeAnalyserWholeClass {
                  * Construct a renamer - gather names from prototype and from locals assigned in the code.
                  * Make sure that they don't hide the outer variable.
                  */
-                ScopeHidingVariableRewriter rewriter = new ScopeHidingVariableRewriter(fields, method, classCache);
+                ScopeHidingVariableRewriter rewriter = new ScopeHidingVariableRewriter(
+                        fields,
+                        method,
+                        classCache,
+                        modernFeatures
+                );
                 rewriter.rewrite(method.getAnalysis());
             }
         }

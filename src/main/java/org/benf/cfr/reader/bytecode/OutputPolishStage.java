@@ -24,7 +24,14 @@ final class OutputPolishStage {
         Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block);
         Op04StructuredStatement.rewriteBadCastChains(context.options, context.method, block);
         Op04StructuredStatement.rewriteNarrowingAssignments(context.options, context.method, block);
-        Op04StructuredStatement.tidyVariableNames(context.method, block, context.bytecodeMeta, context.comments, context.constantPool.getClassCache());
+        Op04StructuredStatement.tidyVariableNames(
+                context.method,
+                block,
+                context.bytecodeMeta,
+                context.comments,
+                context.constantPool.getClassCache(),
+                context.modernFeatures
+        );
         Op04StructuredStatement.tidyObfuscation(context.options, block);
         Op04StructuredStatement.miscKeyholeTransforms(context.variableFactory, block);
         structureRecoveryPipeline.applyOutputPolish(block, context);

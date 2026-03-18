@@ -22,6 +22,7 @@ final class Op03PipelineContext {
     final boolean willSort;
     final boolean aggressiveSizeReductions;
     final int passIdx;
+    final ModernFeatureStrategy modernFeatures;
 
     Op03PipelineContext(DCCommonState commonState,
                         Options options,
@@ -34,7 +35,8 @@ final class Op03PipelineContext {
                         ConstantPool constantPool,
                         boolean willSort,
                         boolean aggressiveSizeReductions,
-                        int passIdx) {
+                        int passIdx,
+                        ModernFeatureStrategy modernFeatures) {
         this.commonState = commonState;
         this.options = options;
         this.method = method;
@@ -47,5 +49,6 @@ final class Op03PipelineContext {
         this.willSort = willSort;
         this.aggressiveSizeReductions = aggressiveSizeReductions;
         this.passIdx = passIdx;
+        this.modernFeatures = modernFeatures;
     }
 }
