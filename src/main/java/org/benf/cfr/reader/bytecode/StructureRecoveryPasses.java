@@ -18,28 +18,28 @@ final class StructureRecoveryPasses {
     static final class TidyEmptyCatchPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.tidyEmptyCatch(block);
+            StructureRecoveryTransforms.tidyEmptyCatch(block);
         }
     }
 
     static final class TidyTryCatchPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.tidyTryCatch(block);
+            StructureRecoveryTransforms.tidyTryCatch(block);
         }
     }
 
     static final class ConvertUnstructuredIfPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.convertUnstructuredIf(block);
+            StructureRecoveryTransforms.convertUnstructuredIf(block);
         }
     }
 
     static final class RewriteForwardIfGotosPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.rewriteForwardIfGotos(block);
+            StructureRecoveryTransforms.rewriteForwardIfGotos(block);
         }
     }
 
@@ -53,7 +53,7 @@ final class StructureRecoveryPasses {
     static final class PrettifyBadLoopsPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.prettifyBadLoops(block);
+            StructureRecoveryTransforms.prettifyBadLoops(block);
         }
     }
 
@@ -73,42 +73,42 @@ final class StructureRecoveryPasses {
     static final class InlinePossiblesPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.inlinePossibles(block);
+            StructureRecoveryTransforms.inlinePossibles(block);
         }
     }
 
     static final class RemoveStructuredGotosPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removeStructuredGotos(block);
+            StructureRecoveryTransforms.removeStructuredGotos(block);
         }
     }
 
     static final class RemovePointlessBlocksPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removePointlessBlocks(block);
+            StructureRecoveryTransforms.removePointlessBlocks(block);
         }
     }
 
     static final class RemovePointlessReturnPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removePointlessReturn(block);
+            StructureRecoveryTransforms.removePointlessReturn(block);
         }
     }
 
     static final class RemovePointlessControlFlowPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removePointlessControlFlow(block);
+            StructureRecoveryTransforms.removePointlessControlFlow(block);
         }
     }
 
     static final class RemovePrimitiveDeconversionPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block);
+            StructureRecoveryTransforms.removePrimitiveDeconversion(context.options, block);
         }
     }
 
@@ -120,29 +120,29 @@ final class StructureRecoveryPasses {
 
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.insertLabelledBlocks(block);
-            Op04StructuredStatement.rewriteForwardIfGotos(block);
+            StructureRecoveryTransforms.insertLabelledBlocks(block);
+            StructureRecoveryTransforms.rewriteForwardIfGotos(block);
         }
     }
 
     static final class RemoveUnnecessaryLabelledBreaksPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.removeUnnecessaryLabelledBreaks(block);
+            StructureRecoveryTransforms.removeUnnecessaryLabelledBreaks(block);
         }
     }
 
     static final class FlattenNonReferencedBlocksPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.flattenNonReferencedBlocks(block);
+            StructureRecoveryTransforms.flattenNonReferencedBlocks(block);
         }
     }
 
     static final class CleanupStructuredExpressionBodiesPass extends AlwaysEnabledPass {
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            Op04StructuredStatement.cleanupStructuredExpressionBodies(block);
+            StructureRecoveryTransforms.cleanupStructuredExpressionBodies(block);
         }
     }
 }

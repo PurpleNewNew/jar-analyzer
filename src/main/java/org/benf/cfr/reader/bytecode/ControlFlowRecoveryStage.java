@@ -18,8 +18,8 @@ final class ControlFlowRecoveryStage {
         if (!block.isFullyStructured()) {
             return;
         }
-        Op04StructuredStatement.tidyTypedBooleans(block);
-        Op04StructuredStatement.prettifyBadLoops(block);
+        StructureRecoveryTransforms.tidyTypedBooleans(block);
+        StructureRecoveryTransforms.prettifyBadLoops(block);
         new SwitchStringRewriter(context.options, context.classFileVersion, context.bytecodeMeta).rewrite(block);
         new SwitchEnumRewriter(context.commonState, context.classFile, context.blockIdentifierFactory).rewrite(block);
     }

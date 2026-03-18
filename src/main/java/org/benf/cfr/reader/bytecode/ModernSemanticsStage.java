@@ -18,10 +18,17 @@ final class ModernSemanticsStage {
         if (!block.isFullyStructured()) {
             return;
         }
-        Op04StructuredStatement.rewriteExplicitTypeUsages(context.method, block, context.anonymousClassUsage, context.modernFeatures);
-        Op04StructuredStatement.discoverVariableScopes(context.method, block, context.variableFactory, context.options, context.classFileVersion, context.bytecodeMeta);
+        StructuredSemanticTransforms.rewriteExplicitTypeUsages(block, context.anonymousClassUsage, context.modernFeatures);
+        StructuredSemanticTransforms.discoverVariableScopes(
+                context.method,
+                block,
+                context.variableFactory,
+                context.options,
+                context.classFileVersion,
+                context.bytecodeMeta
+        );
         if (context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion)) {
-            Op04StructuredStatement.removeEndResource(context.classFile, block);
+            StructuredSemanticTransforms.removeEndResource(context.classFile, block);
         }
         patternSemanticsRewriter.rewrite(block, context.bytecodeMeta);
         if (context.modernFeatures.supportsSwitchExpressions()) {
@@ -29,9 +36,9 @@ final class ModernSemanticsStage {
         }
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
         Op04StructuredStatement.rewriteLambdas(context.commonState, context.method, block);
-        Op04StructuredStatement.markLambdaCapturedVariables(block);
+        StructuredSemanticTransforms.markLambdaCapturedVariables(block);
         StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
         Op04StructuredStatement.removeRedundantIntersectionCasts(context.commonState, context.method, block);
-        Op04StructuredStatement.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
+        StructuredSemanticTransforms.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }
 }

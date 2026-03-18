@@ -1,8 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
-import org.benf.cfr.reader.bytecode.AnonymousClassUsage;
 import org.benf.cfr.reader.bytecode.BytecodeMeta;
-import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.*;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.Op04Checker;
@@ -14,15 +12,9 @@ import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
-import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
-import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ConstantFoldingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
-import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverImpl;
-import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.AbstractLValueScopeDiscoverer;
-import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LocalClassScopeDiscoverImpl;
-import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.*;
@@ -33,10 +25,6 @@ import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.entities.*;
-import org.benf.cfr.reader.entities.attributes.AttributeCode;
-import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTypeTable;
-import org.benf.cfr.reader.entities.attributes.AttributeTypeAnnotations;
-import org.benf.cfr.reader.state.ClassCache;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.*;
@@ -89,30 +77,9 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         structuredStatement.setContainer(this);
     }
 
-    /*
-     * If we've got any anonymous classes, and we're J10+,
-     * then see if we are addressing non-existent content of anonymous objects.
-     * If we are, this indicates that var was used.
-     */
-    public static void rewriteExplicitTypeUsages(Method method,
-                                                 Op04StructuredStatement block,
-                                                 AnonymousClassUsage anonymousClassUsage,
-                                                 ModernFeatureStrategy modernFeatures) {
-        new ObjectTypeUsageRewriter(anonymousClassUsage, modernFeatures).transform(block);
-    }
-
-    public static void flattenNonReferencedBlocks(Op04StructuredStatement block) {
-        block.transform(new UnusedAnonymousBlockFlattener(), new StructuredScope());
-    }
-
     public static void switchExpression(Method method, Op04StructuredStatement root, DecompilerComments comments, boolean emitPreviewComment) {
         SwitchExpressionRewriter switchExpressionRewriter = new SwitchExpressionRewriter(comments, method, emitPreviewComment);
         switchExpressionRewriter.transform(root);
-    }
-
-    public static void reduceClashDeclarations(Op04StructuredStatement root, BytecodeMeta bytecodeMeta) {
-        if (bytecodeMeta.getLivenessClashes().isEmpty()) return;
-        root.transform(new ClashDeclarationReducer(bytecodeMeta.getLivenessClashes()), new StructuredScope());
     }
 
     // Later stages assume that certain instanceof operations are leaf nodes in boolean op trees.
@@ -524,270 +491,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
 
     }
 
-    private static class LabelledBlockExtractor implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof Block) {
-                Block block = (Block) in;
-                block.extractLabelledBlocks();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
-
-    private static class EmptyCatchTidier implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof UnstructuredCatch) {
-                return ((UnstructuredCatch) in).getCatchForEmpty();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
-
-    private static class TryCatchTidier implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof Block) {
-                // Search for try statements, see if we can combine following catch statements with them.
-                Block block = (Block) in;
-                block.combineTryCatch();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
-
-    private static class Inliner implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof Block) {
-                Block block = (Block) in;
-                block.combineInlineable();
-            }
-            return in;
-        }
-    }
-
-    /*
-     * So far I've only actually seen this be useful for sun.tools.javac.sourceClass.....
-     */
-    public static class UnstructuredIfConverter implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof UnstructuredIf) {
-                in = ((UnstructuredIf) in).convertEmptyToGoto();
-            }
-            return in;
-        }
-    }
-
-    private static StructuredStatement transformStructuredGotoWithScope(StructuredScope scope, StructuredStatement stm,
-                                                                        Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> breaktargets
-    ) {
-        Set<Op04StructuredStatement> nextFallThrough = scope.getNextFallThrough(stm);
-        List<Op04StructuredStatement> targets = stm.getContainer().getTargets();
-        // Targets is an invalid concept for op04 really, should get rid of it.
-        Op04StructuredStatement target = targets.isEmpty() ? null : targets.get(0);
-        if (nextFallThrough.contains(target)) {
-            // Ok, fell through.  If we're the last statement of the current scope,
-            // and the current scope has fallthrough, we can be removed.  Otherwise we
-            // need to be translated to a break.
-            if (scope.statementIsLast(stm)) {
-                return StructuredComment.EMPTY_COMMENT;
-            } else if (scope.getDirectFallThrough().contains(target)) {
-                return StructuredComment.EMPTY_COMMENT;
-            } else {
-                return stm;
-            }
-        } else if (!breaktargets.isEmpty()) {
-            // Ok - it doesn't.  But can we get there by breaking out of one of the enclosing blocks?
-            Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>> breakTarget = breaktargets.peek();
-            if (breakTarget.getThird().contains(target)) {
-                return new StructuredBreak(BytecodeLoc.TODO, breakTarget.getSecond(), true);
-            }
-        }
-        return stm;
-    }
-
-
-    private static abstract class ScopeDescendingTransformer implements StructuredStatementTransformer {
-
-        private final Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets = new Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>>();
-
-        protected abstract StructuredStatement doTransform(StructuredStatement statement, Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets, StructuredScope scope);
-
-        @Override
-        public StructuredStatement transform(final StructuredStatement in, StructuredScope scope) {
-            /*
-             * If this statement is a breakable block, (i.e. it's a block with foreign references, a loop or the like)
-             * determine what the statement after it (so effect of a break from it) would be.
-             */
-            final BlockIdentifier breakableBlock = in.getBreakableBlockOrNull();
-            if (breakableBlock != null) {
-                final Set<Op04StructuredStatement> next = scope.getNextFallThrough(in);
-                targets.push(Triplet.make(in, breakableBlock, next));
-            }
-            StructuredStatement out = in;
-            try {
-                out.transformStructuredChildrenInReverse(this, scope);
-                out = doTransform(out, targets, scope);
-                if (out instanceof StructuredBreak) {
-                    out = ((StructuredBreak) out).maybeTightenToLocal(targets);
-                }
-            } finally {
-                if (breakableBlock != null) {
-                    targets.pop();
-                }
-            }
-            return out;
-        }
-    }
-
-    // Walk block children in reverse - this allows us to skip over repeated 'last' statements
-    private static class StructuredGotoRemover extends ScopeDescendingTransformer {
-        @Override
-        protected StructuredStatement doTransform(StructuredStatement statement, Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets, StructuredScope scope) {
-            if (statement instanceof UnstructuredGoto ||
-                    statement instanceof UnstructuredAnonymousBreak) {
-                statement = transformStructuredGotoWithScope(scope, statement, targets);
-            }
-            return statement;
-        }
-    }
-
-    private static class NamedBreakRemover extends ScopeDescendingTransformer {
-        @Override
-        protected StructuredStatement doTransform(StructuredStatement statement, Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets, StructuredScope scope) {
-            if (statement instanceof StructuredBreak) {
-                statement = ((StructuredBreak) statement).maybeTightenToLocal(targets);
-            }
-            return statement;
-        }
-    }
-
-    private static class PointlessBlockRemover implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof CanRemovePointlessBlock) {
-                ((CanRemovePointlessBlock) in).removePointlessBlocks(scope);
-                return in.getContainer().getStatement();
-            }
-            return in;
-        }
-    }
-
-    private static class StructuredExpressionBodyCleaner extends AbstractExpressionRewriter {
-        @Override
-        public Expression rewriteExpression(Expression expression,
-                                            SSAIdentifiers ssaIdentifiers,
-                                            StatementContainer statementContainer,
-                                            ExpressionRewriterFlags flags) {
-            if (expression instanceof StructuredStatementExpression) {
-                StructuredStatementExpression structuredStatementExpression = (StructuredStatementExpression) expression;
-                structuredStatementExpression.cleanupContent();
-            }
-            return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
-        }
-    }
-
-    private static class LambdaCaptureCollector extends AbstractExpressionRewriter {
-        private final Set<LocalVariable> captured = SetFactory.newSet();
-
-        private Set<LocalVariable> getCaptured() {
-            return captured;
-        }
-
-        @Override
-        public Expression rewriteExpression(Expression expression,
-                                            SSAIdentifiers ssaIdentifiers,
-                                            StatementContainer statementContainer,
-                                            ExpressionRewriterFlags flags) {
-            if (expression instanceof LambdaExpression) {
-                LambdaExpression lambdaExpression = (LambdaExpression) expression;
-                LValueCollectingRewriter collector = new LValueCollectingRewriter();
-                Expression lambdaResult = lambdaExpression.getResult();
-                if (lambdaResult instanceof StructuredStatementExpression) {
-                    ((StructuredStatementExpression) lambdaResult).getContent().rewriteExpressions(collector);
-                } else {
-                    lambdaResult.applyExpressionRewriter(collector, null, null, ExpressionRewriterFlags.RVALUE);
-                }
-                for (LValue used : collector.getUsedLValues()) {
-                    if (!(used instanceof LocalVariable)
-                            || lambdaExpression.getArgs().contains(used)
-                            || !((LocalVariable) used).getName().isGoodName()) {
-                        continue;
-                    }
-                    captured.add((LocalVariable) used);
-                }
-            }
-            return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
-        }
-    }
-
-    private static class LValueCollectingRewriter extends AbstractExpressionRewriter {
-        private final Set<LValue> usedLValues = SetFactory.newSet();
-
-        private Set<LValue> getUsedLValues() {
-            return usedLValues;
-        }
-
-        @Override
-        public LValue rewriteExpression(LValue lValue,
-                                        SSAIdentifiers ssaIdentifiers,
-                                        StatementContainer statementContainer,
-                                        ExpressionRewriterFlags flags) {
-            usedLValues.add(lValue);
-            return lValue;
-        }
-    }
-
-    private static class LambdaCaptureMarker extends AbstractExpressionRewriter implements StructuredStatementTransformer {
-        private final Set<LocalVariable> captured;
-
-        private LambdaCaptureMarker(Set<LocalVariable> captured) {
-            this.captured = captured;
-        }
-
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof StructuredDefinition) {
-                LValue lValue = ((StructuredDefinition) in).getLvalue();
-                if (lValue instanceof LocalVariable && isCapturedLocal((LocalVariable) lValue)) {
-                    ((LocalVariable) lValue).markCapturedByLambda();
-                }
-            }
-            in.rewriteExpressions(this);
-            return in;
-        }
-
-        @Override
-        public LValue rewriteExpression(LValue lValue,
-                                        SSAIdentifiers ssaIdentifiers,
-                                        StatementContainer statementContainer,
-                                        ExpressionRewriterFlags flags) {
-            if (lValue instanceof LocalVariable && isCapturedLocal((LocalVariable) lValue)) {
-                ((LocalVariable) lValue).markCapturedByLambda();
-            }
-            return lValue;
-        }
-
-        private boolean isCapturedLocal(LocalVariable localVariable) {
-            for (LocalVariable candidate : captured) {
-                if (localVariable.matchesReadableAlias(candidate)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
     public void transform(StructuredStatementTransformer transformer, StructuredScope scope) {
         StructuredStatement old = structuredStatement;
         StructuredStatement scopeBlock = structuredStatement.isScopeBlock() ? structuredStatement : null;
@@ -803,94 +506,9 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
     }
 
     /*
-     * If we have any UnstructuredAnonBreakTargets in a block, starting at the last one, pull them into sub-blocks.
-     */
-    public static void insertLabelledBlocks(Op04StructuredStatement root) {
-        root.transform(new LabelledBlockExtractor(), new StructuredScope());
-    }
-
-    /*
-     * mutually exclusive blocks may have trailling gotos after them.  It's hard to remove them prior to here, but now we have
-     * structure, we can find them more easily.
-     */
-    public static void tidyEmptyCatch(Op04StructuredStatement root) {
-        root.transform(new EmptyCatchTidier(), new StructuredScope());
-    }
-
-    public static void tidyTryCatch(Op04StructuredStatement root) {
-        root.transform(new TryCatchTidier(), new StructuredScope());
-    }
-
-    public static void inlinePossibles(Op04StructuredStatement root) {
-        root.transform(new Inliner(), new StructuredScope());
-    }
-
-    public static void convertUnstructuredIf(Op04StructuredStatement root) {
-        root.transform(new UnstructuredIfConverter(), new StructuredScope());
-    }
-
-    public static void tidyVariableNames(Method method,
-                                         Op04StructuredStatement root,
-                                         BytecodeMeta bytecodeMeta,
-                                         DecompilerComments comments,
-                                         ClassCache classCache,
-                                         ModernFeatureStrategy modernFeatures) {
-        VariableNameTidier variableNameTidier = new VariableNameTidier(
-                method,
-                VariableNameTidier.NameDiscoverer.getUsedLambdaNames(bytecodeMeta, root),
-                classCache,
-                modernFeatures
-        );
-        variableNameTidier.transform(root);
-
-        if (variableNameTidier.isClassRenamed()) {
-            comments.addComment(DecompilerComment.CLASS_RENAMED);
-        }
-    }
-
-    public static void applyLocalVariableMetadata(AttributeCode code, Op04StructuredStatement root, SortedMap<Integer, Integer> instrsByOffset,
-                                                  DecompilerComments comments) {
-        AttributeLocalVariableTypeTable localVariableTypeTable = code.getLocalVariableTypeTable();
-        AttributeTypeAnnotations vis = code.getRuntimeVisibleTypeAnnotations();
-        AttributeTypeAnnotations invis = code.getRuntimeInvisibleTypeAnnotations();
-        if (vis == null && invis == null && localVariableTypeTable == null) {
-            return;
-        }
-        LocalVariableMetadataTransformer transformer = new LocalVariableMetadataTransformer(localVariableTypeTable, vis, invis, instrsByOffset, comments, code.getConstantPool());
-        transformer.transform(root);
-    }
-
-    public static void removePointlessReturn(Op04StructuredStatement root) {
-        StructuredStatement statement = root.getStatement();
-        if (statement instanceof Block) {
-            Block block = (Block) statement;
-            block.removeLastNVReturn();
-        }
-    }
-
-    public static void removeEndResource(ClassFile classFile, Op04StructuredStatement root) {
-        // Note - this is not in Java9 CODE per se, it's if it's been compiled by the J9 compiler.
-        boolean s1 = new TryResourcesTransformerJ9(classFile).transform(root);
-        boolean s2 = new TryResourcesTransformerJ7(classFile).transform(root);
-        boolean s3 = new TryResourcesTransformerJ12(classFile).transform(root);
-        // Java 11
-        if (s1 || s2 || s3) {
-            new TryResourcesCollapser().transform(root);
-        }
-    }
-
-    /*
      * If a break falls out into another break, or a continue falls out into the end of a loop, they don't need to
      * be there.
      */
-    public static void removePointlessControlFlow(Op04StructuredStatement root) {
-        new ControlFlowCleaningTransformer().transform(root);
-    }
-
-    public static void tidyTypedBooleans(Op04StructuredStatement root) {
-        new TypedBooleanTidier().transform(root);
-    }
-
     public static void miscKeyholeTransforms(VariableFactory variableFactory, Op04StructuredStatement root) {
         new NakedNullCaster().transform(root);
         new LambdaCleaner().transform(root);
@@ -905,14 +523,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         if (options.getOption(OptionsImpl.CONST_OBF)) {
             new ExpressionRewriterTransformer(ConstantFoldingRewriter.INSTANCE).transform(root);
         }
-    }
-
-    public static void prettifyBadLoops(Op04StructuredStatement root) {
-        new BadLoopPrettifier().transform(root);
-    }
-
-    public static void removeStructuredGotos(Op04StructuredStatement root) {
-        root.transform(new StructuredGotoRemover(), new StructuredScope());
     }
 
     /*
@@ -940,58 +550,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         statement out of the innermost breakable block - if that's the case, the specific reference
         to the named block is unnecessary.
      */
-    public static void removeUnnecessaryLabelledBreaks(Op04StructuredStatement root) {
-        root.transform(new NamedBreakRemover(), new StructuredScope());
-    }
-
-    public static void removePointlessBlocks(Op04StructuredStatement root) {
-        root.transform(new PointlessBlockRemover(), new StructuredScope());
-    }
-
-    public static void cleanupStructuredExpressionBodies(Op04StructuredStatement root) {
-        new ExpressionRewriterTransformer(new StructuredExpressionBodyCleaner()).transform(root);
-    }
-
-    public static void rewriteForwardIfGotos(Op04StructuredStatement root) {
-        new ForwardIfGotoRewriter().transform(root);
-    }
-
-    public static void markLambdaCapturedVariables(Op04StructuredStatement root) {
-        LambdaCaptureCollector collector = new LambdaCaptureCollector();
-        new ExpressionRewriterTransformer(collector).transform(root);
-        if (collector.getCaptured().isEmpty()) {
-            return;
-        }
-        root.transform(new LambdaCaptureMarker(collector.getCaptured()), new StructuredScope());
-    }
-
-    /*
-     * We've got structured (hopefully) code now, so we can find the initial unbranched assignment points
-     * for any given variable.
-     *
-     * We can also discover if stack locations have been re-used with a type change - this would have resulted
-     * in what looks like invalid variable re-use, which we can now convert.
-     *
-     * Note - because this may lift variables to an earlier scoped declaration, we have a second pass to tidy
-     * (eg remove spurious 'this.', VariableNameTidier).
-     */
-    public static void discoverVariableScopes(Method method, Op04StructuredStatement root, VariableFactory variableFactory, Options options, ClassFileVersion classFileVersion, BytecodeMeta bytecodeMeta) {
-        LValueScopeDiscoverImpl scopeDiscoverer = new LValueScopeDiscoverImpl(options, method.getMethodPrototype(), variableFactory, classFileVersion);
-        scopeDiscoverer.processOp04Statement(root);
-        // We should have found scopes, now update to reflect this.
-        scopeDiscoverer.markDiscoveredCreations();
-        if (scopeDiscoverer.didDetectInstanceOfMatching()) {
-            bytecodeMeta.set(BytecodeMeta.CodeInfoFlag.INSTANCE_OF_MATCHES);
-        }
-    }
-
-    public static void discoverLocalClassScopes(Method method, Op04StructuredStatement root, VariableFactory variableFactory, Options options) {
-        AbstractLValueScopeDiscoverer scopeDiscoverer = new LocalClassScopeDiscoverImpl(options, method, variableFactory);
-        scopeDiscoverer.processOp04Statement(root);
-        // We should have found scopes, now update to reflect this.
-        scopeDiscoverer.markDiscoveredCreations();
-    }
-
     public static void tidyInstanceMatches(Op04StructuredStatement block) {
         InstanceofMatchTidyingRewriter.rewrite(block);
     }
@@ -1286,12 +844,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
 
     public static void removeUnnecessaryVarargArrays(Options options, Method method, Op04StructuredStatement root) {
         new VarArgsRewriter().rewrite(root);
-    }
-
-    public static void removePrimitiveDeconversion(Options options, Method method, Op04StructuredStatement root) {
-        if (!options.getOption(OptionsImpl.SUGAR_BOXING)) return;
-
-        root.transform(new ExpressionRewriterTransformer(new PrimitiveBoxingRewriter()), new StructuredScope());
     }
 
     public static void rewriteBadCastChains(Options options, Method method, Op04StructuredStatement root) {

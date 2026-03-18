@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.structured.expression;
 
+import org.benf.cfr.reader.bytecode.StructureRecoveryTransforms;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.ExpressionRewriterTransformer;
@@ -90,8 +91,8 @@ public class StructuredStatementExpression extends AbstractExpression {
 
     public void cleanupContent() {
         Op04StructuredStatement root = new Op04StructuredStatement(content);
-        Op04StructuredStatement.removePointlessBlocks(root);
-        Op04StructuredStatement.removePointlessControlFlow(root);
+        StructureRecoveryTransforms.removePointlessBlocks(root);
+        StructureRecoveryTransforms.removePointlessControlFlow(root);
         content = root.getStatement();
     }
 

@@ -28,10 +28,10 @@ final class OutputPolishStage {
             Op04StructuredStatement.removeConstructorBoilerplate(block);
         }
         Op04StructuredStatement.removeUnnecessaryVarargArrays(context.options, context.method, block);
-        Op04StructuredStatement.removePrimitiveDeconversion(context.options, context.method, block);
+        StructureRecoveryTransforms.removePrimitiveDeconversion(context.options, block);
         Op04StructuredStatement.rewriteBadCastChains(context.options, context.method, block);
         Op04StructuredStatement.rewriteNarrowingAssignments(context.options, context.method, block);
-        Op04StructuredStatement.tidyVariableNames(
+        StructuredSemanticTransforms.tidyVariableNames(
                 context.method,
                 block,
                 context.bytecodeMeta,
@@ -45,7 +45,7 @@ final class OutputPolishStage {
     }
 
     private void applyRecoveryPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
-        Op04StructuredStatement.reduceClashDeclarations(block, context.bytecodeMeta);
+        StructuredSemanticTransforms.reduceClashDeclarations(block, context.bytecodeMeta);
         StructuredLocalVariableRecovery.applyOutputRecovery(block);
     }
 
@@ -53,7 +53,12 @@ final class OutputPolishStage {
         Op04StructuredStatement.applyChecker(new LooseCatchChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new VoidVariableChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new IllegalReturnChecker(), block, context.comments);
-        Op04StructuredStatement.flattenNonReferencedBlocks(block);
-        Op04StructuredStatement.applyLocalVariableMetadata(context.originalCodeAttribute, block, context.lutByOffset, context.comments);
+        StructureRecoveryTransforms.flattenNonReferencedBlocks(block);
+        StructuredSemanticTransforms.applyLocalVariableMetadata(
+                context.originalCodeAttribute,
+                block,
+                context.lutByOffset,
+                context.comments
+        );
     }
 }

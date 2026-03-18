@@ -476,7 +476,7 @@ public class CodeAnalyserWholeClass {
             /*
              * Apply boxing rewriter once more as well, to get rid of anything that's occured.
              */
-            Op04StructuredStatement.removePrimitiveDeconversion(state, m, code);
+            StructureRecoveryTransforms.removePrimitiveDeconversion(state, code);
         }
     }
 
