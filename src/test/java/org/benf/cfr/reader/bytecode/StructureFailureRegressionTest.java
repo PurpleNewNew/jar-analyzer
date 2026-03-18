@@ -12,76 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class StructureFailureRegressionTest {
     @Test
     void shouldReduceDefiniteAssignmentGotoResidue(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "structure-failure",
                 "TestDefiniteAssignment",
-                """
-                import java.io.IOException;
-
-                public class TestDefiniteAssignment {
-                  void testExample16$1$$1(int v) throws IOException {
-                    int k;
-                    if (v > 0 && (k = System.in.read()) >= 0)
-                      System.out.println(k);
-                  }
-
-                  void testExample16$1$$2(int n) {
-                    {
-                      int k;
-                      while (true) {
-                        k = n;
-                        if (k >= 5) break;
-                        n = 6;
-                      }
-                      System.out.println(k);
-                    }
-                  }
-
-                  void testExample16$1$$3modified(int n, int m) {
-                    int k;
-                    while (n < 4 || (k = m) < 5) {
-                      k = n;
-                      if (k >= 5) break;
-                      n = 6;
-                    }
-                    System.out.println(k);
-                  }
-
-                  void testAssignments(int n, boolean bool) {
-                    int a;
-                    if (bool && ((a = n) > 0 || (a = -n) > 100)) {
-                      System.out.println(a);
-                    }
-
-                    int b;
-                    if (bool || (b = (b = n) * b) > 0) {
-                      System.out.println("b");
-                    } else {
-                      System.out.println(b);
-                    }
-
-                    {
-                      double cFake = 0.01;
-                      System.out.println(cFake);
-                    }
-
-                    double c;
-                    if (!((n < 1.0 - n) && (c = (n + 5)) > (c * c - c / 2)) ? n < 5.0 - (c = n) : n > c) {
-                      System.out.println(c);
-                      c += 2;
-                    } else {
-                      c += 5;
-                    }
-                    System.out.println(c);
-
-                    boolean x;
-                    double d;
-                    if (x = ((d = n) > 0)) {
-                      System.out.println(d);
-                    }
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
@@ -104,32 +38,10 @@ class StructureFailureRegressionTest {
 
     @Test
     void shouldKeepLoopInSwitchWithLabelledBreakStructured(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "structure-failure",
                 "TestSwitchLoop",
-                """
-                public class TestSwitchLoop {
-                  public void test8(int i) {
-                    switch (i) {
-                      case 0:
-                        label: {
-                          for (int j = 0; j < 10; j++) {
-                            if (j == 3) {
-                              break label;
-                            }
-                          }
-
-                          System.out.println(0);
-                        }
-                        System.out.println("after");
-                      case 1:
-                        System.out.println(1);
-                    }
-
-                    System.out.println("after2");
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
@@ -141,20 +53,10 @@ class StructureFailureRegressionTest {
 
     @Test
     void shouldKeepAssignedLocalBoundToFollowingIfCondition(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "structure-failure",
                 "TestTail",
-                """
-                public class TestTail {
-                  void test(int n) {
-                    boolean x;
-                    double d;
-                    if (x = ((d = n) > 0)) {
-                      System.out.println(d);
-                    }
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
@@ -167,29 +69,10 @@ class StructureFailureRegressionTest {
 
     @Test
     void shouldCleanupEmptyIfResidueAfterSwitchExpressionRewrite(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "structure-failure",
                 "InlineSwitchExpressionSample",
-                """
-                public class InlineSwitchExpressionSample {
-                  public void test(int i) {
-                    int j = 0;
-                    while (j < i) {
-                      j++;
-                      i = switch (j) {
-                        case 1 -> 3;
-                        default -> {
-                          label3:
-                          if (j == 4) {
-                            break label3;
-                          }
-                          yield 2;
-                        }
-                      };
-                    }
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);

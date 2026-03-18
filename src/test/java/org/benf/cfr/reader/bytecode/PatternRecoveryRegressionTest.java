@@ -13,26 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PatternRecoveryRegressionTest {
     @Test
     void shouldUseUnifiedPatternSemanticsForIfAndSwitch(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "pattern-recovery",
                 "UnifiedPatternSample",
-                """
-                public class UnifiedPatternSample {
-                    static String describe(Object o) {
-                        if (o instanceof String s && s.length() > 2) {
-                            return s.trim();
-                        }
-                        return switch (o) {
-                            case Integer i when i > 10 -> "big" + i;
-                            case Integer i -> "small" + i;
-                            case Point(int x, int y) -> x + ":" + y;
-                            default -> "other";
-                        };
-                    }
-
-                    record Point(int x, int y) {}
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
@@ -46,24 +30,10 @@ class PatternRecoveryRegressionTest {
 
     @Test
     void shouldRewriteJava21TypeSwitchIntoPatternCases(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "pattern-recovery",
                 "SwitchPatternSample",
-                """
-                public class SwitchPatternSample {
-                    static String test(Object o) {
-                        return switch (o) {
-                            case String s -> s;
-                            case Integer i when i > 10 -> "big" + i;
-                            case Integer i -> "small" + i;
-                            case Point(int x, int y) -> x + "," + y;
-                            case null -> "nil";
-                            default -> "other";
-                        };
-                    }
-                    record Point(int x, int y) {}
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);

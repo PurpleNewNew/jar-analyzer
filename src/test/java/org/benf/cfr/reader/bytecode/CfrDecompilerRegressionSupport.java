@@ -19,9 +19,14 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class CfrDecompilerRegressionSupport {
     private CfrDecompilerRegressionSupport() {
+    }
+
+    static Path compileFixture(Path tempDir, String fixtureSuite, String className, String... javacArgs) throws IOException {
+        return compileJava(tempDir, className, loadFixtureSource(fixtureSuite, className), javacArgs);
     }
 
     static Path compileJava(Path tempDir, String className, String source, String... javacArgs) throws IOException {
@@ -41,6 +46,12 @@ final class CfrDecompilerRegressionSupport {
         int compileExit = compiler.run(null, null, null, args);
         assertEquals(0, compileExit);
         return tempDir.resolve(className + ".class");
+    }
+
+    private static String loadFixtureSource(String fixtureSuite, String className) throws IOException {
+        Path fixturePath = Path.of("src", "test", "resources", "org", "benf", "cfr", "reader", "bytecode", "fixtures", fixtureSuite, className + ".java");
+        assertTrue(Files.exists(fixturePath), "Missing CFR fixture: " + fixturePath);
+        return Files.readString(fixturePath, StandardCharsets.UTF_8);
     }
 
     static String decompile(Path classFile) {

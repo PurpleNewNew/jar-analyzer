@@ -13,21 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ModernOutputPolishRegressionTest {
     @Test
     void shouldNotEmitIllegalStaticOnLocalEnums(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "modern-output-polish",
                 "TestLocalEnum",
-                """
-                public class TestLocalEnum {
-                  public void test(int i) {
-                    enum Type {
-                      VALID,
-                      INVALID
-                    }
-
-                    Type type = i == 0 ? Type.VALID : Type.INVALID;
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
@@ -38,40 +27,10 @@ class ModernOutputPolishRegressionTest {
 
     @Test
     void shouldPreserveVarForNamelessLocalClasses(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "modern-output-polish",
                 "TestAnonymousVar",
-                """
-                public class TestAnonymousVar {
-                  public void testNamelessTypeVirtual() {
-                    var printer = new Object() {
-                      void println(String s) {
-                        System.out.println(s);
-                      }
-                    };
-                    printer.println("goodbye, world!");
-                  }
-
-                  public void testNamelessTypeVirtual2() {
-                    var printer = new TestAnonymousVar() {
-                      void out(String s) {
-                        System.out.println(s);
-                      }
-                    };
-                    printer.out("goodbye, world!");
-                  }
-
-                  public void testNamelessTypeVirtual3() {
-                    TestAnonymousVar printer = new TestAnonymousVar() {
-                      @Override
-                      public void testNamelessTypeVirtual() {
-                        System.out.println();
-                      }
-                    };
-                    printer.testNamelessTypeVirtual();
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);

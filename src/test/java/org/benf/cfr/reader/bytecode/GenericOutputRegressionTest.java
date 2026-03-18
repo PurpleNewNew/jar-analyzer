@@ -13,28 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GenericOutputRegressionTest {
     @Test
     void shouldPreserveWildcardCastsThatAreNotImplicit(@TempDir Path tempDir) throws IOException {
-        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
                 tempDir,
+                "generic-output",
                 "TestGenericSuperCast",
-                """
-                public class TestGenericSuperCast {
-                  public class Inner<T> {
-                    public Class<? super T> get() {
-                      return null;
-                    }
-                  }
-
-                  public <T> Class<T> test(Inner<T> inner) {
-                    Class<T> t = (Class<T>) inner.get();
-                    return (Class<T>) inner.get();
-                  }
-
-                  public <T> Class<? extends T> test1(Inner<T> inner) {
-                    Class<? extends T> t = (Class<? extends T>) inner.get();
-                    return (Class<? extends T>) inner.get();
-                  }
-                }
-                """,
                 "--release", "21");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
