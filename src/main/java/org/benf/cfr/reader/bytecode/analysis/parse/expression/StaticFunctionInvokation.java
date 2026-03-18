@@ -14,6 +14,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterF
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
@@ -120,14 +121,16 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
 
     @Override
     public Dumper dumpInner(Dumper d) {
-        improveLambdaArgumentTypes();
+        improveAgainstExpectedType(null);
         if (object != null) {
             d.dump(object).separator(".");
         } else {
             if (!d.getTypeUsageInformation().isStaticImport(clazz.getDeGenerifiedType(), getFixedName())) {
                 d.dump(clazz, TypeContext.Static).separator(".");
             }
-            if (explicitGenerics != null && !explicitGenerics.isEmpty()) {
+            if (explicitGenerics != null
+                    && !explicitGenerics.isEmpty()
+                    && !ExpressionTypeHintHelper.shouldSuppressExplicitGenerics(explicitGenerics)) {
                 d.operator("<");
                 boolean first = true;
                 for (JavaTypeInstance typeInstance : explicitGenerics) {
@@ -147,27 +150,90 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         return d;
     }
 
-    private void improveLambdaArgumentTypes() {
+    void improveAgainstExpectedType(JavaTypeInstance expectedType) {
+        GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(expectedType);
+        improveArgumentTypes(genericTypeBinder);
+        maybeDropRedundantExplicitGenerics();
+    }
+
+    JavaTypeInstance getDisplayReturnType() {
+        MethodPrototype methodPrototype = getMethodPrototype();
+        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
+        if (genericTypeBinder != null) {
+            JavaTypeInstance boundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            if (boundReturnType != null) {
+                return boundReturnType;
+            }
+        }
+        return methodPrototype.getReturnType(clazz, args);
+    }
+
+    private GenericTypeBinder getExpectedTypeBinder(JavaTypeInstance expectedType) {
+        MethodPrototype methodPrototype = getMethodPrototype();
+        GenericTypeBinder genericTypeBinder = null;
+        JavaTypeInstance normalizedExpectedType = ExpressionTypeHintHelper.normalizeExpectedType(expectedType);
+        JavaTypeInstance returnType = methodPrototype.getReturnType();
+        if (normalizedExpectedType != null && returnType instanceof JavaGenericBaseInstance) {
+            genericTypeBinder = GenericTypeBinder.extractBaseBindings((JavaGenericBaseInstance) returnType, normalizedExpectedType);
+            if (genericTypeBinder != null && methodPrototype.hasFormalTypeParameters()) {
+                List<JavaTypeInstance> explicitTypes = methodPrototype.getExplicitGenericUsage(genericTypeBinder);
+                if (explicitTypes != null && !explicitTypes.isEmpty()) {
+                    setExplicitGenerics(explicitTypes);
+                }
+            }
+        }
+        if (genericTypeBinder == null) {
+            genericTypeBinder = methodPrototype.getTypeBinderFor(args);
+        }
+        return genericTypeBinder;
+    }
+
+    private void improveArgumentTypes(GenericTypeBinder genericTypeBinder) {
         MethodPrototype methodPrototype = getMethodPrototype();
         OverloadMethodSet overloadMethodSet = methodPrototype.getOverloadMethodSet();
-        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
         List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
         for (int x = 0; x < args.size(); ++x) {
             Expression arg = args.get(x);
-            if (!(arg instanceof LambdaExpression)) {
-                continue;
-            }
-            JavaTypeInstance expectedArgType = null;
-            if (overloadMethodSet != null) {
-                expectedArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
-            }
-            if (expectedArgType == null && x < prototypeArgs.size()) {
-                expectedArgType = prototypeArgs.get(x);
+            JavaTypeInstance boundPrototypeArg = null;
+            if (x < prototypeArgs.size()) {
+                boundPrototypeArg = prototypeArgs.get(x);
                 if (genericTypeBinder != null) {
-                    expectedArgType = genericTypeBinder.getBindingFor(expectedArgType);
+                    boundPrototypeArg = genericTypeBinder.getBindingFor(boundPrototypeArg);
                 }
             }
-            ((LambdaExpression) arg).improveResultType(expectedArgType);
+            JavaTypeInstance expectedArgType = null;
+            if (ExpressionTypeHintHelper.isSpecific(boundPrototypeArg)) {
+                expectedArgType = boundPrototypeArg;
+            }
+            if (overloadMethodSet != null) {
+                JavaTypeInstance overloadArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+                if (!ExpressionTypeHintHelper.isSpecific(expectedArgType)) {
+                    expectedArgType = overloadArgType;
+                }
+            }
+            if (expectedArgType == null && x < prototypeArgs.size()) {
+                expectedArgType = boundPrototypeArg;
+            }
+            ExpressionTypeHintHelper.improveExpressionType(arg, expectedArgType);
+        }
+    }
+
+    private void maybeDropRedundantExplicitGenerics() {
+        if (explicitGenerics == null || explicitGenerics.isEmpty()) {
+            return;
+        }
+        if (ExpressionTypeHintHelper.shouldSuppressExplicitGenerics(explicitGenerics)) {
+            explicitGenerics = null;
+            return;
+        }
+        MethodPrototype methodPrototype = getMethodPrototype();
+        GenericTypeBinder argOnlyBinder = methodPrototype.getTypeBinderFor(args);
+        if (argOnlyBinder == null) {
+            return;
+        }
+        List<JavaTypeInstance> inferredFromArgs = methodPrototype.getExplicitGenericUsage(argOnlyBinder);
+        if (inferredFromArgs != null && inferredFromArgs.equals(explicitGenerics)) {
+            explicitGenerics = null;
         }
     }
 

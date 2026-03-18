@@ -37,6 +37,13 @@ public class NarrowingTypeRewriter {
         if (listtype instanceof JavaArrayTypeInstance) {
             return listtype.removeAnArrayIndirection();
         }
+        BindingSuperContainer bindingSupers = listtype.getBindingSupers();
+        if (bindingSupers != null) {
+            JavaGenericRefTypeInstance iterableType = bindingSupers.getBoundSuperForBase(TypeConstants.ITERABLE);
+            if (iterableType != null && iterableType.getGenericTypes().size() == 1) {
+                return iterableType.getGenericTypes().get(0);
+            }
+        }
         return BAD_SENTINEL;
     }
 
@@ -67,11 +74,59 @@ public class NarrowingTypeRewriter {
             LocalVariable lv = entry.getKey();
             JavaTypeInstance tgt = entry.getValue();
             InferredJavaType lvt = lv.getInferredJavaType();
-            if (lvt.getJavaTypeInstance() == TypeConstants.OBJECT) {
+            if (shouldNarrow(lvt.getJavaTypeInstance(), tgt)) {
                 lvt.forceType(tgt, true);
             }
 //            lv.markFinal();
         }
+    }
+
+    private static boolean shouldNarrow(JavaTypeInstance current, JavaTypeInstance target) {
+        if (current == null || target == null || target == BAD_SENTINEL) return false;
+        if (current.equals(target)) return false;
+        if (current == TypeConstants.OBJECT) return true;
+
+        JavaTypeInstance rawCurrent = current.getDeGenerifiedType();
+        JavaTypeInstance rawTarget = target.getDeGenerifiedType();
+        if (!rawCurrent.equals(rawTarget)) return false;
+
+        if (current.isRaw() && !target.isRaw()) {
+            return true;
+        }
+        if (!(current instanceof JavaGenericBaseInstance) || !(target instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        return hasMoreSpecificGenericArguments((JavaGenericBaseInstance) current, (JavaGenericBaseInstance) target);
+    }
+
+    private static boolean hasMoreSpecificGenericArguments(JavaGenericBaseInstance current, JavaGenericBaseInstance target) {
+        List<JavaTypeInstance> currentTypes = current.getGenericTypes();
+        List<JavaTypeInstance> targetTypes = target.getGenericTypes();
+        if (currentTypes.size() != targetTypes.size()) return false;
+
+        boolean improved = false;
+        for (int x = 0; x < currentTypes.size(); ++x) {
+            JavaTypeInstance currentType = currentTypes.get(x);
+            JavaTypeInstance targetType = targetTypes.get(x);
+            if (currentType.equals(targetType)) {
+                continue;
+            }
+            if (currentType == TypeConstants.OBJECT && targetType != TypeConstants.OBJECT) {
+                improved = true;
+                continue;
+            }
+            if (currentType.isRaw() && !targetType.isRaw()) {
+                improved = true;
+                continue;
+            }
+            if (currentType instanceof JavaGenericBaseInstance
+                    && targetType instanceof JavaGenericBaseInstance
+                    && currentType.getDeGenerifiedType().equals(targetType.getDeGenerifiedType())
+                    && hasMoreSpecificGenericArguments((JavaGenericBaseInstance) currentType, (JavaGenericBaseInstance) targetType)) {
+                improved = true;
+            }
+        }
+        return improved;
     }
 
     /*

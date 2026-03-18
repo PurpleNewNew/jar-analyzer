@@ -52,7 +52,7 @@ public class MemberFunctionInvokation extends AbstractMemberFunctionInvokation {
         getObject().dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
 
         MethodPrototype methodPrototype = getMethodPrototype();
-        improveLambdaArgumentTypes(methodPrototype);
+        improveAgainstExpectedType(null);
         if (!isInitMethod) d.separator(".").methodName(getFixedName(), methodPrototype, false, false);
         d.separator("(");
         List<Expression> args = getArgs();

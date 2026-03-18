@@ -53,6 +53,9 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
     protected boolean rewriteTry(StructuredTry structuredTry, StructuredScope scope, ResourceMatch resourceMatch) {
         if (!super.rewriteTry(structuredTry, scope, resourceMatch)) return false;
         structuredTry.getCatchBlocks().clear();
+        if (resourceMatch.replacementCatchBlocks != null && !resourceMatch.replacementCatchBlocks.isEmpty()) {
+            structuredTry.getCatchBlocks().addAll(resourceMatch.replacementCatchBlocks);
+        }
         for (Op04StructuredStatement remove : resourceMatch.removeThese) {
             remove.nopOut();
         }
@@ -129,7 +132,9 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
         mi.advance();
         mi.advance(); // skip structuredCatch
         boolean res = m.match(mi, collector);
-        if (!res) return null;
+        if (!res) {
+            return getWrappedComplexResourceMatch(structuredTry, scope, catchStatement);
+        }
 
         /* There are two possible locations for the close statement to be, depending on how our try block has been
          * structured.
@@ -182,5 +187,68 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
 
         closeStm.advance();
         return checkClose.match(closeStm, new EmptyMatchResultCollector());
+    }
+
+    private ResourceMatch getWrappedComplexResourceMatch(StructuredTry structuredTry,
+                                                         StructuredScope scope,
+                                                         StructuredCatch outerCatch) {
+        Op04StructuredStatement catchBlock = outerCatch.getCatchBlock();
+        StructuredStatement catchBlockStatement = catchBlock.getStatement();
+        if (!(catchBlockStatement instanceof Block)) {
+            return null;
+        }
+        Block block = (Block) catchBlockStatement;
+        org.benf.cfr.reader.util.Optional<Op04StructuredStatement> maybeOnly = block.getMaybeJustOneStatement();
+        if (!maybeOnly.isSet()) {
+            return null;
+        }
+        StructuredStatement onlyStatement = maybeOnly.getValue().getStatement();
+        if (!(onlyStatement instanceof StructuredTry)) {
+            return null;
+        }
+        StructuredTry wrappedTry = (StructuredTry) onlyStatement;
+        if (wrappedTry.getCatchBlocks().isEmpty()) {
+            return null;
+        }
+
+        WildcardMatch wcm = new WildcardMatch();
+        List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(wrappedTry.getTryBlock());
+        if (structuredStatements == null) {
+            return null;
+        }
+
+        WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
+        WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
+        Matcher<StructuredStatement> matcher =
+                new ResetAfterTest(wcm,
+                        new MatchSequence(
+                                new BeginBlock(null),
+                                ResourceReleaseDetector.getNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose),
+                                new EndBlock(null)
+                        ));
+
+        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(structuredStatements);
+        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
+        iterator.advance();
+        boolean matched = matcher.match(iterator, collector);
+        if (!matched) {
+            return null;
+        }
+
+        List<Op04StructuredStatement> toRemove = getCloseStatementAfter(structuredTry, scope, wcm, collector);
+        if (toRemove == null) {
+            toRemove = getCloseStatementEndTry(structuredTry, scope, wcm, collector);
+            if (toRemove == null) {
+                return null;
+            }
+        }
+        return new ResourceMatch(
+                null,
+                collector.resource,
+                collector.throwable,
+                false,
+                toRemove,
+                wrappedTry.getCatchBlocks()
+        );
     }
 }

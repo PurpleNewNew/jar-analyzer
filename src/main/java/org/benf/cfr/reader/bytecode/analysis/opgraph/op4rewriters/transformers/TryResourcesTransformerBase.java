@@ -185,17 +185,28 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
         final LValue throwable;
         final boolean reprocessException;
         final List<Op04StructuredStatement> removeThese;
+        final List<Op04StructuredStatement> replacementCatchBlocks;
 
         ResourceMatch(Method resourceMethod, LValue resource, LValue throwable) {
-            this(resourceMethod, resource, throwable,  true, null);
+            this(resourceMethod, resource, throwable,  true, null, null);
         }
 
         ResourceMatch(Method resourceMethod, LValue resource, LValue throwable, boolean reprocessException, List<Op04StructuredStatement> removeThese) {
+            this(resourceMethod, resource, throwable, reprocessException, removeThese, null);
+        }
+
+        ResourceMatch(Method resourceMethod,
+                      LValue resource,
+                      LValue throwable,
+                      boolean reprocessException,
+                      List<Op04StructuredStatement> removeThese,
+                      List<Op04StructuredStatement> replacementCatchBlocks) {
             this.resourceMethod = resourceMethod;
             this.resource = resource;
             this.throwable = throwable;
             this.reprocessException = reprocessException;
             this.removeThese = removeThese;
+            this.replacementCatchBlocks = replacementCatchBlocks;
         }
     }
 

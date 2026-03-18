@@ -107,6 +107,4 @@ public class LValueCondense {
         stm1.nopOut();
     }
 
-
-
 }

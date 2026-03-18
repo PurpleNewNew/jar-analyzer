@@ -150,7 +150,8 @@ public class ObjectTypeUsageRewriter extends AbstractExpressionRewriter implemen
         JavaTypeInstance owningClassType = funcInv.getMethodPrototype().getClassType();
         if (owningClassType == null) return funcInv;
         if (!needsReWrite(lhsObject, owningClassType, new MemberCheck())) return funcInv;
-        return funcInv.withReplacedObject(new CastExpression(BytecodeLoc.NONE, new InferredJavaType(owningClassType, InferredJavaType.Source.FORCE_TARGET_TYPE), lhsObject));
+        JavaTypeInstance castType = recoverDisplayCastType(lhsObject, owningClassType);
+        return funcInv.withReplacedObject(new CastExpression(BytecodeLoc.NONE, new InferredJavaType(castType, InferredJavaType.Source.FORCE_TARGET_TYPE), lhsObject));
     }
 
     private LValue handleFieldVariable(final FieldVariable fieldVariable) {
@@ -166,7 +167,24 @@ public class ObjectTypeUsageRewriter extends AbstractExpressionRewriter implemen
         JavaTypeInstance owningClassType = fieldVariable.getOwningClassType();
         if (!needsReWrite(lhsObject, owningClassType, new FieldCheck())) return fieldVariable;
 
-        return fieldVariable.withReplacedObject(new CastExpression(BytecodeLoc.NONE, new InferredJavaType(owningClassType, InferredJavaType.Source.FORCE_TARGET_TYPE), lhsObject));
+        JavaTypeInstance castType = recoverDisplayCastType(lhsObject, owningClassType);
+        return fieldVariable.withReplacedObject(new CastExpression(BytecodeLoc.NONE, new InferredJavaType(castType, InferredJavaType.Source.FORCE_TARGET_TYPE), lhsObject));
+    }
+
+    private JavaTypeInstance recoverDisplayCastType(Expression lhsObject, JavaTypeInstance owningClassType) {
+        if (lhsObject == null || owningClassType == null) {
+            return owningClassType;
+        }
+        JavaTypeInstance objectType = lhsObject.getInferredJavaType().getJavaTypeInstance();
+        if (objectType == null) {
+            return owningClassType;
+        }
+        BindingSuperContainer bindingSupers = objectType.getBindingSupers();
+        if (bindingSupers == null) {
+            return owningClassType;
+        }
+        JavaTypeInstance boundOwningType = bindingSupers.getBoundSuperForBase(owningClassType.getDeGenerifiedType());
+        return boundOwningType == null ? owningClassType : boundOwningType;
     }
 
     private void markLocalVar(Expression object) {

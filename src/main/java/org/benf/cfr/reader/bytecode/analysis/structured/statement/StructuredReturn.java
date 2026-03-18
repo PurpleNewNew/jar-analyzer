@@ -5,6 +5,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxin
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchIterator;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchResultCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -57,6 +58,7 @@ public class StructuredReturn extends AbstractStructuredStatement implements Box
         if (value == null) {
             dumper.keyword("return").print(";");
         } else {
+            ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType);
             dumper.keyword("return ").dump(value).print(";");
         }
         dumper.newln();

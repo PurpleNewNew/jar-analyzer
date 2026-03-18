@@ -467,6 +467,13 @@ public class MethodPrototype implements TypeUsageCollectable {
         return classFile.getClassType();
     }
 
+    public JavaTypeInstance getGenericClassType() {
+        if (classFile == null) {
+            return null;
+        }
+        return classFile.getClassSignature().getThisGeneralTypeClass(classFile.getClassType(), classFile.getConstantPool());
+    }
+
     public JavaTypeInstance getReturnType(JavaTypeInstance thisTypeInstance, List<Expression> invokingArgs) {
         if (classFile == null) {
             return result;
@@ -484,7 +491,19 @@ public class MethodPrototype implements TypeUsageCollectable {
             // we should be able to figure out more information
             // I.e. iterator on List<String> returns Iterator<String>, not Iterator.
 
-            JavaGenericRefTypeInstance genericRefTypeInstance = thisTypeInstance.asGenericRefInstance(getClassType());
+            JavaGenericRefTypeInstance genericRefTypeInstance = thisTypeInstance.asGenericRefInstance(getGenericClassType());
+            if (genericRefTypeInstance == null) {
+                BindingSuperContainer bindingSupers = thisTypeInstance.getBindingSupers();
+                if (bindingSupers != null) {
+                    JavaTypeInstance genericClassType = getGenericClassType();
+                    if (genericClassType != null) {
+                        genericRefTypeInstance = bindingSupers.getBoundSuperForBase(genericClassType.getDeGenerifiedType());
+                    }
+                }
+            }
+            if (genericRefTypeInstance == null) {
+                return result;
+            }
 
             /*
              * Now we need to specialise the method according to the existing specialisation on
@@ -759,11 +778,6 @@ public class MethodPrototype implements TypeUsageCollectable {
     }
 
     private JavaTypeInstance getResultBoundAccordinglyInner(JavaTypeInstance result, JavaGenericRefTypeInstance boundInstance, List<Expression> invokingArgs) {
-        if (!(result instanceof JavaGenericBaseInstance)) {
-            // Don't care - (i.e. iterator<E> hasNext)
-            return result;
-        }
-
         List<JavaTypeInstance> invokingTypes = ListFactory.newList();
         for (Expression invokingArg : invokingArgs) {
             invokingTypes.add(invokingArg.getInferredJavaType().getJavaTypeInstance());
@@ -778,8 +792,7 @@ public class MethodPrototype implements TypeUsageCollectable {
             return result;
         }
 
-        JavaGenericBaseInstance genericResult = (JavaGenericBaseInstance) result;
-        JavaTypeInstance boundResultInstance = genericResult.getBoundInstance(genericTypeBinder);
+        JavaTypeInstance boundResultInstance = genericTypeBinder.getBindingFor(result);
         /*
          * This is a result type - if it contains an unbound wildcard, we have to strip it.
          */

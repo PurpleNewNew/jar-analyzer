@@ -136,6 +136,31 @@ public abstract class AbstractFieldVariable extends AbstractLValue {
         return classFileField == null ? null : classFileField.getField();
     }
 
+    public JavaTypeInstance getResolvedJavaTypeInstance() {
+        if (classFileField != null) {
+            JavaTypeInstance fieldType = classFileField.getField().getJavaTypeInstance();
+            getInferredJavaType().forceType(fieldType, true);
+            return fieldType;
+        }
+        if (!(owningClass instanceof JavaRefTypeInstance)) {
+            return getInferredJavaType().getJavaTypeInstance();
+        }
+        try {
+            ClassFile classFile = ((JavaRefTypeInstance) owningClass).getClassFile();
+            if (classFile == null) {
+                return getInferredJavaType().getJavaTypeInstance();
+            }
+            ClassFileField resolvedField = classFile.getFieldByName(failureName, getInferredJavaType().getJavaTypeInstance());
+            JavaTypeInstance fieldType = resolvedField.getField().getJavaTypeInstance();
+            getInferredJavaType().forceType(fieldType, true);
+            return fieldType;
+        } catch (CannotLoadClassException ignore) {
+            return getInferredJavaType().getJavaTypeInstance();
+        } catch (NoSuchFieldException ignore) {
+            return getInferredJavaType().getJavaTypeInstance();
+        }
+    }
+
     public String getDescriptor() {
         return descriptor;
     }

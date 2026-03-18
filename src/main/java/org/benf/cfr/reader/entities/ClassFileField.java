@@ -1,7 +1,7 @@
 package org.benf.cfr.reader.entities;
 
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
-import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
@@ -38,9 +38,7 @@ public class ClassFileField {
     }
 
     public void setInitialValue(Expression rValue) {
-        if (rValue instanceof ConstructorInvokationSimple) {
-            ((ConstructorInvokationSimple) rValue).improveConstructionType(field.getJavaTypeInstance());
-        }
+        ExpressionTypeHintHelper.improveExpressionType(rValue, field.getJavaTypeInstance());
         this.initialValue = rValue;
     }
 

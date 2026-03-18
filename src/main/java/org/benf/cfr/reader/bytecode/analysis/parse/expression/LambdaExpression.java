@@ -20,11 +20,13 @@ import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaWildcardTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.StringUtils;
+import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.output.Dumper;
 
 import java.util.List;
@@ -99,7 +101,9 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
 
     @Override
     public Dumper dumpInner(Dumper d) {
-        improveResultType(null);
+        if (explicitArgTypes == null) {
+            improveResultType(null);
+        }
         boolean multi = args.size() != 1;
         boolean first = true;
         if (explicitArgTypes != null && explicitArgTypes.size() == args.size()) {
@@ -130,6 +134,10 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
     }
 
     public void improveResultType(JavaTypeInstance expectedFunctionalType) {
+        List<JavaTypeInstance> expectedArgTypes = getExpectedArgTypes(expectedFunctionalType);
+        if (expectedArgTypes != null) {
+            setExplicitArgTypes(expectedArgTypes);
+        }
         ConstructorInvokationSimple constructor = getResultConstructor();
         if (constructor == null) {
             return;
@@ -140,7 +148,64 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         }
     }
 
+    private List<JavaTypeInstance> getExpectedArgTypes(JavaTypeInstance expectedFunctionalType) {
+        Method sam = getSam(expectedFunctionalType);
+        if (sam == null) {
+            return null;
+        }
+        List<JavaTypeInstance> argTypes = ListFactory.newList(sam.getMethodPrototype().getArgs());
+        JavaTypeInstance lambdaType = expectedFunctionalType == null ? getInferredJavaType().getJavaTypeInstance() : expectedFunctionalType;
+        JavaTypeInstance rawLambdaType = lambdaType == null ? null : lambdaType.getDeGenerifiedType();
+        if (rawLambdaType instanceof JavaRefTypeInstance) {
+            ClassFile classFile = ((JavaRefTypeInstance) rawLambdaType).getClassFile();
+            if (classFile != null) {
+                JavaTypeInstance classGeneralType =
+                        classFile.getClassSignature().getThisGeneralTypeClass(classFile.getClassType(), classFile.getConstantPool());
+                if (classGeneralType instanceof JavaGenericBaseInstance) {
+                    GenericTypeBinder binder = GenericTypeBinder
+                            .extractBindings((JavaGenericBaseInstance) classGeneralType, lambdaType);
+                    for (int x = 0; x < argTypes.size(); ++x) {
+                        argTypes.set(x, binder.getBindingFor(argTypes.get(x)));
+                    }
+                }
+            }
+        }
+        for (JavaTypeInstance argType : argTypes) {
+            if (argType == null
+                    || argType instanceof JavaWildcardTypeInstance
+                    || !ExpressionTypeHintHelper.isSpecific(argType)) {
+                return null;
+            }
+        }
+        return argTypes;
+    }
+
     private JavaTypeInstance getExpectedReturnType(JavaTypeInstance expectedFunctionalType) {
+        JavaTypeInstance lambdaType = expectedFunctionalType == null ? getInferredJavaType().getJavaTypeInstance() : expectedFunctionalType;
+        Method sam = getSam(expectedFunctionalType);
+        if (sam == null || lambdaType == null) {
+            return null;
+        }
+        JavaTypeInstance rawLambdaType = lambdaType.getDeGenerifiedType();
+        if (!(rawLambdaType instanceof JavaRefTypeInstance)) {
+            return null;
+        }
+        ClassFile classFile = ((JavaRefTypeInstance) rawLambdaType).getClassFile();
+        if (classFile == null) {
+            return null;
+        }
+        JavaTypeInstance returnType = sam.getMethodPrototype().getReturnType();
+        JavaTypeInstance classGeneralType =
+                classFile.getClassSignature().getThisGeneralTypeClass(classFile.getClassType(), classFile.getConstantPool());
+        if (classGeneralType instanceof JavaGenericBaseInstance) {
+            returnType = GenericTypeBinder
+                    .extractBindings((JavaGenericBaseInstance) classGeneralType, lambdaType)
+                    .getBindingFor(returnType);
+        }
+        return returnType;
+    }
+
+    private Method getSam(JavaTypeInstance expectedFunctionalType) {
         JavaTypeInstance lambdaType = expectedFunctionalType == null ? getInferredJavaType().getJavaTypeInstance() : expectedFunctionalType;
         if (lambdaType == null) {
             return null;
@@ -163,18 +228,7 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
             }
             sam = method;
         }
-        if (sam == null) {
-            return null;
-        }
-        JavaTypeInstance returnType = sam.getMethodPrototype().getReturnType();
-        JavaTypeInstance classGeneralType =
-                classFile.getClassSignature().getThisGeneralTypeClass(classFile.getClassType(), classFile.getConstantPool());
-        if (classGeneralType instanceof JavaGenericBaseInstance) {
-            returnType = GenericTypeBinder
-                    .extractBindings((JavaGenericBaseInstance) classGeneralType, lambdaType)
-                    .getBindingFor(returnType);
-        }
-        return returnType;
+        return sam;
     }
 
     private ConstructorInvokationSimple getResultConstructor() {
@@ -193,6 +247,10 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
             return (ConstructorInvokationSimple) expression;
         }
         return null;
+    }
+
+    private boolean shouldTraceLambdaTyping() {
+        return args.size() == 1 && "ignore".equals(String.valueOf(args.get(0)));
     }
 
     /*

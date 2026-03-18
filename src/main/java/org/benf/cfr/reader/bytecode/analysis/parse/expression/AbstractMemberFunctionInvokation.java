@@ -4,9 +4,12 @@ import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.VarArgsRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.FunctionProcessor;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.AbstractFieldVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterHelper;
@@ -135,32 +138,180 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         return cp;
     }
 
-    protected void improveLambdaArgumentTypes(MethodPrototype methodPrototype) {
+    void improveAgainstExpectedType(JavaTypeInstance expectedType) {
+        MethodPrototype methodPrototype = getMethodPrototype();
+        GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
+        improveArgumentTypes(methodPrototype, genericTypeBinder);
+        JavaTypeInstance resolvedReturnType = getDisplayReturnType(expectedType);
+        if (resolvedReturnType != null) {
+            getInferredJavaType().forceType(resolvedReturnType, true);
+        }
+        JavaTypeInstance expectedObjectType = methodPrototype.getGenericClassType();
+        if (expectedObjectType != null && genericTypeBinder != null) {
+            expectedObjectType = genericTypeBinder.getBindingFor(expectedObjectType);
+        }
+        object = cleanExplicitCast(object, expectedObjectType, genericTypeBinder);
+        ExpressionTypeHintHelper.improveExpressionType(object, expectedObjectType);
+    }
+
+    JavaTypeInstance getDisplayReturnType(JavaTypeInstance expectedType) {
+        MethodPrototype methodPrototype = getMethodPrototype();
+        JavaTypeInstance objectType = resolveDisplayType(object);
+        GenericTypeBinder objectTypeBinder = null;
+        JavaTypeInstance classType = methodPrototype.getGenericClassType();
+        if (classType instanceof JavaGenericBaseInstance && objectType != null) {
+            objectTypeBinder = GenericTypeBinder.extractBindings((JavaGenericBaseInstance) classType, objectType);
+        }
+        GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
+        JavaTypeInstance resolvedReturnType = null;
+        if (objectType != null) {
+            resolvedReturnType = methodPrototype.getReturnType(objectType, args);
+        }
+        if (objectTypeBinder != null) {
+            JavaTypeInstance boundReturnType = objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            if (boundReturnType != null
+                    && (resolvedReturnType == null
+                    || resolvedReturnType.equals(methodPrototype.getReturnType())
+                    || !ExpressionTypeHintHelper.isSpecific(resolvedReturnType))) {
+                resolvedReturnType = boundReturnType;
+            }
+        }
+        if (genericTypeBinder != null) {
+            JavaTypeInstance boundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            if (boundReturnType != null
+                    && (resolvedReturnType == null
+                    || resolvedReturnType.equals(methodPrototype.getReturnType())
+                    || !ExpressionTypeHintHelper.isSpecific(resolvedReturnType))) {
+                resolvedReturnType = boundReturnType;
+            }
+        }
+        return resolvedReturnType;
+    }
+
+    protected void improveArgumentTypes(MethodPrototype methodPrototype, GenericTypeBinder genericTypeBinder) {
         OverloadMethodSet overloadMethodSet = getOverloadMethodSet();
-        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
         List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
         for (int x = 0; x < args.size(); ++x) {
             if (methodPrototype.isHiddenArg(x)) {
                 continue;
             }
             Expression arg = args.get(x);
-            if (!(arg instanceof LambdaExpression)) {
-                continue;
-            }
-            JavaTypeInstance expectedArgType = null;
-            if (overloadMethodSet != null) {
-                expectedArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
-            }
-            if (expectedArgType == null && x < prototypeArgs.size()) {
-                expectedArgType = prototypeArgs.get(x);
+            JavaTypeInstance boundPrototypeArg = null;
+            if (x < prototypeArgs.size()) {
+                boundPrototypeArg = prototypeArgs.get(x);
                 if (genericTypeBinder != null) {
-                    expectedArgType = genericTypeBinder.getBindingFor(expectedArgType);
+                    boundPrototypeArg = genericTypeBinder.getBindingFor(boundPrototypeArg);
                 }
             }
-            ((LambdaExpression) arg).improveResultType(expectedArgType);
+            JavaTypeInstance expectedArgType = null;
+            if (ExpressionTypeHintHelper.isSpecific(boundPrototypeArg)) {
+                expectedArgType = boundPrototypeArg;
+            }
+            if (overloadMethodSet != null) {
+                JavaTypeInstance overloadArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+                if (!ExpressionTypeHintHelper.isSpecific(expectedArgType)) {
+                    expectedArgType = overloadArgType;
+                }
+            }
+            if (expectedArgType == null && x < prototypeArgs.size()) {
+                expectedArgType = boundPrototypeArg;
+            }
+            arg = cleanExplicitCast(arg, expectedArgType, genericTypeBinder);
+            args.set(x, arg);
+            ExpressionTypeHintHelper.improveExpressionType(arg, expectedArgType);
         }
     }
 
+    private GenericTypeBinder getExpectedTypeBinder(MethodPrototype methodPrototype, JavaTypeInstance expectedType) {
+        GenericTypeBinder objectTypeBinder = null;
+        JavaTypeInstance objectType = resolveDisplayType(object);
+        JavaTypeInstance classType = methodPrototype.getGenericClassType();
+        if (classType instanceof JavaGenericBaseInstance && objectType != null) {
+            objectTypeBinder = GenericTypeBinder.extractBindings((JavaGenericBaseInstance) classType, objectType);
+        }
+        JavaTypeInstance normalizedExpectedType = ExpressionTypeHintHelper.normalizeExpectedType(expectedType);
+        if (normalizedExpectedType != null) {
+            JavaTypeInstance returnType = methodPrototype.getReturnType();
+            if (returnType instanceof JavaGenericBaseInstance) {
+                GenericTypeBinder expectedTypeBinder =
+                        GenericTypeBinder.extractBaseBindings((JavaGenericBaseInstance) returnType, normalizedExpectedType);
+                if (objectTypeBinder == null) {
+                    return expectedTypeBinder;
+                }
+                if (expectedTypeBinder == null) {
+                    return objectTypeBinder;
+                }
+                GenericTypeBinder merged = objectTypeBinder.mergeWith(expectedTypeBinder, true);
+                return merged == null ? expectedTypeBinder : merged;
+            }
+        }
+        if (objectTypeBinder != null) {
+            return objectTypeBinder;
+        }
+        return methodPrototype.getTypeBinderFor(args);
+    }
+
+    private Expression cleanExplicitCast(Expression expression, JavaTypeInstance expectedType, GenericTypeBinder genericTypeBinder) {
+        if (expression == null || expectedType == null) {
+            return expression;
+        }
+        expression = CastExpression.removeImplicitOuterType(expression, genericTypeBinder, false);
+        Expression probe = expression;
+        while (probe instanceof CastExpression) {
+            Expression child = ((CastExpression) probe).getChild();
+            if (child.getInferredJavaType().getJavaTypeInstance().implicitlyCastsTo(expectedType, genericTypeBinder)) {
+                return child;
+            }
+            probe = child;
+        }
+        return expression;
+    }
+
+    private JavaTypeInstance resolveDisplayType(Expression expression) {
+        if (expression == null) {
+            return null;
+        }
+        if (expression instanceof CastExpression) {
+            JavaTypeInstance childType = resolveDisplayType(((CastExpression) expression).getChild());
+            if (childType != null) {
+                return childType;
+            }
+        }
+        if (expression instanceof LValueExpression) {
+            LValue lValue = ((LValueExpression) expression).getLValue();
+            if (lValue instanceof LocalVariable) {
+                JavaTypeInstance creatorType = ((LocalVariable) lValue).getCustomCreationJavaType();
+                if (creatorType != null) {
+                    return creatorType;
+                }
+            }
+            if (lValue instanceof AbstractFieldVariable) {
+                return ((AbstractFieldVariable) lValue).getResolvedJavaTypeInstance();
+            }
+            return lValue.getInferredJavaType().getJavaTypeInstance();
+        }
+        if (expression instanceof AssignmentExpression) {
+            LValue updatedLValue = ((AssignmentExpression) expression).getUpdatedLValue();
+            if (updatedLValue instanceof LocalVariable) {
+                JavaTypeInstance creatorType = ((LocalVariable) updatedLValue).getCustomCreationJavaType();
+                if (creatorType != null) {
+                    return creatorType;
+                }
+            }
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            MemberFunctionInvokation invokation = (MemberFunctionInvokation) expression;
+            JavaTypeInstance objectType = resolveDisplayType(invokation.getObject());
+            if (objectType != null) {
+                return invokation.getMethodPrototype().getReturnType(objectType, invokation.getArgs());
+            }
+        }
+        if (expression instanceof StaticFunctionInvokation) {
+            StaticFunctionInvokation invokation = (StaticFunctionInvokation) expression;
+            return invokation.getMethodPrototype().getReturnType(invokation.getClazz(), invokation.getArgs());
+        }
+        return expression.getInferredJavaType().getJavaTypeInstance();
+    }
 
     @Override
     public void collectUsedLValues(LValueUsageCollector lValueUsageCollector) {
@@ -171,7 +322,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
     }
 
     private OverloadMethodSet getOverloadMethodSet() {
-        JavaTypeInstance objectType = object.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance objectType = resolveDisplayType(object);
         OverloadMethodSet overloadMethodSet = getOverloadMethodSetInner(objectType);
         if (overloadMethodSet == null) {
             overloadMethodSet = getMethodPrototype().getOverloadMethodSet();
@@ -187,7 +338,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
     protected OverloadMethodSet getOverloadMethodSetInner(JavaTypeInstance objectType) {
         JavaTypeInstance deGenerifiedObjectType = objectType.getDeGenerifiedType();
         // Could well be null....
-        JavaTypeInstance protoClassType = getFunction().getMethodPrototype().getClassType();
+        JavaTypeInstance protoClassType = getFunction().getMethodPrototype().getGenericClassType();
         if (protoClassType == null || deGenerifiedObjectType != protoClassType.getDeGenerifiedType()) {
             // TODO : This is more expensive than I'd like.
             OverloadMethodSet overloadMethodSet = getMethodPrototype().getOverloadMethodSet();

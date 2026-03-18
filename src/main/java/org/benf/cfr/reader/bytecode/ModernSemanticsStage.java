@@ -28,6 +28,8 @@ final class ModernSemanticsStage {
         }
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
         Op04StructuredStatement.rewriteLambdas(context.commonState, context.method, block);
+        Op04StructuredStatement.markLambdaCapturedVariables(block);
+        Op04StructuredStatement.restoreLiftableDefinitionAssignments(block);
         Op04StructuredStatement.removeRedundantIntersectionCasts(context.commonState, context.method, block);
         Op04StructuredStatement.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }

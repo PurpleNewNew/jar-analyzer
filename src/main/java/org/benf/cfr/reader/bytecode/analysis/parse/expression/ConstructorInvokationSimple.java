@@ -55,10 +55,14 @@ public class ConstructorInvokationSimple extends AbstractConstructorInvokation i
                 constructionType.getJavaTypeInstance(),
                 getInferredJavaType().getJavaTypeInstance()
         );
-        if (!(res instanceof JavaGenericBaseInstance)) return res;
-        if (!((JavaGenericBaseInstance) res).hasL01Wildcard()) return res;
-        res = ((JavaGenericBaseInstance) res).getWithoutL01Wildcard();
-        return res;
+        if (res instanceof JavaGenericBaseInstance && ((JavaGenericBaseInstance) res).hasL01Wildcard()) {
+            res = ((JavaGenericBaseInstance) res).getWithoutL01Wildcard();
+        }
+        return ExpressionTypeHintHelper.sanitizeConstructorType(res);
+    }
+
+    JavaTypeInstance getDisplayTypeInstance() {
+        return getFinalDisplayTypeInstance();
     }
 
     public void improveConstructionType(JavaTypeInstance targetType) {
@@ -71,7 +75,9 @@ public class ConstructorInvokationSimple extends AbstractConstructorInvokation i
         JavaTypeInstance improved = recoverConstructionDisplayType(constructionType.getJavaTypeInstance(), targetType);
         if (!improved.equals(constructionType.getJavaTypeInstance())) {
             constructionType.forceType(improved, true);
+            getInferredJavaType().forceType(improved, true);
         }
+        improveArgumentTypes(improved);
     }
 
     private JavaTypeInstance recoverConstructionDisplayType(JavaTypeInstance constructionDisplayType,
@@ -178,12 +184,18 @@ public class ConstructorInvokationSimple extends AbstractConstructorInvokation i
         if (currentGeneric.hasUnbound() && !reboundGeneric.hasUnbound()) {
             return true;
         }
+        if (currentGeneric.hasUnbound()
+                && reboundGeneric.hasUnbound()
+                && currentGeneric.getDeGenerifiedType().equals(reboundGeneric.getDeGenerifiedType())) {
+            return true;
+        }
         return !reboundGeneric.hasUnbound();
     }
 
     @Override
     public Dumper dumpInner(Dumper d) {
         JavaTypeInstance clazz = getFinalDisplayTypeInstance();
+        improveArgumentTypes(clazz);
         List<Expression> args = getArgs();
         MethodPrototype prototype = constructorInvokation.getMethodPrototype();
 
@@ -266,5 +278,51 @@ public class ConstructorInvokationSimple extends AbstractConstructorInvokation i
 
     public MethodPrototype getConstructorPrototype() {
         return getMethodPrototype();
+    }
+
+    private void improveArgumentTypes(JavaTypeInstance targetType) {
+        JavaTypeInstance normalizedTargetType = ExpressionTypeHintHelper.normalizeExpectedType(targetType);
+        if (normalizedTargetType == null) {
+            return;
+        }
+        MethodPrototype prototype = getConstructorPrototype();
+        List<JavaTypeInstance> prototypeArgs = prototype.getArgs();
+        GenericTypeBinder genericTypeBinder = null;
+        JavaTypeInstance classType = prototype.getClassType();
+        if (classType instanceof JavaGenericBaseInstance) {
+            genericTypeBinder = GenericTypeBinder.extractBaseBindings((JavaGenericBaseInstance) classType, normalizedTargetType);
+        }
+        if (genericTypeBinder == null) {
+            genericTypeBinder = prototype.getTypeBinderFor(getArgs());
+        }
+        OverloadMethodSet overloadMethodSet = getOverloadMethodSet();
+        List<Expression> args = getArgs();
+        for (int x = 0; x < args.size(); ++x) {
+            if (prototype.isHiddenArg(x)) {
+                continue;
+            }
+            Expression arg = args.get(x);
+            JavaTypeInstance boundPrototypeArg = null;
+            if (x < prototypeArgs.size()) {
+                boundPrototypeArg = prototypeArgs.get(x);
+                if (genericTypeBinder != null) {
+                    boundPrototypeArg = genericTypeBinder.getBindingFor(boundPrototypeArg);
+                }
+            }
+            JavaTypeInstance expectedArgType = null;
+            if (ExpressionTypeHintHelper.isSpecific(boundPrototypeArg)) {
+                expectedArgType = boundPrototypeArg;
+            }
+            if (overloadMethodSet != null) {
+                JavaTypeInstance overloadArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+                if (!ExpressionTypeHintHelper.isSpecific(expectedArgType)) {
+                    expectedArgType = overloadArgType;
+                }
+            }
+            if (expectedArgType == null) {
+                expectedArgType = boundPrototypeArg;
+            }
+            ExpressionTypeHintHelper.improveExpressionType(arg, expectedArgType);
+        }
     }
 }

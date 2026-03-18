@@ -695,6 +695,98 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
     }
 
+    private static class LambdaCaptureCollector extends AbstractExpressionRewriter {
+        private final Set<LocalVariable> captured = SetFactory.newSet();
+
+        private Set<LocalVariable> getCaptured() {
+            return captured;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof LambdaExpression) {
+                LambdaExpression lambdaExpression = (LambdaExpression) expression;
+                LValueCollectingRewriter collector = new LValueCollectingRewriter();
+                Expression lambdaResult = lambdaExpression.getResult();
+                if (lambdaResult instanceof StructuredStatementExpression) {
+                    ((StructuredStatementExpression) lambdaResult).getContent().rewriteExpressions(collector);
+                } else {
+                    lambdaResult.applyExpressionRewriter(collector, null, null, ExpressionRewriterFlags.RVALUE);
+                }
+                for (LValue used : collector.getUsedLValues()) {
+                    if (!(used instanceof LocalVariable)
+                            || lambdaExpression.getArgs().contains(used)
+                            || !((LocalVariable) used).getName().isGoodName()) {
+                        continue;
+                    }
+                    captured.add((LocalVariable) used);
+                }
+            }
+            return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
+        }
+    }
+
+    private static class LValueCollectingRewriter extends AbstractExpressionRewriter {
+        private final Set<LValue> usedLValues = SetFactory.newSet();
+
+        private Set<LValue> getUsedLValues() {
+            return usedLValues;
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            usedLValues.add(lValue);
+            return lValue;
+        }
+    }
+
+    private static class LambdaCaptureMarker extends AbstractExpressionRewriter implements StructuredStatementTransformer {
+        private final Set<LocalVariable> captured;
+
+        private LambdaCaptureMarker(Set<LocalVariable> captured) {
+            this.captured = captured;
+        }
+
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            in.transformStructuredChildren(this, scope);
+            if (in instanceof StructuredDefinition) {
+                LValue lValue = ((StructuredDefinition) in).getLvalue();
+                if (lValue instanceof LocalVariable && isCapturedLocal((LocalVariable) lValue)) {
+                    ((LocalVariable) lValue).markCapturedByLambda();
+                }
+            }
+            in.rewriteExpressions(this);
+            return in;
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            if (lValue instanceof LocalVariable && isCapturedLocal((LocalVariable) lValue)) {
+                ((LocalVariable) lValue).markCapturedByLambda();
+            }
+            return lValue;
+        }
+
+        private boolean isCapturedLocal(LocalVariable localVariable) {
+            for (LocalVariable candidate : captured) {
+                if (localVariable.matchesReadableAlias(candidate)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     private static class ConditionLocalAliasCleaner implements StructuredStatementTransformer {
         @Override
         public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
@@ -771,8 +863,7 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
 
         private boolean isEquivalentLocal(LocalVariable assigned, LocalVariable candidate) {
-            return assigned.getIdx() == candidate.getIdx()
-                    && assigned.getInferredJavaType().getJavaTypeInstance().equals(candidate.getInferredJavaType().getJavaTypeInstance());
+            return assigned.matchesReadableAlias(candidate);
         }
 
         private boolean isPlaceholderLocal(LocalVariable candidate, LocalVariable assigned) {
@@ -783,6 +874,11 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         }
 
         private boolean shouldInlineAssignment(StructuredAssignment assignment, ConditionalExpression condition) {
+            if (assignment.isCreator(assignment.getLvalue())
+                    && assignment.getLvalue() instanceof LocalVariable
+                    && ((LocalVariable) assignment.getLvalue()).getName().isGoodName()) {
+                return false;
+            }
             AssignmentUseCounter counter = new AssignmentUseCounter(assignment.getLvalue());
             counter.rewriteExpression(condition, null, null, ExpressionRewriterFlags.RVALUE);
             return counter.useCount == 1;
@@ -823,6 +919,403 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             }
             assignmentContainer.setSources(ListFactory.<Op04StructuredStatement>newList());
             assignmentContainer.setTargets(ListFactory.<Op04StructuredStatement>newList());
+        }
+    }
+
+    private static class DefinitionIfAssignmentRestorer implements StructuredStatementTransformer {
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            in.transformStructuredChildren(this, scope);
+            if (!(in instanceof Block)) {
+                return in;
+            }
+            List<Op04StructuredStatement> statements = ((Block) in).getBlockStatements();
+            for (int idx = 0; idx < statements.size(); ++idx) {
+                StructuredStatement statement = statements.get(idx).getStatement();
+                if (statement instanceof StructuredComment) {
+                    continue;
+                }
+                restoreLiftablePrefix(statement, statements, idx);
+            }
+            return in;
+        }
+
+        private void restoreLiftablePrefix(StructuredStatement targetStatement,
+                                           List<Op04StructuredStatement> statements,
+                                           int statementIndex) {
+            int start = statementIndex - 1;
+            while (start >= 0) {
+                StructuredStatement statement = statements.get(start).getStatement();
+                if (statement instanceof StructuredComment) {
+                    start--;
+                    continue;
+                }
+                if (getLiftablePrefixCandidate(statement, start) != null) {
+                    start--;
+                    continue;
+                }
+                break;
+            }
+            if (start == statementIndex - 1) {
+                return;
+            }
+            List<LiftablePrefixCandidate> candidates = ListFactory.newList();
+            for (int idx = start + 1; idx < statementIndex; ++idx) {
+                StructuredStatement candidateStatement = statements.get(idx).getStatement();
+                if (candidateStatement instanceof StructuredComment) {
+                    continue;
+                }
+                LiftablePrefixCandidate candidate = getLiftablePrefixCandidate(candidateStatement, idx);
+                if (candidate != null) {
+                    candidates.add(candidate);
+                }
+            }
+            if (candidates.isEmpty()) {
+                return;
+            }
+            ConditionAssignmentCollector collector = new ConditionAssignmentCollector(candidates);
+            targetStatement.rewriteExpressions(collector);
+            collector.bindUnmatchedReverseDefinitions();
+            if (!collector.isSafeToLift()) {
+                return;
+            }
+            for (LiftablePrefixCandidate candidate : candidates) {
+                AssignmentExpression lifted = collector.getSingleAssignment(candidate.localVariable);
+                if (lifted == null) {
+                    continue;
+                }
+                statements.set(candidate.index, new Op04StructuredStatement(
+                        new StructuredAssignment(lifted.getCombinedLoc(), candidate.localVariable, lifted.getrValue(), true)
+                ));
+                targetStatement.rewriteExpressions(new LiftedAssignmentConditionRewriter(lifted, candidate.localVariable));
+            }
+        }
+
+        private LiftablePrefixCandidate getLiftablePrefixCandidate(StructuredStatement statement, int index) {
+            if (statement instanceof StructuredDefinition) {
+                LValue defined = ((StructuredDefinition) statement).getLvalue();
+                if (defined instanceof LocalVariable) {
+                    return new LiftablePrefixCandidate((LocalVariable) defined, index);
+                }
+            }
+            if (!(statement instanceof StructuredAssignment)) {
+                return null;
+            }
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            if (!(assignment.getLvalue() instanceof LocalVariable)) {
+                return null;
+            }
+            LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
+            if (!assignment.isCreator(localVariable)) {
+                return null;
+            }
+            return isNullLike(assignment.getRvalue()) ? new LiftablePrefixCandidate(localVariable, index) : null;
+        }
+
+        private boolean isNullLike(Expression expression) {
+            if (expression == null) {
+                return false;
+            }
+            if (Literal.NULL.equals(expression)) {
+                return true;
+            }
+            if (expression instanceof CastExpression) {
+                return isNullLike(((CastExpression) expression).getChild());
+            }
+            if (expression instanceof TernaryExpression) {
+                TernaryExpression ternary = (TernaryExpression) expression;
+                return isNullLike(ternary.getLhs()) && isNullLike(ternary.getRhs());
+            }
+            return false;
+        }
+    }
+
+    private static class CreatorDependencyOrderRestorer implements StructuredStatementTransformer {
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            in.transformStructuredChildren(this, scope);
+            if (!(in instanceof Block)) {
+                return in;
+            }
+            List<Op04StructuredStatement> statements = ((Block) in).getBlockStatements();
+            boolean changed;
+            do {
+                changed = false;
+                for (int idx = 0; idx < statements.size() - 1; ++idx) {
+                    StructuredStatement currentStatement = statements.get(idx).getStatement();
+                    if (currentStatement instanceof StructuredComment) {
+                        continue;
+                    }
+                    LiftableCreatorAssignment current = getCreatorAssignment(currentStatement);
+                    if (current == null) {
+                        continue;
+                    }
+                    int moveTo = findMoveTarget(statements, idx, current);
+                    if (moveTo < 0) {
+                        continue;
+                    }
+                    Op04StructuredStatement moved = statements.remove(idx);
+                    statements.add(moveTo, moved);
+                    changed = true;
+                    break;
+                }
+            } while (changed);
+            return in;
+        }
+
+        private LiftableCreatorAssignment getCreatorAssignment(StructuredStatement statement) {
+            if (!(statement instanceof StructuredAssignment)) {
+                return null;
+            }
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            if (!(assignment.getLvalue() instanceof LocalVariable)) {
+                return null;
+            }
+            LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
+            if (!assignment.isCreator(localVariable)) {
+                return null;
+            }
+            return new LiftableCreatorAssignment(localVariable, assignment.getRvalue());
+        }
+
+        private int findMoveTarget(List<Op04StructuredStatement> statements,
+                                   int index,
+                                   LiftableCreatorAssignment current) {
+            int moveTo = -1;
+            for (int idx = index + 1; idx < statements.size(); ++idx) {
+                StructuredStatement statement = statements.get(idx).getStatement();
+                if (statement instanceof StructuredComment) {
+                    continue;
+                }
+                LiftableCreatorAssignment later = getCreatorAssignment(statement);
+                if (later == null) {
+                    break;
+                }
+                if (matchesLateResolvedLocal(current.localVariable, later.localVariable)) {
+                    break;
+                }
+                if (usesLocal(later.rvalue, current.localVariable)) {
+                    break;
+                }
+                if (usesLocal(current.rvalue, later.localVariable)) {
+                    moveTo = idx;
+                }
+            }
+            return moveTo;
+        }
+
+        private boolean usesLocal(Expression expression, LocalVariable localVariable) {
+            if (expression == null || localVariable == null) {
+                return false;
+            }
+            LValueUsageCollectorSimple collector = new LValueUsageCollectorSimple();
+            expression.collectUsedLValues(collector);
+            for (LValue used : collector.getUsedLValues()) {
+                if (used instanceof LocalVariable
+                        && matchesLateResolvedLocal(localVariable, (LocalVariable) used)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static class DefinitionFirstUseSinker implements StructuredStatementTransformer {
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            in.transformStructuredChildren(this, scope);
+            if (!(in instanceof Block)) {
+                return in;
+            }
+            List<Op04StructuredStatement> statements = ((Block) in).getBlockStatements();
+            for (int idx = statements.size() - 2; idx >= 0; --idx) {
+                StructuredStatement statement = statements.get(idx).getStatement();
+                if (!(statement instanceof StructuredDefinition)) {
+                    continue;
+                }
+                LValue lValue = ((StructuredDefinition) statement).getLvalue();
+                if (!(lValue instanceof LocalVariable)) {
+                    continue;
+                }
+                int firstUse = findFirstUseIndex(statements, idx + 1, (LocalVariable) lValue);
+                if (firstUse <= idx + 1) {
+                    continue;
+                }
+                Op04StructuredStatement moved = statements.remove(idx);
+                statements.add(firstUse - 1, moved);
+            }
+            return in;
+        }
+
+        private int findFirstUseIndex(List<Op04StructuredStatement> statements, int start, LocalVariable localVariable) {
+            for (int idx = start; idx < statements.size(); ++idx) {
+                StructuredStatement statement = statements.get(idx).getStatement();
+                if (statement instanceof StructuredComment) {
+                    continue;
+                }
+                if (usesLocal(statement, localVariable)) {
+                    return idx;
+                }
+            }
+            return -1;
+        }
+
+        private boolean usesLocal(StructuredStatement statement, LocalVariable localVariable) {
+            if (statement == null || localVariable == null) {
+                return false;
+            }
+            AssignmentUseCounter counter = new AssignmentUseCounter(localVariable);
+            List<StructuredStatement> linearized = ListFactory.newList();
+            statement.linearizeInto(linearized);
+            for (StructuredStatement part : linearized) {
+                part.rewriteExpressions(counter);
+                if (counter.useCount > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static class LiftableCreatorAssignment {
+        private final LocalVariable localVariable;
+        private final Expression rvalue;
+
+        private LiftableCreatorAssignment(LocalVariable localVariable, Expression rvalue) {
+            this.localVariable = localVariable;
+            this.rvalue = rvalue;
+        }
+    }
+
+    private static class LiftablePrefixCandidate {
+        private final LocalVariable localVariable;
+        private final int index;
+
+        private LiftablePrefixCandidate(LocalVariable localVariable, int index) {
+            this.localVariable = localVariable;
+            this.index = index;
+        }
+    }
+
+    private static class ConditionAssignmentCollector extends AbstractExpressionRewriter {
+        private final List<LiftablePrefixCandidate> candidates;
+        private final Map<LocalVariable, List<AssignmentExpression>> assignments = MapFactory.newIdentityMap();
+        private final List<AssignmentExpression> unmatchedAssignments = ListFactory.newList();
+        private boolean unsafeBool;
+        private boolean sawUnexpectedAssignment;
+
+        private ConditionAssignmentCollector(List<LiftablePrefixCandidate> candidates) {
+            this.candidates = candidates;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof BooleanOperation
+                    && ((BooleanOperation) expression).getOp() != BoolOp.AND) {
+                unsafeBool = true;
+            }
+            if (expression instanceof AssignmentExpression) {
+                recordAssignment((AssignmentExpression) expression);
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        private void recordAssignment(AssignmentExpression assignmentExpression) {
+            if (!(assignmentExpression.getUpdatedLValue() instanceof LocalVariable)) {
+                sawUnexpectedAssignment = true;
+                return;
+            }
+            LocalVariable updated = (LocalVariable) assignmentExpression.getUpdatedLValue();
+            LocalVariable candidate = findCandidate(updated);
+            if (candidate == null) {
+                unmatchedAssignments.add(assignmentExpression);
+                return;
+            }
+            List<AssignmentExpression> matches = assignments.get(candidate);
+            if (matches == null) {
+                matches = ListFactory.newList();
+                assignments.put(candidate, matches);
+            }
+            matches.add(assignmentExpression);
+        }
+
+        private LocalVariable findCandidate(LocalVariable updated) {
+            LocalVariable nameMatch = null;
+            for (LiftablePrefixCandidate candidate : candidates) {
+                if (matchesLateResolvedLocal(candidate.localVariable, updated)) {
+                    return candidate.localVariable;
+                }
+                if (candidate.localVariable.getName().isGoodName()
+                        && updated.getName().isGoodName()
+                        && candidate.localVariable.getName().getStringName().equals(updated.getName().getStringName())) {
+                    if (nameMatch != null) {
+                        return null;
+                    }
+                    nameMatch = candidate.localVariable;
+                }
+            }
+            return nameMatch;
+        }
+
+        private void bindUnmatchedReverseDefinitions() {
+            if (unsafeBool || sawUnexpectedAssignment || unmatchedAssignments.isEmpty()) {
+                return;
+            }
+            if (!assignments.isEmpty() || unmatchedAssignments.size() != candidates.size()) {
+                return;
+            }
+            for (LiftablePrefixCandidate candidate : candidates) {
+                if (candidate.index < 0) {
+                    return;
+                }
+            }
+            for (int idx = 0; idx < candidates.size(); ++idx) {
+                LiftablePrefixCandidate candidate = candidates.get(candidates.size() - 1 - idx);
+                assignments.put(candidate.localVariable, ListFactory.newImmutableList(unmatchedAssignments.get(idx)));
+            }
+            unmatchedAssignments.clear();
+        }
+
+        private boolean isSafeToLift() {
+            if (unsafeBool || sawUnexpectedAssignment || !unmatchedAssignments.isEmpty() || assignments.isEmpty()) {
+                return false;
+            }
+            for (Map.Entry<LocalVariable, List<AssignmentExpression>> entry : assignments.entrySet()) {
+                if (entry.getValue().size() != 1) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private AssignmentExpression getSingleAssignment(LocalVariable localVariable) {
+            List<AssignmentExpression> matches = assignments.get(localVariable);
+            return matches == null || matches.size() != 1 ? null : matches.get(0);
+        }
+
+    }
+
+    private static class LiftedAssignmentConditionRewriter extends AbstractExpressionRewriter {
+        private final AssignmentExpression target;
+        private final LocalVariable replacement;
+
+        private LiftedAssignmentConditionRewriter(AssignmentExpression target, LocalVariable replacement) {
+            this.target = target;
+            this.replacement = replacement;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (target.equals(expression)) {
+                return new LValueExpression(replacement);
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
         }
     }
 
@@ -1076,6 +1569,43 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
     public static void rewriteConditionLocalAliases(Op04StructuredStatement root) {
         root.transform(new ConditionLocalAliasCleaner(), new StructuredScope());
     }
+
+    public static void markLambdaCapturedVariables(Op04StructuredStatement root) {
+        LambdaCaptureCollector collector = new LambdaCaptureCollector();
+        new ExpressionRewriterTransformer(collector).transform(root);
+        if (collector.getCaptured().isEmpty()) {
+            return;
+        }
+        root.transform(new LambdaCaptureMarker(collector.getCaptured()), new StructuredScope());
+    }
+
+    public static void restoreLiftableDefinitionAssignments(Op04StructuredStatement root) {
+        root.transform(new DefinitionIfAssignmentRestorer(), new StructuredScope());
+    }
+
+    public static void restoreCreatorDependencyOrder(Op04StructuredStatement root) {
+        root.transform(new CreatorDependencyOrderRestorer(), new StructuredScope());
+    }
+
+    public static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
+        root.transform(new DefinitionFirstUseSinker(), new StructuredScope());
+    }
+
+    private static boolean matchesLateResolvedLocal(LocalVariable expected, LocalVariable actual) {
+        if (expected == null || actual == null) {
+            return false;
+        }
+        if (expected.matchesReadableAlias(actual)) {
+            return true;
+        }
+        if (!expected.getName().isGoodName() || !actual.getName().isGoodName()) {
+            return false;
+        }
+        String expectedName = expected.getName().getStringName();
+        String actualName = actual.getName().getStringName();
+        return expectedName != null && expectedName.equals(actualName);
+    }
+
 
     /*
      * We've got structured (hopefully) code now, so we can find the initial unbranched assignment points

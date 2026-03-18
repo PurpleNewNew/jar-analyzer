@@ -5,11 +5,20 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.InstrIndex;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchIterator;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchResultCollector;
+import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.BooleanOperation;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.BoolOp;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.BlockIdentifier;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
+import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverer;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
@@ -560,8 +569,9 @@ public class Block extends AbstractStructuredStatement {
                 d.separator("{").newln();
                 d.indent(1);
             }
-            for (Op04StructuredStatement structuredBlock : containedStatements) {
-                structuredBlock.dump(d);
+            for (int idx = 0; idx < containedStatements.size(); ++idx) {
+                prepareDefaultInitializerSuppression(idx);
+                containedStatements.get(idx).dump(d);
             }
         } finally {
             if (isIndenting) {
@@ -597,5 +607,60 @@ public class Block extends AbstractStructuredStatement {
             if (!statement.getStatement().isEffectivelyNOP()) return false;
         }
         return true;
+    }
+
+    private void prepareDefaultInitializerSuppression(int idx) {
+        if (idx < 0 || idx >= containedStatements.size() - 1) {
+            return;
+        }
+        StructuredStatement current = containedStatements.get(idx).getStatement();
+        StructuredStatement next = containedStatements.get(idx + 1).getStatement();
+        if (!(current instanceof StructuredDefinition) || !(next instanceof StructuredIf)) {
+            return;
+        }
+        LValue lValue = ((StructuredDefinition) current).getLvalue();
+        if (!(lValue instanceof LocalVariable) || !((LocalVariable) lValue).getName().isGoodName()) {
+            return;
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        ConditionAssignmentProbe probe = new ConditionAssignmentProbe(localVariable);
+        ConditionalExpression condition = ((StructuredIf) next).getConditionalExpression();
+        probe.rewriteExpression(condition, null, null, ExpressionRewriterFlags.RVALUE);
+        if (probe.shouldSuppressDefaultInitializer()) {
+            localVariable.suppressDefaultInitializer();
+        }
+    }
+
+    private static class ConditionAssignmentProbe extends AbstractExpressionRewriter {
+        private final LocalVariable target;
+        private boolean hasAssignment;
+        private boolean hasUnsafeBool;
+
+        private ConditionAssignmentProbe(LocalVariable target) {
+            this.target = target;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                LValue updated = ((AssignmentExpression) expression).getUpdatedLValue();
+                if (updated instanceof LocalVariable
+                        && target.matchesReadableAlias((LocalVariable) updated)) {
+                    hasAssignment = true;
+                }
+            }
+            if (expression instanceof BooleanOperation
+                    && ((BooleanOperation) expression).getOp() != BoolOp.AND) {
+                hasUnsafeBool = true;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        private boolean shouldSuppressDefaultInitializer() {
+            return hasAssignment && !hasUnsafeBool;
+        }
     }
 }

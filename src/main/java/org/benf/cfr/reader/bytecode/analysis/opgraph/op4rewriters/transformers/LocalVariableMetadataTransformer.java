@@ -100,6 +100,9 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
 
     @Override
     public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
+        if (lValue instanceof LocalVariable) {
+            applyResolvedVariableType((LocalVariable) lValue, false);
+        }
         return lValue;
     }
 
@@ -120,6 +123,14 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     }
 
     private JavaTypeInstance getLocalVariableCreatorType(LocalVariable localVariable) {
+        LocalVariableTypeEntry entry = getLocalVariableTypeEntry(localVariable);
+        if (entry == null) return null;
+
+        String signature = cp.getUTF8Entry(entry.getSignatureIndex()).getValue();
+        return ConstantPoolUtils.decodeTypeTok(signature, cp);
+    }
+
+    private LocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
         int offset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
         if (offset < 0 || slot < 0) return null;
@@ -127,21 +138,77 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (entries == null || entries.isEmpty()) return null;
 
         offset = offset > 0 ? offset + 2 : 0;
-        LocalVariableTypeEntry probe = new LocalVariableTypeEntry(offset, 1, -1, -1, slot);
-        LocalVariableTypeEntry entry = entries.floor(probe);
-        if (entry == null) return null;
-        if (offset > entry.getEndPc() && entries.ceiling(probe) != null) return null;
+        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
 
-        String signature = cp.getUTF8Entry(entry.getSignatureIndex()).getValue();
-        return ConstantPoolUtils.decodeTypeTok(signature, cp);
+        LocalVariableTypeEntry bestCovered = null;
+        LocalVariableTypeEntry bestCoveredNamed = null;
+        LocalVariableTypeEntry bestNearbyNamed = null;
+        int bestCoveredDistance = Integer.MAX_VALUE;
+        int bestCoveredNamedDistance = Integer.MAX_VALUE;
+        int bestNearbyNamedDistance = Integer.MAX_VALUE;
+
+        for (LocalVariableTypeEntry entry : entries) {
+            int distance = distanceFromScope(entry, offset);
+            boolean nameMatches = localName != null && entry.getNameIndex() >= 0
+                    && localName.equals(cp.getUTF8Entry(entry.getNameIndex()).getValue());
+            if (isOffsetCovered(entry, offset)) {
+                if (nameMatches && distance < bestCoveredNamedDistance) {
+                    bestCoveredNamed = entry;
+                    bestCoveredNamedDistance = distance;
+                }
+                if (distance < bestCoveredDistance) {
+                    bestCovered = entry;
+                    bestCoveredDistance = distance;
+                }
+                continue;
+            }
+            if (distance > 4) {
+                continue;
+            }
+            if (nameMatches && distance < bestNearbyNamedDistance) {
+                bestNearbyNamed = entry;
+                bestNearbyNamedDistance = distance;
+            }
+        }
+        if (bestCoveredNamed != null) return bestCoveredNamed;
+        if (bestCovered != null) return bestCovered;
+        return bestNearbyNamed;
+    }
+
+    private boolean isOffsetCovered(LocalVariableTypeEntry entry, int offset) {
+        if (entry == null) return false;
+        if (offset >= entry.getStartPc() && offset <= entry.getEndPc()) {
+            return true;
+        }
+        return offset + 2 >= entry.getStartPc() && offset <= entry.getEndPc();
+    }
+
+    private int distanceFromScope(LocalVariableTypeEntry entry, int offset) {
+        if (entry == null) return Integer.MAX_VALUE;
+        if (isOffsetCovered(entry, offset)) {
+            return Math.abs(offset - entry.getStartPc());
+        }
+        if (offset < entry.getStartPc()) {
+            return entry.getStartPc() - offset;
+        }
+        return offset - entry.getEndPc();
+    }
+
+    private JavaTypeInstance applyResolvedVariableType(LocalVariable localVariable, boolean refreshCreationType) {
+        JavaTypeInstance creatorType = getLocalVariableCreatorType(localVariable);
+        if (creatorType == null) return null;
+
+        localVariable.getInferredJavaType().forceType(creatorType, true);
+        localVariable.setCustomCreationJavaType(creatorType);
+        if (refreshCreationType) {
+            localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
+        }
+        return creatorType;
     }
 
     private void applyCreatorType(LocalVariable localVariable, StructuredStatement stm) {
-        JavaTypeInstance creatorType = getLocalVariableCreatorType(localVariable);
+        JavaTypeInstance creatorType = applyResolvedVariableType(localVariable, true);
         if (creatorType == null) return;
-
-        localVariable.getInferredJavaType().forceType(creatorType, true);
-        localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
 
         if (!(stm instanceof StructuredAssignment)) return;
         StructuredAssignment structuredAssignment = (StructuredAssignment) stm;

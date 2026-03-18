@@ -13,6 +13,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.collections.ListFactory;
@@ -38,7 +39,9 @@ public class StructuredDefinition extends AbstractStructuredStatement {
     public Dumper dump(Dumper dumper) {
         Class<?> clazz = scopedEntity.getClass();
         if (clazz == LocalVariable.class) {
-            return LValue.Creation.dump(dumper, scopedEntity).endCodeln();
+            LValue.Creation.dump(dumper, scopedEntity);
+            appendDefaultInitializer(dumper, (LocalVariable) scopedEntity);
+            return dumper.endCodeln();
         } else if (clazz == SentinelLocalClassLValue.class) {
             JavaTypeInstance type = ((SentinelLocalClassLValue) scopedEntity).getLocalClassType().getDeGenerifiedType();
             if (type instanceof JavaRefTypeInstance) {
@@ -49,6 +52,34 @@ public class StructuredDefinition extends AbstractStructuredStatement {
             }
         }
         return dumper;
+    }
+
+    private void appendDefaultInitializer(Dumper dumper, LocalVariable localVariable) {
+        if (localVariable == null || localVariable.isVar()) {
+            return;
+        }
+        JavaTypeInstance javaTypeInstance = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (javaTypeInstance == null) {
+            return;
+        }
+        RawJavaType rawType = javaTypeInstance.getRawTypeOfSimpleType();
+        if (rawType == null || rawType == RawJavaType.VOID) {
+            return;
+        }
+        if (rawType == RawJavaType.REF
+                && (localVariable.isCapturedByLambda() || localVariable.shouldSuppressDefaultInitializer())) {
+            return;
+        }
+        dumper.print(" = ");
+        if (rawType == RawJavaType.BOOLEAN) {
+            dumper.print("false");
+            return;
+        }
+        if (rawType != RawJavaType.REF) {
+            dumper.print("0");
+            return;
+        }
+        dumper.keyword("null");
     }
 
     @Override
@@ -101,4 +132,3 @@ public class StructuredDefinition extends AbstractStructuredStatement {
     }
 
 }
-

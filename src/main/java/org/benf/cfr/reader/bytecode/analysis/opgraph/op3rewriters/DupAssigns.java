@@ -6,6 +6,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.Statement;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.StackValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.statement.AssignmentSimple;
@@ -43,6 +44,10 @@ public class DupAssigns {
         LValue l2 = a2.getCreatedLValue();
         Expression r1 = a1.getRValue();
         Expression r2 = a2.getRValue();
+
+        if (l2 instanceof LocalVariable && ((LocalVariable) l2).getName().isGoodName()) {
+            return false;
+        }
 
         if (!(r2 instanceof StackValue)) return false;
         StackSSALabel s2 = ((StackValue)r2).getStackValue();

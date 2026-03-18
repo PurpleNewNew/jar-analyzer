@@ -17,7 +17,8 @@ public class VoidVariableChecker implements Op04Checker {
         if (in instanceof StructuredDefinition) {
             InferredJavaType inferredJavaType = ((StructuredDefinition) in).getLvalue().getInferredJavaType();
             if (inferredJavaType != null && inferredJavaType.getJavaTypeInstance().getRawTypeOfSimpleType() == RawJavaType.VOID) {
-                found = true;
+                inferredJavaType.forceType(RawJavaType.INT, true);
+                found = inferredJavaType.getJavaTypeInstance().getRawTypeOfSimpleType() == RawJavaType.VOID;
                 return in;
             }
         }

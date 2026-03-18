@@ -190,10 +190,11 @@ public class RecordRewriter {
 
         WildcardMatch wcm = new WildcardMatch();
         StructuredStatement stm = new StructuredReturn(BytecodeLoc.NONE,
+                new CastExpression(BytecodeLoc.NONE, new InferredJavaType(TypeConstants.STRING, InferredJavaType.Source.TEST),
                 wcm.getStaticFunction("func", TypeConstants.OBJECTMETHODS, TypeConstants.OBJECT, "bootstrap",
                         new Literal(TypedLiteral.getString(QuotingUtils.enquoteString(MiscConstants.TOSTRING))),
                         wcm.getExpressionWildCard("array"),
-                        wcm.getExpressionWildCard("this")), TypeConstants.STRING);
+                        wcm.getExpressionWildCard("this"))), TypeConstants.STRING);
 
         hideIfMatch(thisType, fields, method, wcm, stm);
     }

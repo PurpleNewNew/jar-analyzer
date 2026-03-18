@@ -74,6 +74,11 @@ public class TernaryExpression extends AbstractExpression implements BoxingProce
         return rhs;
     }
 
+    public void improveBranchTypes(org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance targetType) {
+        ExpressionTypeHintHelper.improveExpressionType(lhs, targetType);
+        ExpressionTypeHintHelper.improveExpressionType(rhs, targetType);
+    }
+
     @Override
     public Precedence getPrecedence() {
         return Precedence.CONDITIONAL;

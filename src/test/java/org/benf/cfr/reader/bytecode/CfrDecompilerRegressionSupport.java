@@ -100,6 +100,10 @@ final class CfrDecompilerRegressionSupport {
         return sinkOutput.toString();
     }
 
+    static String decompileJava(Path classFile) {
+        return sanitizeDecompiledSource(decompile(classFile));
+    }
+
     static Path locateClassFile(Class<?> type) throws IOException {
         assertNotNull(type, "Class type is required");
         java.net.URL classResource = type.getResource(type.getSimpleName() + ".class");
@@ -125,5 +129,16 @@ final class CfrDecompilerRegressionSupport {
     private static String extractPackageName(String source) {
         Matcher matcher = PACKAGE_PATTERN.matcher(source);
         return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String sanitizeDecompiledSource(String decompiled) {
+        int commentIndex = decompiled.indexOf("/*");
+        int packageIndex = decompiled.indexOf("package ");
+        int classIndex = decompiled.indexOf("public ");
+        int start = commentIndex >= 0 ? commentIndex : (packageIndex >= 0 ? packageIndex : classIndex);
+        if (start <= 0) {
+            return decompiled;
+        }
+        return decompiled.substring(start);
     }
 }

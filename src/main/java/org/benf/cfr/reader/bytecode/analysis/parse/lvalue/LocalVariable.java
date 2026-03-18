@@ -13,10 +13,13 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
 import org.benf.cfr.reader.util.ConfusedCFRException;
 import org.benf.cfr.reader.util.output.Dumper;
+
+import java.util.Objects;
 
 public class LocalVariable extends AbstractLValue {
     private final NamedVariable name;
@@ -26,8 +29,11 @@ public class LocalVariable extends AbstractLValue {
     private boolean guessedFinal;
     private boolean guessedVar;
     private boolean ignored;
+    private boolean capturedByLambda;
+    private boolean suppressDefaultInitializer;
     private final int originalRawOffset;
     private JavaAnnotatedTypeInstance customCreationType;
+    private JavaTypeInstance customCreationJavaType;
 
     public LocalVariable(int stackPosition, Ident ident, VariableNamer variableNamer, int originalRawOffset, boolean clashed, InferredJavaType inferredJavaType) {
         super(inferredJavaType);
@@ -36,6 +42,8 @@ public class LocalVariable extends AbstractLValue {
         this.ident = ident;
         this.guessedFinal = false;
         this.guessedVar = false;
+        this.capturedByLambda = false;
+        this.suppressDefaultInitializer = false;
         this.originalRawOffset = originalRawOffset;
     }
 
@@ -46,6 +54,8 @@ public class LocalVariable extends AbstractLValue {
         this.ident = null;
         this.guessedFinal = false;
         this.guessedVar = false;
+        this.capturedByLambda = false;
+        this.suppressDefaultInitializer = false;
         this.originalRawOffset = -1;
     }
 
@@ -75,6 +85,47 @@ public class LocalVariable extends AbstractLValue {
 
     public void markIgnored() { ignored = true; }
 
+    public void markCapturedByLambda() {
+        this.capturedByLambda = true;
+    }
+
+    public boolean isCapturedByLambda() {
+        return capturedByLambda;
+    }
+
+    public void suppressDefaultInitializer() {
+        this.suppressDefaultInitializer = true;
+    }
+
+    public boolean shouldSuppressDefaultInitializer() {
+        return suppressDefaultInitializer;
+    }
+
+    public boolean matchesReadableAlias(LocalVariable other) {
+        if (other == null) {
+            return false;
+        }
+        if (this == other || this.equals(other)) {
+            return true;
+        }
+        JavaTypeInstance thisType = getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance otherType = other.getInferredJavaType().getJavaTypeInstance();
+        if (!Objects.equals(thisType, otherType)) {
+            return false;
+        }
+        if (idx >= 0 && other.idx >= 0) {
+            return idx == other.idx;
+        }
+        if (idx == other.idx && Objects.equals(name.getStringName(), other.name.getStringName())) {
+            return true;
+        }
+        return idx == -1
+                && other.idx == -1
+                && ident == null
+                && other.ident == null
+                && Objects.equals(name.getStringName(), other.name.getStringName());
+    }
+
     @Override
     public boolean isFakeIgnored() {
         return ignored;
@@ -91,9 +142,17 @@ public class LocalVariable extends AbstractLValue {
         this.customCreationType = customCreationType;
     }
 
+    public void setCustomCreationJavaType(JavaTypeInstance customCreationJavaType) {
+        this.customCreationJavaType = customCreationJavaType;
+    }
+
     @Override
     public JavaAnnotatedTypeInstance getAnnotatedCreationType() {
         return customCreationType;
+    }
+
+    public JavaTypeInstance getCustomCreationJavaType() {
+        return customCreationJavaType;
     }
 
     /*

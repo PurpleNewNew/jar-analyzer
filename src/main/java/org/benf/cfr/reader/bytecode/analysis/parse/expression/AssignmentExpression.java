@@ -50,6 +50,7 @@ public class AssignmentExpression extends AbstractAssignmentExpression {
 
     @Override
     public Dumper dumpInner(Dumper d) {
+        ExpressionTypeHintHelper.improveExpressionType(rValue, lValue.getInferredJavaType().getJavaTypeInstance());
         d.dump(lValue).operator(" = ");
         rValue.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
         return d;

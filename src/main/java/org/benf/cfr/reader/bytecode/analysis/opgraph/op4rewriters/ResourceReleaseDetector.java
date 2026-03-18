@@ -76,8 +76,7 @@ public class ResourceReleaseDetector {
     public static Matcher<StructuredStatement> getNonTestingStructuredStatementMatcher(WildcardMatch wcm, LValue throwableLValue, LValue autoclose) {
         LValueExpression autocloseExpression = new LValueExpression(autoclose);
         LValueExpression throwableExpression = new LValueExpression(throwableLValue);
-        MatchOneOf closeExpression = getCloseExpressionMatch(wcm, autocloseExpression);
-
+        MatchSequence closeAndSuppress = getCloseAndSuppressMatcher(wcm, throwableLValue, autocloseExpression, throwableExpression);
         MatchSequence inner = new MatchSequence(
                 // We shouldn't see this, but might have if we've pulled some gotos up.
                 new MatchOpt(
@@ -88,6 +87,24 @@ public class ResourceReleaseDetector {
                                 new EndBlock(null)
                         )
                 ),
+                new MatchOneOf(
+                        closeAndSuppress,
+                        new MatchSequence(
+                                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.NONE, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
+                                new BeginBlock(null),
+                                closeAndSuppress,
+                                new EndBlock(null)
+                        )
+                ),
+                new StructuredThrow(BytecodeLoc.NONE, new LValueExpression(throwableLValue))
+        );
+
+        return inner;
+    }
+
+    private static MatchSequence getCloseAndSuppressMatcher(WildcardMatch wcm, LValue throwableLValue, LValueExpression autocloseExpression, LValueExpression throwableExpression) {
+        MatchOneOf closeExpression = getCloseExpressionMatch(wcm, autocloseExpression);
+        return new MatchSequence(
                 new StructuredTry(null, null),
                 new BeginBlock(null),
                 closeExpression,
@@ -97,11 +114,8 @@ public class ResourceReleaseDetector {
                 new StructuredCatch(null, null, wcm.getLValueWildCard("caught"), null),
                 new BeginBlock(null),
                 new StructuredExpressionStatement(BytecodeLoc.NONE, wcm.getMemberFunction("addsupp", "addSuppressed", throwableExpression, new LValueExpression(wcm.getLValueWildCard("caught"))), false),
-                new EndBlock(null),
-                new StructuredThrow(BytecodeLoc.NONE, new LValueExpression(throwableLValue))
+                new EndBlock(null)
         );
-
-        return inner;
     }
 
     public static Matcher<StructuredStatement> getSimpleStructuredStatementMatcher(WildcardMatch wcm, LValue throwableLValue, LValue autoclose) {

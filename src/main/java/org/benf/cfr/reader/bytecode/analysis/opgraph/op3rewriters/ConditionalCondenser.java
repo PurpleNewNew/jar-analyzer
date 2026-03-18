@@ -201,7 +201,6 @@ public class ConditionalCondenser {
         }
 
     }
-
     /*
      * Deal with
      *
