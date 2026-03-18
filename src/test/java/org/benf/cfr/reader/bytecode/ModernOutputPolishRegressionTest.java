@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class CfrModernOutputRegressionTest {
+class ModernOutputPolishRegressionTest {
     @Test
     void shouldNotEmitIllegalStaticOnLocalEnums(@TempDir Path tempDir) throws IOException {
         Path classFile = CfrDecompilerRegressionSupport.compileJava(

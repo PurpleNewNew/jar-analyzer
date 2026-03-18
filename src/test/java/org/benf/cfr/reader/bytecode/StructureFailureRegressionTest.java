@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class CfrStructureRegressionTest {
+class StructureFailureRegressionTest {
     @Test
     void shouldReduceDefiniteAssignmentGotoResidue(@TempDir Path tempDir) throws IOException {
         Path classFile = CfrDecompilerRegressionSupport.compileJava(
@@ -163,5 +163,40 @@ class CfrStructureRegressionTest {
         assertFalse(decompiled.contains("if (x = d > 0.0)"), decompiled);
         assertTrue(decompiled.contains("if (x = (d = (double)n) > 0.0)"), decompiled);
         assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
+    }
+
+    @Test
+    void shouldCleanupEmptyIfResidueAfterSwitchExpressionRewrite(@TempDir Path tempDir) throws IOException {
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "InlineSwitchExpressionSample",
+                """
+                public class InlineSwitchExpressionSample {
+                  public void test(int i) {
+                    int j = 0;
+                    while (j < i) {
+                      j++;
+                      i = switch (j) {
+                        case 1 -> 3;
+                        default -> {
+                          label3:
+                          if (j == 4) {
+                            break label3;
+                          }
+                          yield 2;
+                        }
+                      };
+                    }
+                  }
+                }
+                """,
+                "--release", "21");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+
+        assertTrue(decompiled.contains("switch (++j)"));
+        assertFalse(decompiled.contains("label3:"));
+        assertFalse(decompiled.contains("empty if block"));
+        assertFalse(decompiled.contains("Unable to fully structure code"));
     }
 }
