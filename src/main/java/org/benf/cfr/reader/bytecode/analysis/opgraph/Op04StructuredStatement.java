@@ -3,7 +3,6 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph;
 import org.benf.cfr.reader.bytecode.BytecodeMeta;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.*;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.Op04Checker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.*;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
@@ -12,8 +11,6 @@ import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
-import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ConstantFoldingRewriter;
-import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
@@ -23,14 +20,11 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.placeholder.En
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
-import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.entities.*;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.*;
 import org.benf.cfr.reader.util.collections.*;
-import org.benf.cfr.reader.util.getopt.Options;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.benf.cfr.reader.util.output.Dumpable;
 import org.benf.cfr.reader.util.output.Dumper;
 import org.benf.cfr.reader.util.output.LoggerFactory;
@@ -75,11 +69,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         this.structuredStatement = structuredStatement;
         this.blockMembership = blockSet(blockMembership);
         structuredStatement.setContainer(this);
-    }
-
-    public static void switchExpression(Method method, Op04StructuredStatement root, DecompilerComments comments, boolean emitPreviewComment) {
-        SwitchExpressionRewriter switchExpressionRewriter = new SwitchExpressionRewriter(comments, method, emitPreviewComment);
-        switchExpressionRewriter.transform(root);
     }
 
     // Later stages assume that certain instanceof operations are leaf nodes in boolean op trees.
@@ -506,26 +495,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
     }
 
     /*
-     * If a break falls out into another break, or a continue falls out into the end of a loop, they don't need to
-     * be there.
-     */
-    public static void miscKeyholeTransforms(VariableFactory variableFactory, Op04StructuredStatement root) {
-        new NakedNullCaster().transform(root);
-        new LambdaCleaner().transform(root);
-        new TernaryCastCleaner().transform(root);
-        new InvalidBooleanCastCleaner().transform(root);
-        new HexLiteralTidier().transform(root);
-        new ExpressionRewriterTransformer(LiteralRewriter.INSTANCE).transform(root);
-        new InvalidExpressionStatementCleaner(variableFactory).transform(root);
-    }
-
-    public static void tidyObfuscation(Options options, Op04StructuredStatement root) {
-        if (options.getOption(OptionsImpl.CONST_OBF)) {
-            new ExpressionRewriterTransformer(ConstantFoldingRewriter.INSTANCE).transform(root);
-        }
-    }
-
-    /*
      * Named blocks can be left in when they're no longer necessary - i.e.
      *
      * public class LoopTest58 {
@@ -827,33 +796,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         new SyntheticAccessorRewriter(state, classType).rewrite(root);
     }
 
-    public static void removeConstructorBoilerplate(Op04StructuredStatement root) {
-        new RedundantSuperRewriter().rewrite(root);
-    }
-
-    public static void rewriteLambdas(DCCommonState state, Method method, Op04StructuredStatement root) {
-        Options options = state.getOptions();
-        if (!options.getOption(OptionsImpl.REWRITE_LAMBDAS, method.getClassFile().getClassFileVersion())) return;
-
-        new LambdaRewriter(state, method).rewrite(root);
-    }
-
-    public static void removeRedundantIntersectionCasts(DCCommonState state, Method method, Op04StructuredStatement root) {
-        new RedundantIntersectionCastTransformer().transform(root);
-    }
-
-    public static void removeUnnecessaryVarargArrays(Options options, Method method, Op04StructuredStatement root) {
-        new VarArgsRewriter().rewrite(root);
-    }
-
-    public static void rewriteBadCastChains(Options options, Method method, Op04StructuredStatement root) {
-        root.transform(new ExpressionRewriterTransformer(new BadCastChainRewriter()), new StructuredScope());
-    }
-
-    public static void rewriteNarrowingAssignments(Options options, Method method, Op04StructuredStatement root) {
-        new NarrowingAssignmentRewriter().rewrite(root);
-    }
-
     public static void replaceNestedSyntheticOuterRefs(Op04StructuredStatement root) {
         List<StructuredStatement> statements = MiscStatementTools.linearise(root);
         //
@@ -867,15 +809,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             statement.rewriteExpressions(syntheticOuterRefRewriter);
             PointlessStructuredExpressions.removePointlessExpression(statement);
         }
-    }
-
-    /*
-     * there /should/ never be any loose catch statements.
-     */
-    public static void applyChecker(Op04Checker checker, Op04StructuredStatement root, DecompilerComments comments) {
-        StructuredScope structuredScope = new StructuredScope();
-        root.transform(checker, structuredScope);
-        checker.commentInto(comments);
     }
 
     public static boolean isTryWithResourceSynthetic(Method m, Op04StructuredStatement root) {

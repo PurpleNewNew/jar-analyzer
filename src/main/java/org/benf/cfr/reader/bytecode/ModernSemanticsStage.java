@@ -32,13 +32,18 @@ final class ModernSemanticsStage {
         }
         patternSemanticsRewriter.rewrite(block, context.bytecodeMeta);
         if (context.modernFeatures.supportsSwitchExpressions()) {
-            Op04StructuredStatement.switchExpression(context.method, block, context.comments, context.modernFeatures.shouldEmitPreviewSwitchExpressionComment());
+            StructuredSemanticTransforms.switchExpression(
+                    context.method,
+                    block,
+                    context.comments,
+                    context.modernFeatures.shouldEmitPreviewSwitchExpressionComment()
+            );
         }
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
-        Op04StructuredStatement.rewriteLambdas(context.commonState, context.method, block);
+        StructuredSemanticTransforms.rewriteLambdas(context.commonState, context.method, block);
         StructuredSemanticTransforms.markLambdaCapturedVariables(block);
         StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
-        Op04StructuredStatement.removeRedundantIntersectionCasts(context.commonState, context.method, block);
+        StructuredSemanticTransforms.removeRedundantIntersectionCasts(block);
         StructuredSemanticTransforms.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }
 }

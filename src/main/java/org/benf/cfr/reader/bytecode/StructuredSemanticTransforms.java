@@ -2,9 +2,12 @@ package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ClashDeclarationReducer;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.LambdaRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.ExpressionRewriterTransformer;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.LocalVariableMetadataTransformer;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.ObjectTypeUsageRewriter;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.RedundantIntersectionCastTransformer;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesCollapser;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerJ12;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerJ7;
@@ -32,10 +35,12 @@ import org.benf.cfr.reader.entities.attributes.AttributeCode;
 import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTypeTable;
 import org.benf.cfr.reader.entities.attributes.AttributeTypeAnnotations;
 import org.benf.cfr.reader.state.ClassCache;
+import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.DecompilerComment;
 import org.benf.cfr.reader.util.DecompilerComments;
 import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.getopt.Options;
+import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 
@@ -107,6 +112,13 @@ final class StructuredSemanticTransforms {
         }
     }
 
+    static void switchExpression(Method method,
+                                 Op04StructuredStatement root,
+                                 DecompilerComments comments,
+                                 boolean emitPreviewComment) {
+        new SwitchExpressionRewriter(comments, method, emitPreviewComment).transform(root);
+    }
+
     static void markLambdaCapturedVariables(Op04StructuredStatement root) {
         LambdaCaptureCollector collector = new LambdaCaptureCollector();
         new ExpressionRewriterTransformer(collector).transform(root);
@@ -138,6 +150,17 @@ final class StructuredSemanticTransforms {
         AbstractLValueScopeDiscoverer scopeDiscoverer = new LocalClassScopeDiscoverImpl(options, method, variableFactory);
         scopeDiscoverer.processOp04Statement(root);
         scopeDiscoverer.markDiscoveredCreations();
+    }
+
+    static void rewriteLambdas(DCCommonState state, Method method, Op04StructuredStatement root) {
+        if (!state.getOptions().getOption(OptionsImpl.REWRITE_LAMBDAS, method.getClassFile().getClassFileVersion())) {
+            return;
+        }
+        new LambdaRewriter(state, method).rewrite(root);
+    }
+
+    static void removeRedundantIntersectionCasts(Op04StructuredStatement root) {
+        new RedundantIntersectionCastTransformer().transform(root);
     }
 
     private static final class LambdaCaptureCollector extends AbstractExpressionRewriter {

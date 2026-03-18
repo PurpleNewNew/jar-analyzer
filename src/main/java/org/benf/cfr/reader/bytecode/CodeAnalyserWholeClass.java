@@ -95,7 +95,7 @@ public class CodeAnalyserWholeClass {
         for (Method method : classFile.getConstructors()) {
             if (method.hasCodeAttribute()) {
                 Op04StructuredStatement code = method.getAnalysis();
-                Op04StructuredStatement.removeConstructorBoilerplate(code);
+                StructuredOutputTransforms.removeConstructorBoilerplate(code);
             }
         }
     }

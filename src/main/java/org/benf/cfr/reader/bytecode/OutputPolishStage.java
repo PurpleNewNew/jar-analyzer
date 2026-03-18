@@ -25,12 +25,12 @@ final class OutputPolishStage {
 
     private void applyExpressionPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
         if (context.options.getOption(OptionsImpl.REMOVE_BOILERPLATE) && context.method.isConstructor()) {
-            Op04StructuredStatement.removeConstructorBoilerplate(block);
+            StructuredOutputTransforms.removeConstructorBoilerplate(block);
         }
-        Op04StructuredStatement.removeUnnecessaryVarargArrays(context.options, context.method, block);
+        StructuredOutputTransforms.removeUnnecessaryVarargArrays(block);
         StructureRecoveryTransforms.removePrimitiveDeconversion(context.options, block);
-        Op04StructuredStatement.rewriteBadCastChains(context.options, context.method, block);
-        Op04StructuredStatement.rewriteNarrowingAssignments(context.options, context.method, block);
+        StructuredOutputTransforms.rewriteBadCastChains(block);
+        StructuredOutputTransforms.rewriteNarrowingAssignments(block);
         StructuredSemanticTransforms.tidyVariableNames(
                 context.method,
                 block,
@@ -39,8 +39,8 @@ final class OutputPolishStage {
                 context.constantPool.getClassCache(),
                 context.modernFeatures
         );
-        Op04StructuredStatement.tidyObfuscation(context.options, block);
-        Op04StructuredStatement.miscKeyholeTransforms(context.variableFactory, block);
+        StructuredOutputTransforms.tidyObfuscation(context.options, block);
+        StructuredOutputTransforms.miscKeyholeTransforms(context.variableFactory, block);
         structureRecoveryPipeline.applyOutputPolish(block, context);
     }
 
@@ -50,9 +50,9 @@ final class OutputPolishStage {
     }
 
     private void applyValidationAndMetadata(Op04StructuredStatement block, MethodAnalysisContext context) {
-        Op04StructuredStatement.applyChecker(new LooseCatchChecker(), block, context.comments);
-        Op04StructuredStatement.applyChecker(new VoidVariableChecker(), block, context.comments);
-        Op04StructuredStatement.applyChecker(new IllegalReturnChecker(), block, context.comments);
+        StructuredOutputTransforms.applyChecker(new LooseCatchChecker(), block, context.comments);
+        StructuredOutputTransforms.applyChecker(new VoidVariableChecker(), block, context.comments);
+        StructuredOutputTransforms.applyChecker(new IllegalReturnChecker(), block, context.comments);
         StructureRecoveryTransforms.flattenNonReferencedBlocks(block);
         StructuredSemanticTransforms.applyLocalVariableMetadata(
                 context.originalCodeAttribute,
