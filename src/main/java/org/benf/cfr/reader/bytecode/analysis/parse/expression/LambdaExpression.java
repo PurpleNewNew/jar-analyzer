@@ -249,10 +249,6 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         return null;
     }
 
-    private boolean shouldTraceLambdaTyping() {
-        return args.size() == 1 && "ignore".equals(String.valueOf(args.get(0)));
-    }
-
     /*
      * The RHS of a lambda expression has already been fully processed and and does not require further gathering
      * EXCEPT.... we need to know about local class sentinels.
