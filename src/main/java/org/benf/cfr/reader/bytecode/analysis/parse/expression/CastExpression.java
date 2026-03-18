@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
@@ -103,7 +104,7 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         while (castType instanceof JavaWildcardTypeInstance) {
             castType = ((JavaWildcardTypeInstance) castType).getUnderlyingType();
         }
-        ExpressionTypeHintHelper.improveExpressionType(child, castType);
+        ExpressionTypeHintHelper.improveExpressionType(child, castType, TypeRecoveryPasses.CAST_CHILD_HINT);
         JavaTypeInstance childType = child.getInferredJavaType().getJavaTypeInstance();
         if (child instanceof MemberFunctionInvokation) {
             ((MemberFunctionInvokation) child).improveAgainstExpectedType(null);

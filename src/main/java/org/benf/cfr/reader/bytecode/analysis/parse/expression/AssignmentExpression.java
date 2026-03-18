@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
@@ -50,7 +51,11 @@ public class AssignmentExpression extends AbstractAssignmentExpression {
 
     @Override
     public Dumper dumpInner(Dumper d) {
-        ExpressionTypeHintHelper.improveExpressionType(rValue, lValue.getInferredJavaType().getJavaTypeInstance());
+        ExpressionTypeHintHelper.improveExpressionType(
+                rValue,
+                lValue.getInferredJavaType().getJavaTypeInstance(),
+                TypeRecoveryPasses.ASSIGNMENT_EXPRESSION_HINT
+        );
         d.dump(lValue).operator(" = ");
         rValue.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
         return d;

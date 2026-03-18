@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.structured.statement;
 
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchIterator;
@@ -58,7 +59,7 @@ public class StructuredReturn extends AbstractStructuredStatement implements Box
         if (value == null) {
             dumper.keyword("return").print(";");
         } else {
-            ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType);
+            ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType, TypeRecoveryPasses.RETURN_VALUE_HINT);
             dumper.keyword("return ").dump(value).print(";");
         }
         dumper.newln();

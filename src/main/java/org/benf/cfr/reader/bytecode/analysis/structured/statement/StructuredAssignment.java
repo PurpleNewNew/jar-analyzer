@@ -27,6 +27,7 @@ import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.output.Dumper;
 
@@ -76,7 +77,8 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             AssignmentExpression assignmentExpression = (AssignmentExpression) rvalue;
             ExpressionTypeHintHelper.improveExpressionType(
                     rvalue,
-                    assignmentExpression.getUpdatedLValue().getInferredJavaType().getJavaTypeInstance()
+                    assignmentExpression.getUpdatedLValue().getInferredJavaType().getJavaTypeInstance(),
+                    TypeRecoveryPasses.INLINE_SYNTHETIC_CREATOR_HINT
             );
             dumper.dump(rvalue).endCodeln();
             return dumper;
@@ -87,7 +89,11 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         } else {
             dumper.dump(lvalue);
         }
-        ExpressionTypeHintHelper.improveExpressionType(rvalue, lvalue.getInferredJavaType().getJavaTypeInstance());
+        ExpressionTypeHintHelper.improveExpressionType(
+                rvalue,
+                lvalue.getInferredJavaType().getJavaTypeInstance(),
+                TypeRecoveryPasses.ASSIGNMENT_RHS_HINT
+        );
         dumper.operator(" = ").dump(rvalue).endCodeln();
         return dumper;
     }

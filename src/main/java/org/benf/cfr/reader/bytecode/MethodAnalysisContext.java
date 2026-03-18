@@ -29,6 +29,7 @@ final class MethodAnalysisContext {
     final BlockIdentifierFactory blockIdentifierFactory;
     final ModernFeatureStrategy modernFeatures;
     final StructureRecoveryTrace structureRecoveryTrace;
+    final TypeRecoveryTrace typeRecoveryTrace;
 
     MethodAnalysisContext(DCCommonState commonState,
                           Options options,
@@ -59,7 +60,8 @@ final class MethodAnalysisContext {
                 constantPool,
                 blockIdentifierFactory,
                 modernFeatures,
-                new StructureRecoveryTrace()
+                new StructureRecoveryTrace(),
+                new TypeRecoveryTrace()
         );
     }
 
@@ -77,7 +79,8 @@ final class MethodAnalysisContext {
                           ConstantPool constantPool,
                           BlockIdentifierFactory blockIdentifierFactory,
                           ModernFeatureStrategy modernFeatures,
-                          StructureRecoveryTrace structureRecoveryTrace) {
+                          StructureRecoveryTrace structureRecoveryTrace,
+                          TypeRecoveryTrace typeRecoveryTrace) {
         this.commonState = commonState;
         this.options = options;
         this.method = method;
@@ -93,5 +96,6 @@ final class MethodAnalysisContext {
         this.blockIdentifierFactory = blockIdentifierFactory;
         this.modernFeatures = modernFeatures;
         this.structureRecoveryTrace = structureRecoveryTrace;
+        this.typeRecoveryTrace = typeRecoveryTrace;
     }
 }

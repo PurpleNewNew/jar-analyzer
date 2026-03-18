@@ -5,6 +5,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHint
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.util.output.Dumper;
 
 public class ClassFileField {
@@ -38,7 +39,7 @@ public class ClassFileField {
     }
 
     public void setInitialValue(Expression rValue) {
-        ExpressionTypeHintHelper.improveExpressionType(rValue, field.getJavaTypeInstance());
+        ExpressionTypeHintHelper.improveExpressionType(rValue, field.getJavaTypeInstance(), TypeRecoveryPasses.FIELD_INITIALIZER_HINT);
         this.initialValue = rValue;
     }
 

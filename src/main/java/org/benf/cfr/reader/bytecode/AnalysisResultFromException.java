@@ -44,4 +44,9 @@ public class AnalysisResultFromException implements AnalysisResult {
     public StructureRecoveryTrace getStructureRecoveryTrace() {
         return StructureRecoveryTrace.empty();
     }
+
+    @Override
+    public TypeRecoveryTrace getTypeRecoveryTrace() {
+        return TypeRecoveryTrace.empty();
+    }
 }

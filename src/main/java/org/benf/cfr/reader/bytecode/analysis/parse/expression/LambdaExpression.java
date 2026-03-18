@@ -1,5 +1,7 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
+import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
@@ -144,7 +146,12 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         }
         JavaTypeInstance expectedReturnType = getExpectedReturnType(expectedFunctionalType);
         if (expectedReturnType != null) {
-            constructor.improveConstructionType(expectedReturnType);
+            TypeRecoveryTracing.trace(
+                    TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT,
+                    constructor,
+                    expectedReturnType,
+                    () -> constructor.improveConstructionType(expectedReturnType)
+            );
         }
     }
 

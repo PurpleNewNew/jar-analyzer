@@ -280,12 +280,15 @@ public class CodeAnalyser {
                 pipelineState.blockIdentifierFactory,
                 modernFeatures
         );
-        Op04StructuredStatement block = new StructuredAnalysisPipeline(analysisContext).analyse(pipelineState.op03SimpleParseNodes, analysisContext);
+        Op04StructuredStatement block;
+        try (TypeRecoveryTracing.Scope ignored = TypeRecoveryTracing.activate(analysisContext.typeRecoveryTrace)) {
+            block = new StructuredAnalysisPipeline(analysisContext).analyse(pipelineState.op03SimpleParseNodes, analysisContext);
 
-        // Only check for type clashes on first pass.
-        if (passIdx == 0) {
-            if (StructuredAnalysisChecks.checkTypeClashes(block, bytecodeMeta, analysisContext.structureRecoveryTrace)) {
-                comments.addComment(DecompilerComment.TYPE_CLASHES);
+            // Only check for type clashes on first pass.
+            if (passIdx == 0) {
+                if (StructuredAnalysisChecks.checkTypeClashes(block, bytecodeMeta, analysisContext.structureRecoveryTrace)) {
+                    comments.addComment(DecompilerComment.TYPE_CLASHES);
+                }
             }
         }
 
@@ -293,13 +296,17 @@ public class CodeAnalyser {
                 comments,
                 block,
                 pipelineState.anonymousClassUsage,
-                analysisContext.structureRecoveryTrace
+                analysisContext.structureRecoveryTrace,
+                analysisContext.typeRecoveryTrace
         );
     }
 
     public void dump(Dumper d) {
         d.newln();
-        analysed.dump(d);
+        TypeRecoveryTrace trace = analysisResult == null ? TypeRecoveryTrace.empty() : analysisResult.getTypeRecoveryTrace();
+        try (TypeRecoveryTracing.Scope ignored = TypeRecoveryTracing.activate(trace)) {
+            analysed.dump(d);
+        }
     }
 
     public void releaseCode() {

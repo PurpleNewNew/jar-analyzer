@@ -1,5 +1,8 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
+import org.benf.cfr.reader.bytecode.StructuredPassEntry;
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
+import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
@@ -15,6 +18,12 @@ public final class ExpressionTypeHintHelper {
     }
 
     public static void improveExpressionType(Expression expression, JavaTypeInstance expectedType) {
+        improveExpressionType(expression, expectedType, TypeRecoveryPasses.NESTED_EXPRESSION_HINT);
+    }
+
+    public static void improveExpressionType(Expression expression,
+                                             JavaTypeInstance expectedType,
+                                             StructuredPassEntry pass) {
         if (expression == null) {
             return;
         }
@@ -22,40 +31,8 @@ public final class ExpressionTypeHintHelper {
         if (normalizedExpectedType == null) {
             return;
         }
-        if (expression instanceof LambdaExpression) {
-            ((LambdaExpression) expression).improveResultType(normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof ConstructorInvokationSimple) {
-            ((ConstructorInvokationSimple) expression).improveConstructionType(normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof AssignmentExpression) {
-            AssignmentExpression assignmentExpression = (AssignmentExpression) expression;
-            JavaTypeInstance assignmentType = assignmentExpression.getUpdatedLValue()
-                    .getInferredJavaType()
-                    .getJavaTypeInstance();
-            if (!isSpecific(normalizedExpectedType) && isSpecific(assignmentType)) {
-                normalizedExpectedType = assignmentType;
-            }
-            improveExpressionType(assignmentExpression.getrValue(), normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof StaticFunctionInvokation) {
-            ((StaticFunctionInvokation) expression).improveAgainstExpectedType(normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof MemberFunctionInvokation) {
-            ((MemberFunctionInvokation) expression).improveAgainstExpectedType(normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof CastExpression) {
-            improveExpressionType(((CastExpression) expression).getChild(), normalizedExpectedType);
-            return;
-        }
-        if (expression instanceof TernaryExpression) {
-            ((TernaryExpression) expression).improveBranchTypes(normalizedExpectedType);
-        }
+        final JavaTypeInstance finalExpectedType = normalizedExpectedType;
+        TypeRecoveryTracing.trace(pass, expression, finalExpectedType, () -> doImproveExpressionType(expression, finalExpectedType));
     }
 
     public static JavaTypeInstance getDisplayType(Expression expression) {
@@ -157,5 +134,62 @@ public final class ExpressionTypeHintHelper {
             }
         }
         return true;
+    }
+
+    public static String describeObservedType(Expression expression) {
+        if (expression == null) {
+            return null;
+        }
+        if (expression instanceof ConstructorInvokationSimple) {
+            return describeType(((ConstructorInvokationSimple) expression).getDisplayTypeInstance());
+        }
+        if (expression instanceof StaticFunctionInvokation) {
+            return describeType(((StaticFunctionInvokation) expression).getDisplayReturnType());
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            return describeType(((MemberFunctionInvokation) expression).getDisplayReturnType(null));
+        }
+        return describeType(expression.getInferredJavaType().getJavaTypeInstance());
+    }
+
+    public static String describeType(JavaTypeInstance type) {
+        return type == null ? null : type.toString();
+    }
+
+    private static void doImproveExpressionType(Expression expression, JavaTypeInstance normalizedExpectedType) {
+        if (expression instanceof LambdaExpression) {
+            ((LambdaExpression) expression).improveResultType(normalizedExpectedType);
+            return;
+        }
+        if (expression instanceof ConstructorInvokationSimple) {
+            ((ConstructorInvokationSimple) expression).improveConstructionType(normalizedExpectedType);
+            return;
+        }
+        if (expression instanceof AssignmentExpression) {
+            AssignmentExpression assignmentExpression = (AssignmentExpression) expression;
+            JavaTypeInstance assignmentType = assignmentExpression.getUpdatedLValue()
+                    .getInferredJavaType()
+                    .getJavaTypeInstance();
+            if (!isSpecific(normalizedExpectedType) && isSpecific(assignmentType)) {
+                normalizedExpectedType = assignmentType;
+            }
+            improveExpressionType(assignmentExpression.getrValue(), normalizedExpectedType, TypeRecoveryPasses.NESTED_EXPRESSION_HINT);
+            return;
+        }
+        if (expression instanceof StaticFunctionInvokation) {
+            ((StaticFunctionInvokation) expression).improveAgainstExpectedType(normalizedExpectedType);
+            return;
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            ((MemberFunctionInvokation) expression).improveAgainstExpectedType(normalizedExpectedType);
+            return;
+        }
+        if (expression instanceof CastExpression) {
+            improveExpressionType(((CastExpression) expression).getChild(), normalizedExpectedType, TypeRecoveryPasses.NESTED_EXPRESSION_HINT);
+            return;
+        }
+        if (expression instanceof TernaryExpression) {
+            ((TernaryExpression) expression).improveBranchTypes(normalizedExpectedType);
+        }
     }
 }

@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
+import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
@@ -75,8 +76,8 @@ public class TernaryExpression extends AbstractExpression implements BoxingProce
     }
 
     public void improveBranchTypes(org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance targetType) {
-        ExpressionTypeHintHelper.improveExpressionType(lhs, targetType);
-        ExpressionTypeHintHelper.improveExpressionType(rhs, targetType);
+        ExpressionTypeHintHelper.improveExpressionType(lhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
+        ExpressionTypeHintHelper.improveExpressionType(rhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
     }
 
     @Override
