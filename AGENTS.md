@@ -247,6 +247,13 @@
   - `JAVA_HOME` 必须指向 **JBR 21 + JCEF**
   - `java.vendor` 必须为 `JetBrains`
   - `${java.home}/jmods/jcef.jmod` 必须存在
+  - PowerShell 下执行 Java/Maven/测试前，必须显式统一输出编码为 UTF-8，至少设置：
+    - `chcp 65001 > $null`
+    - `[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)`
+    - `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`
+    - `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`
+    - `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8'`
+  - 目的：终端 code page 即使已经是 UTF-8，Java 在 Windows 上默认 `stdout/stderr` 仍可能是 `GBK`，不显式设置会导致 Maven/Surefire/Javac 中文输出乱码
 - 编译：
   - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
@@ -291,6 +298,12 @@
 ## 14. 常用命令（仓库默认）
 - 前置：`JAVA_HOME=<JBR21+JCEF>`
 - 若仓库根目录自带 JDK（例如 `./jdk-21`），优先先把 `JAVA_HOME` 指到这个目录，再校验它是否为 **JBR 21 + JCEF**
+- PowerShell 下统一 UTF-8 输出前缀：
+  - `chcp 65001 > $null`
+  - `[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)`
+  - `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`
+  - `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`
+  - `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8'`
 - 编译：
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
   - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
