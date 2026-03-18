@@ -13,11 +13,11 @@ public final class StructuredLocalVariableRecovery {
         return List.of(
                 entry("rewrite-condition-local-aliases", "structure-recovery", "any-structure-state", "Normalizes condition-local aliases before structure cleanup.", true, true),
                 entry("restore-liftable-definition-assignments", "modern-semantics", "fully-structured", "Lifts definition assignments back to the declaration/use boundary.", true, true),
-                entry("restore-creator-dependency-order", "output-polish.recovery-polish", "fully-structured", "Restores creator ordering when constructor dependencies were emitted out of order.", true, true),
-                entry("restore-creators-before-first-use", "output-polish.recovery-polish", "fully-structured", "Moves creator assignments back before the first semantic use.", true, true),
-                entry("restore-trailing-creator-assignments", "output-polish.recovery-polish", "fully-structured", "Pulls trailing creator assignments back into the declaration region.", true, true),
-                entry("restore-prefix-embedded-assignments", "output-polish.recovery-polish", "fully-structured", "Extracts embedded assignments that should be standalone prefix statements.", true, true),
-                entry("sink-definitions-to-first-use", "output-polish.recovery-polish", "fully-structured", "Sinks definition scaffolding to the first real use site during final polish.", true, true)
+                entry("restore-creator-dependency-order", "modern-semantics.local-recovery", "fully-structured", "Restores creator ordering when constructor dependencies were emitted out of order.", true, true),
+                entry("restore-creators-before-first-use", "modern-semantics.local-recovery", "fully-structured", "Moves creator assignments back before the first semantic use.", true, true),
+                entry("restore-trailing-creator-assignments", "modern-semantics.local-recovery", "fully-structured", "Pulls trailing creator assignments back into the declaration region.", true, true),
+                entry("restore-prefix-embedded-assignments", "modern-semantics.local-recovery", "fully-structured", "Extracts embedded assignments that should be standalone prefix statements.", true, true),
+                entry("sink-definitions-to-first-use", "modern-semantics.local-recovery", "fully-structured", "Sinks definition scaffolding to the first real use site during semantic recovery.", true, true)
         );
     }
 
@@ -47,15 +47,6 @@ public final class StructuredLocalVariableRecovery {
 
     public static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
         StructuredConditionLocalRecovery.sinkDefinitionsToFirstUse(root);
-    }
-
-    public static void applyOutputRecovery(Op04StructuredStatement root) {
-        sinkDefinitionsToFirstUse(root);
-        restoreCreatorDependencyOrder(root);
-        restoreCreatorsBeforeFirstUse(root);
-        restoreLiftableDefinitionAssignments(root);
-        restoreTrailingCreatorAssignments(root);
-        restorePrefixEmbeddedAssignments(root);
     }
 
     private static StructuredPassEntry entry(String name,

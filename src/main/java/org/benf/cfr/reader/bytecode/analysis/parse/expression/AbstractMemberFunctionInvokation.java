@@ -142,7 +142,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         MethodPrototype methodPrototype = getMethodPrototype();
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
         improveArgumentTypes(methodPrototype, genericTypeBinder);
-        JavaTypeInstance resolvedReturnType = getDisplayReturnType(expectedType);
+        JavaTypeInstance resolvedReturnType = resolveDisplayReturnType(expectedType).getResolvedType();
         if (resolvedReturnType != null) {
             getInferredJavaType().forceType(resolvedReturnType, true);
         }
@@ -155,6 +155,10 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
     }
 
     JavaTypeInstance getDisplayReturnType(JavaTypeInstance expectedType) {
+        return resolveDisplayReturnType(expectedType).getResolvedType();
+    }
+
+    DisplayTypeResolution resolveDisplayReturnType(JavaTypeInstance expectedType) {
         MethodPrototype methodPrototype = getMethodPrototype();
         JavaTypeInstance objectType = resolveDisplayType(object);
         GenericTypeBinder objectTypeBinder = null;
@@ -164,28 +168,41 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         }
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
         JavaTypeInstance resolvedReturnType = null;
+        JavaTypeInstance objectResolvedReturnType = null;
         if (objectType != null) {
-            resolvedReturnType = methodPrototype.getReturnType(objectType, args);
+            objectResolvedReturnType = methodPrototype.getReturnType(objectType, args);
+            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, objectResolvedReturnType);
         }
+        JavaTypeInstance objectBoundReturnType = null;
         if (objectTypeBinder != null) {
-            JavaTypeInstance boundReturnType = objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            if (boundReturnType != null
-                    && (resolvedReturnType == null
-                    || resolvedReturnType.equals(methodPrototype.getReturnType())
-                    || !ExpressionTypeHintHelper.isSpecific(resolvedReturnType))) {
-                resolvedReturnType = boundReturnType;
-            }
+            objectBoundReturnType = objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, objectBoundReturnType);
         }
+        JavaTypeInstance expectedBoundReturnType = null;
         if (genericTypeBinder != null) {
-            JavaTypeInstance boundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            if (boundReturnType != null
-                    && (resolvedReturnType == null
-                    || resolvedReturnType.equals(methodPrototype.getReturnType())
-                    || !ExpressionTypeHintHelper.isSpecific(resolvedReturnType))) {
-                resolvedReturnType = boundReturnType;
-            }
+            expectedBoundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, expectedBoundReturnType);
         }
-        return resolvedReturnType;
+        JavaTypeInstance inferredReturnType = getInferredJavaType().getJavaTypeInstance();
+        resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, inferredReturnType);
+        boolean requiresExplicitCast = resolvedReturnType != null
+                && expectedType != null
+                && !resolvedReturnType.equals(objectResolvedReturnType)
+                && !resolvedReturnType.equals(objectBoundReturnType);
+        return new DisplayTypeResolution(
+                resolvedReturnType,
+                requiresExplicitCast,
+                "expectedType=" + ExpressionTypeHintHelper.describeType(expectedType)
+                        + ", objectType=" + ExpressionTypeHintHelper.describeType(objectType)
+                        + ", objectBinder=" + objectTypeBinder
+                        + ", expectedBinder=" + genericTypeBinder
+                        + ", objectResolvedReturn=" + ExpressionTypeHintHelper.describeType(objectResolvedReturnType)
+                        + ", objectBoundReturn=" + ExpressionTypeHintHelper.describeType(objectBoundReturnType)
+                        + ", expectedBoundReturn=" + ExpressionTypeHintHelper.describeType(expectedBoundReturnType)
+                        + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
+                        + ", explicitCast=" + requiresExplicitCast
+                        + ", selected=" + ExpressionTypeHintHelper.describeType(resolvedReturnType)
+        );
     }
 
     protected void improveArgumentTypes(MethodPrototype methodPrototype, GenericTypeBinder genericTypeBinder) {

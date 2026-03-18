@@ -39,11 +39,23 @@ public final class TypeRecoveryPasses {
             "expression-available",
             "Pushes assignment-expression target type into its right-hand expression."
     );
+    public static final StructuredPassEntry DISPLAY_TYPE_STATIC_BINDER = entry(
+            "display-type-static-binder",
+            "type-recovery.display-type",
+            "expression-available",
+            "Captures static invocation binder candidates before choosing a display return type."
+    );
     public static final StructuredPassEntry DISPLAY_TYPE_STATIC_RETURN = entry(
             "display-type-static-return",
             "type-recovery.display-type",
             "expression-available",
             "Resolves static invocation display return type before assigned-local type harmonization."
+    );
+    public static final StructuredPassEntry DISPLAY_TYPE_MEMBER_BINDER = entry(
+            "display-type-member-binder",
+            "type-recovery.display-type",
+            "expression-available",
+            "Captures member invocation binder candidates before choosing a display return type."
     );
     public static final StructuredPassEntry DISPLAY_TYPE_MEMBER_RETURN = entry(
             "display-type-member-return",
@@ -77,7 +89,9 @@ public final class TypeRecoveryPasses {
             RETURN_VALUE_HINT,
             CAST_CHILD_HINT,
             ASSIGNMENT_EXPRESSION_HINT,
+            DISPLAY_TYPE_STATIC_BINDER,
             DISPLAY_TYPE_STATIC_RETURN,
+            DISPLAY_TYPE_MEMBER_BINDER,
             DISPLAY_TYPE_MEMBER_RETURN,
             NESTED_EXPRESSION_HINT,
             LAMBDA_RETURN_TARGET_HINT,

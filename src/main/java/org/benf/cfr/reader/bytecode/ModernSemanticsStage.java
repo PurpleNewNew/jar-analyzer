@@ -42,8 +42,14 @@ final class ModernSemanticsStage {
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
         StructuredSemanticTransforms.rewriteLambdas(context.commonState, context.method, block);
         StructuredSemanticTransforms.markLambdaCapturedVariables(block);
-        StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
         StructuredSemanticTransforms.removeRedundantIntersectionCasts(block);
+        StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
+        StructuredLocalVariableRecovery.sinkDefinitionsToFirstUse(block);
+        StructuredLocalVariableRecovery.restoreCreatorDependencyOrder(block);
+        StructuredLocalVariableRecovery.restoreCreatorsBeforeFirstUse(block);
+        StructuredLocalVariableRecovery.restoreTrailingCreatorAssignments(block);
+        StructuredLocalVariableRecovery.restorePrefixEmbeddedAssignments(block);
+        StructuredSemanticTransforms.reduceClashDeclarations(block, context.bytecodeMeta);
         StructuredSemanticTransforms.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }
 }

@@ -22,6 +22,14 @@ public final class TypeRecoveryTracing {
                              Expression expression,
                              JavaTypeInstance expectedType,
                              Runnable action) {
+        trace(pass, expression, expectedType, () -> null, action);
+    }
+
+    public static void trace(StructuredPassEntry pass,
+                             Expression expression,
+                             JavaTypeInstance expectedType,
+                             java.util.function.Supplier<String> detailSupplier,
+                             Runnable action) {
         TypeRecoveryTrace trace = ACTIVE.get();
         if (trace == null || pass == null || expression == null || expectedType == null) {
             action.run();
@@ -34,13 +42,23 @@ public final class TypeRecoveryTracing {
                 expression.getClass().getSimpleName(),
                 ExpressionTypeHintHelper.describeType(expectedType),
                 beforeType,
-                ExpressionTypeHintHelper.describeObservedType(expression)
+                ExpressionTypeHintHelper.describeObservedType(expression),
+                detailSupplier.get()
         );
     }
 
     public static JavaTypeInstance traceObservedType(StructuredPassEntry pass,
                                                      Expression expression,
                                                      Supplier<JavaTypeInstance> observedTypeSupplier,
+                                                     Runnable action) {
+        return traceObservedType(pass, expression, null, observedTypeSupplier, () -> null, action);
+    }
+
+    public static JavaTypeInstance traceObservedType(StructuredPassEntry pass,
+                                                     Expression expression,
+                                                     JavaTypeInstance expectedType,
+                                                     Supplier<JavaTypeInstance> observedTypeSupplier,
+                                                     Supplier<String> detailSupplier,
                                                      Runnable action) {
         TypeRecoveryTrace trace = ACTIVE.get();
         if (trace == null || pass == null || expression == null) {
@@ -53,9 +71,10 @@ public final class TypeRecoveryTracing {
         trace.record(
                 pass,
                 expression.getClass().getSimpleName(),
-                ExpressionTypeHintHelper.describeType(observedType),
+                ExpressionTypeHintHelper.describeType(expectedType == null ? observedType : expectedType),
                 beforeType,
-                ExpressionTypeHintHelper.describeObservedType(expression)
+                ExpressionTypeHintHelper.describeObservedType(expression),
+                detailSupplier.get()
         );
         return observedType;
     }

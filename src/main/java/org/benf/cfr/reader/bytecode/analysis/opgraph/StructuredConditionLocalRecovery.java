@@ -16,11 +16,15 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollectorSim
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.Block;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDo;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredIf;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredWhile;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
 
@@ -126,10 +130,12 @@ final class StructuredConditionLocalRecovery {
         }
 
         private boolean shouldInlineAssignment(StructuredAssignment assignment, ConditionalExpression condition) {
-            if (assignment.isCreator(assignment.getLvalue())
-                    && assignment.getLvalue() instanceof LocalVariable
+            if (assignment.getLvalue() instanceof LocalVariable
                     && ((LocalVariable) assignment.getLvalue()).getName().isGoodName()) {
-                return false;
+                LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
+                if (localVariable.getInferredJavaType().getJavaTypeInstance() != RawJavaType.BOOLEAN) {
+                    return false;
+                }
             }
             StructuredLocalVariableRecoverySupport.AssignmentUseCounter counter =
                     new StructuredLocalVariableRecoverySupport.AssignmentUseCounter(assignment.getLvalue());
@@ -180,6 +186,7 @@ final class StructuredConditionLocalRecovery {
         @Override
         public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
             in.transformStructuredChildren(this, scope);
+            in.rewriteExpressions(new NestedConditionExpressionTransformer());
             if (!(in instanceof Block)) {
                 return in;
             }
@@ -227,6 +234,10 @@ final class StructuredConditionLocalRecovery {
             if (candidates.isEmpty()) {
                 return;
             }
+            if (isConditionalStatement(targetStatement)
+                    && usesAnyCandidateAfterTarget(statements, statementIndex + 1, candidates)) {
+                return;
+            }
             ConditionAssignmentCollector collector = new ConditionAssignmentCollector(candidates);
             targetStatement.rewriteExpressions(collector);
             collector.bindUnmatchedReverseDefinitions();
@@ -248,6 +259,53 @@ final class StructuredConditionLocalRecovery {
             }
         }
 
+        private boolean isConditionalStatement(StructuredStatement statement) {
+            return statement instanceof StructuredIf
+                    || statement instanceof StructuredWhile
+                    || statement instanceof StructuredDo;
+        }
+
+        private boolean usesAnyCandidateAfterTarget(List<Op04StructuredStatement> statements,
+                                                    int start,
+                                                    List<LiftablePrefixCandidate> candidates) {
+            for (LiftablePrefixCandidate candidate : candidates) {
+                if (findFirstUseAfter(statements, start, candidate.localVariable) >= 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private int findFirstUseAfter(List<Op04StructuredStatement> statements, int start, LocalVariable localVariable) {
+            for (int idx = start; idx < statements.size(); ++idx) {
+                StructuredStatement statement = statements.get(idx).getStatement();
+                if (statement instanceof StructuredComment) {
+                    continue;
+                }
+                if (usesLocal(statement, localVariable)) {
+                    return idx;
+                }
+            }
+            return -1;
+        }
+
+        private boolean usesLocal(StructuredStatement statement, LocalVariable localVariable) {
+            if (statement == null || localVariable == null) {
+                return false;
+            }
+            StructuredLocalVariableRecoverySupport.AssignmentUseCounter counter =
+                    new StructuredLocalVariableRecoverySupport.AssignmentUseCounter(localVariable);
+            List<StructuredStatement> linearized = ListFactory.newList();
+            statement.linearizeInto(linearized);
+            for (StructuredStatement part : linearized) {
+                part.rewriteExpressions(counter);
+                if (counter.hasAnyUse()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private LiftablePrefixCandidate getLiftablePrefixCandidate(StructuredStatement statement, int index) {
             if (statement instanceof StructuredDefinition) {
                 LValue defined = ((StructuredDefinition) statement).getLvalue();
@@ -263,9 +321,6 @@ final class StructuredConditionLocalRecovery {
                 return null;
             }
             LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
-            if (!assignment.isCreator(localVariable)) {
-                return null;
-            }
             return StructuredLocalVariableRecoverySupport.isNullLike(assignment.getRvalue())
                     ? new LiftablePrefixCandidate(localVariable, index)
                     : null;
@@ -453,6 +508,38 @@ final class StructuredConditionLocalRecovery {
         private AssignmentExpression getSingleAssignment(LocalVariable localVariable) {
             List<AssignmentExpression> matches = assignments.get(localVariable);
             return matches == null || matches.size() != 1 ? null : matches.get(0);
+        }
+    }
+
+    private static final class NestedConditionExpressionTransformer extends AbstractExpressionRewriter {
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof StructuredStatementExpression) {
+                restoreNested(((StructuredStatementExpression) expression).getContent());
+                return expression;
+            }
+            if (expression instanceof org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression) {
+                Expression result = ((org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression) expression).getResult();
+                if (result instanceof StructuredStatementExpression) {
+                    restoreNested(((StructuredStatementExpression) result).getContent());
+                }
+                return expression;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        private void restoreNested(StructuredStatement content) {
+            if (content == null) {
+                return;
+            }
+            Op04StructuredStatement container = content.getContainer();
+            if (container == null) {
+                container = new Op04StructuredStatement(content);
+            }
+            restoreLiftableDefinitionAssignments(container);
         }
     }
 }

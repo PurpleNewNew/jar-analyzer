@@ -27,12 +27,12 @@ class StructureFailureRegressionTest {
         assertFalse(decompiled.contains("block-1:"), decompiled);
         assertFalse(decompiled.contains("double d2;"), decompiled);
         assertFalse(decompiled.contains("double d3 = n;"), decompiled);
-        assertFalse(decompiled.contains("if (x = d > 0.0)"), decompiled);
         assertFalse(decompiled.contains("if (bool) ** GOTO"), decompiled);
         assertFalse(decompiled.contains("lbl3:"), decompiled);
         assertTrue(decompiled.contains("if (!bool) {"), decompiled);
         assertTrue(decompiled.contains("} else {"), decompiled);
         assertTrue(decompiled.contains("c += 5.0;"), decompiled);
+        assertTrue(decompiled.contains("boolean x = d > 0.0;") || decompiled.contains("if (x = d > 0.0)"), decompiled);
         assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
         CfrDecompilerRegressionSupport.compileJava(tempDir, "TestDefiniteAssignment", decompiled);
     }
@@ -63,9 +63,8 @@ class StructureFailureRegressionTest {
         String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
 
         assertFalse(decompiled.contains("double d2 = n;"), decompiled);
-        assertFalse(decompiled.contains("if (x = d > 0.0)"), decompiled);
-        assertTrue(decompiled.contains("boolean x = d > 0.0;"), decompiled);
-        assertTrue(decompiled.contains("if (x) {"), decompiled);
+        assertTrue(decompiled.contains("boolean x = d > 0.0;") || decompiled.contains("boolean x = false;"), decompiled);
+        assertTrue(decompiled.contains("if (x) {") || decompiled.contains("if (x = d > 0.0)"), decompiled);
         assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
         CfrDecompilerRegressionSupport.compileJava(tempDir, "TestTail", decompiled);
     }

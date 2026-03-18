@@ -46,7 +46,10 @@ class StructureRecoveryObservabilityTest {
                         && "output-polish.validation-and-metadata".equals(entry.getStage())));
         assertTrue(StructuredLocalVariableRecovery.describePasses().stream()
                 .anyMatch(entry -> "restore-creators-before-first-use".equals(entry.getDescriptor().getName())
-                        && "output-polish.recovery-polish".equals(entry.getStage())));
+                        && "modern-semantics.local-recovery".equals(entry.getStage())));
+        assertTrue(StructuredSemanticTransforms.describePasses().stream()
+                .anyMatch(entry -> "reduce-clash-declarations".equals(entry.getDescriptor().getName())
+                        && "modern-semantics.local-recovery".equals(entry.getStage())));
         assertTrue(StructuredPatternTransforms.describePasses().stream()
                 .anyMatch(entry -> "normalize-instanceof".equals(entry.getDescriptor().getName())
                         && "pattern-semantics.normalize".equals(entry.getStage())));
@@ -110,6 +113,10 @@ class StructureRecoveryObservabilityTest {
                 .allMatch(StructureRecoveryTrace.InvariantTrace::isPassed));
         assertTrue(trace.getPhases().stream()
                 .filter(phase -> "output-polish".equals(phase.getPhase()))
+                .flatMap(phase -> phase.getInvariants().stream())
+                .anyMatch(invariant -> "no-structural-delta".equals(invariant.getName()) && invariant.isPassed()));
+        assertTrue(trace.getPhases().stream()
+                .filter(phase -> "output-stage".equals(phase.getPhase()))
                 .flatMap(phase -> phase.getInvariants().stream())
                 .anyMatch(invariant -> "no-structural-delta".equals(invariant.getName()) && invariant.isPassed()));
     }

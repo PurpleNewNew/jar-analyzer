@@ -140,19 +140,27 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         if (expectedArgTypes != null) {
             setExplicitArgTypes(expectedArgTypes);
         }
-        ConstructorInvokationSimple constructor = getResultConstructor();
-        if (constructor == null) {
+        JavaTypeInstance expectedReturnType = getExpectedReturnType(expectedFunctionalType);
+        if (expectedReturnType == null) {
             return;
         }
-        JavaTypeInstance expectedReturnType = getExpectedReturnType(expectedFunctionalType);
-        if (expectedReturnType != null) {
+        Expression resultExpression = getResultExpression();
+        if (resultExpression == null) {
+            return;
+        }
+        ConstructorInvokationSimple constructor = resultExpression instanceof ConstructorInvokationSimple
+                ? (ConstructorInvokationSimple) resultExpression
+                : null;
+        if (constructor != null) {
             TypeRecoveryTracing.trace(
                     TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT,
                     constructor,
                     expectedReturnType,
                     () -> constructor.improveConstructionType(expectedReturnType)
             );
+            return;
         }
+        ExpressionTypeHintHelper.improveExpressionType(resultExpression, expectedReturnType, TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT);
     }
 
     private List<JavaTypeInstance> getExpectedArgTypes(JavaTypeInstance expectedFunctionalType) {
@@ -239,21 +247,22 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
     }
 
     private ConstructorInvokationSimple getResultConstructor() {
-        if (result instanceof ConstructorInvokationSimple) {
-            return (ConstructorInvokationSimple) result;
+        Expression resultExpression = getResultExpression();
+        if (resultExpression instanceof ConstructorInvokationSimple) {
+            return (ConstructorInvokationSimple) resultExpression;
         }
+        return null;
+    }
+
+    private Expression getResultExpression() {
         if (!(result instanceof StructuredStatementExpression)) {
-            return null;
+            return result;
         }
         StructuredStatement content = ((StructuredStatementExpression) result).getContent();
         if (!(content instanceof StructuredExpressionStatement)) {
             return null;
         }
-        Expression expression = ((StructuredExpressionStatement) content).getExpression();
-        if (expression instanceof ConstructorInvokationSimple) {
-            return (ConstructorInvokationSimple) expression;
-        }
-        return null;
+        return ((StructuredExpressionStatement) content).getExpression();
     }
 
     /*

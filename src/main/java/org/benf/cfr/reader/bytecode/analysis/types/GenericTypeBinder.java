@@ -303,4 +303,9 @@ public class GenericTypeBinder {
         }
         return new GenericTypeBinder(resultMap);
     }
+
+    @Override
+    public String toString() {
+        return nameToBoundType.toString();
+    }
 }

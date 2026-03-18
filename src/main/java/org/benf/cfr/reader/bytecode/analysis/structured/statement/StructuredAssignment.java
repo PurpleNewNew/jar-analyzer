@@ -19,12 +19,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscov
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
-import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
-import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
@@ -89,11 +84,13 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         } else {
             dumper.dump(lvalue);
         }
+        JavaTypeInstance expectedType = lvalue.getInferredJavaType().getJavaTypeInstance();
         ExpressionTypeHintHelper.improveExpressionType(
                 rvalue,
-                lvalue.getInferredJavaType().getJavaTypeInstance(),
+                expectedType,
                 TypeRecoveryPasses.ASSIGNMENT_RHS_HINT
         );
+        rvalue = ExpressionTypeHintHelper.applyExpectedCastIfNeeded(rvalue, expectedType);
         dumper.operator(" = ").dump(rvalue).endCodeln();
         return dumper;
     }
@@ -109,13 +106,24 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         if (!(lvalue instanceof LocalVariable)) {
             return;
         }
-        JavaTypeInstance displayType = ExpressionTypeHintHelper.getDisplayType(rvalue);
+        LocalVariable localVariable = (LocalVariable) lvalue;
+        JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance displayType = ExpressionTypeHintHelper.getDisplayType(rvalue, currentType);
         if (!ExpressionTypeHintHelper.canDefineLocalType(displayType)) {
             return;
         }
-        LocalVariable localVariable = (LocalVariable) lvalue;
-        JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
-        if (!shouldPreferCreatorType(currentType, displayType)) {
+        JavaTypeInstance commonBaseType = getConflictingGenericBaseType(currentType, displayType);
+        if (commonBaseType != null) {
+            localVariable.getInferredJavaType().forceType(commonBaseType, true);
+            if (creator) {
+                localVariable.setCustomCreationJavaType(commonBaseType);
+                if (localVariable.getAnnotatedCreationType() == null) {
+                    localVariable.setCustomCreationType(commonBaseType.getAnnotatedInstance());
+                }
+            }
+            return;
+        }
+        if (!ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, displayType)) {
             return;
         }
         localVariable.getInferredJavaType().forceType(displayType, true);
@@ -127,42 +135,21 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         }
     }
 
-    private boolean shouldPreferCreatorType(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
-        if (candidateType == null || candidateType == RawJavaType.VOID) {
-            return false;
-        }
-        if (currentType == null) {
-            return true;
-        }
-        if (currentType.equals(candidateType)) {
-            return false;
-        }
-        if (currentType == TypeConstants.OBJECT) {
-            return true;
+    private JavaTypeInstance getConflictingGenericBaseType(JavaTypeInstance currentType, JavaTypeInstance displayType) {
+        if (currentType == null || displayType == null || currentType.equals(displayType)) {
+            return null;
         }
         JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
-        JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
-        BindingSuperContainer candidateSupers = candidateType.getBindingSupers();
-        if (candidateSupers != null && candidateSupers.containsBase(currentBaseType)) {
-            return false;
+        JavaTypeInstance displayBaseType = displayType.getDeGenerifiedType();
+        if (!currentBaseType.equals(displayBaseType)) {
+            return null;
         }
-        BindingSuperContainer currentSupers = currentType.getBindingSupers();
-        if (currentSupers != null && currentSupers.containsBase(candidateBaseType)) {
-            if (candidateBaseType == TypeConstants.OBJECT) {
-                return false;
-            }
-            if (ExpressionTypeHintHelper.isSpecific(currentType)
-                    && !ExpressionTypeHintHelper.isSpecific(candidateType)) {
-                return false;
-            }
-            return true;
+        boolean currentGeneric = currentType.getClass() != currentBaseType.getClass();
+        boolean displayGeneric = displayType.getClass() != displayBaseType.getClass();
+        if (!currentGeneric && !displayGeneric) {
+            return null;
         }
-        if (currentType instanceof JavaGenericBaseInstance
-                && ((JavaGenericBaseInstance) currentType).hasUnbound()) {
-            return !currentBaseType.equals(candidateBaseType)
-                    || candidateType instanceof JavaGenericPlaceholderTypeInstance;
-        }
-        return !currentBaseType.equals(candidateBaseType);
+        return currentBaseType;
     }
 
     private void harmonizeCreatorTypeFromAssignmentTarget() {

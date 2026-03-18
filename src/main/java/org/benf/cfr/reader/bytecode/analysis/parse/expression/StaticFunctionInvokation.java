@@ -153,19 +153,48 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
     void improveAgainstExpectedType(JavaTypeInstance expectedType) {
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(expectedType);
         improveArgumentTypes(genericTypeBinder);
+        JavaTypeInstance resolvedReturnType = resolveDisplayReturnType(expectedType).getResolvedType();
+        if (resolvedReturnType != null) {
+            getInferredJavaType().forceType(resolvedReturnType, true);
+        }
         maybeDropRedundantExplicitGenerics();
     }
 
     JavaTypeInstance getDisplayReturnType() {
+        return resolveDisplayReturnType(null).getResolvedType();
+    }
+
+    DisplayTypeResolution resolveDisplayReturnType(JavaTypeInstance expectedType) {
         MethodPrototype methodPrototype = getMethodPrototype();
-        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
-        if (genericTypeBinder != null) {
-            JavaTypeInstance boundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            if (boundReturnType != null) {
-                return boundReturnType;
-            }
+        GenericTypeBinder expectedTypeBinder = getExpectedTypeBinder(expectedType);
+        GenericTypeBinder argBinder = methodPrototype.getTypeBinderFor(args);
+        JavaTypeInstance selectedReturnType = null;
+        JavaTypeInstance expectedBoundReturnType = null;
+        if (expectedTypeBinder != null) {
+            expectedBoundReturnType = expectedTypeBinder.getBindingFor(methodPrototype.getReturnType());
+            selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, expectedBoundReturnType);
         }
-        return methodPrototype.getReturnType(clazz, args);
+        JavaTypeInstance argBoundReturnType = null;
+        if (argBinder != null) {
+            argBoundReturnType = argBinder.getBindingFor(methodPrototype.getReturnType());
+            selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, argBoundReturnType);
+        }
+        JavaTypeInstance fallbackReturnType = methodPrototype.getReturnType(clazz, args);
+        selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, fallbackReturnType);
+        JavaTypeInstance inferredReturnType = getInferredJavaType().getJavaTypeInstance();
+        selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, inferredReturnType);
+        return new DisplayTypeResolution(
+                selectedReturnType,
+                false,
+                "expectedType=" + ExpressionTypeHintHelper.describeType(expectedType)
+                        + ", expectedBinder=" + expectedTypeBinder
+                        + ", expectedBoundReturn=" + ExpressionTypeHintHelper.describeType(expectedBoundReturnType)
+                        + ", argBinder=" + argBinder
+                        + ", argBoundReturn=" + ExpressionTypeHintHelper.describeType(argBoundReturnType)
+                        + ", fallbackReturn=" + ExpressionTypeHintHelper.describeType(fallbackReturnType)
+                        + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
+                        + ", selected=" + ExpressionTypeHintHelper.describeType(selectedReturnType)
+        );
     }
 
     private GenericTypeBinder getExpectedTypeBinder(JavaTypeInstance expectedType) {

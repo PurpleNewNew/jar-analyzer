@@ -106,14 +106,18 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         }
         ExpressionTypeHintHelper.improveExpressionType(child, castType, TypeRecoveryPasses.CAST_CHILD_HINT);
         JavaTypeInstance childType = child.getInferredJavaType().getJavaTypeInstance();
+        boolean requiresExplicitFunctionCast = false;
         if (child instanceof MemberFunctionInvokation) {
-            ((MemberFunctionInvokation) child).improveAgainstExpectedType(null);
-            JavaTypeInstance displayType = ((MemberFunctionInvokation) child).getDisplayReturnType(null);
+            MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) child;
+            memberFunctionInvokation.improveAgainstExpectedType(castType);
+            DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(castType);
+            JavaTypeInstance displayType = resolution.getResolvedType();
+            requiresExplicitFunctionCast = resolution.requiresExplicitCast();
             if (displayType != null) {
                 childType = displayType;
             }
         } else if (child instanceof StaticFunctionInvokation) {
-            ((StaticFunctionInvokation) child).improveAgainstExpectedType(null);
+            ((StaticFunctionInvokation) child).improveAgainstExpectedType(castType);
             childType = child.getInferredJavaType().getJavaTypeInstance();
         }
         if (childType != null
@@ -122,7 +126,10 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
             d.dump(child);
             return d;
         }
-        if (!forced && child instanceof AbstractFunctionInvokation && childType != null && childType.implicitlyCastsTo(castType, null)) {
+        if (child instanceof AbstractFunctionInvokation
+                && childType != null
+                && childType.implicitlyCastsTo(castType, null)
+                && !requiresExplicitFunctionCast) {
             d.dump(child);
             return d;
         }

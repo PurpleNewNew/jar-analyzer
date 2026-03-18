@@ -62,7 +62,7 @@ final class StructuredSemanticTransforms {
                 entry("mark-lambda-captured-variables", "modern-semantics", "fully-structured", "Marks locals captured by lambda bodies after lambda rewriting.", true, false, "rewrite-lambdas"),
                 entry("remove-redundant-intersection-casts", "modern-semantics", "fully-structured", "Removes redundant intersection casts after semantic rewrites.", true, false, "rewrite-lambdas"),
                 entry("discover-local-class-scopes", "modern-semantics", "fully-structured", "Discovers local/anonymous class scopes after lambda and cast cleanup.", false, false, "mark-lambda-captured-variables"),
-                entry("reduce-clash-declarations", "output-polish.recovery-polish", "fully-structured", "Reduces declaration clashes reported by type-clash analysis.", true, true),
+                entry("reduce-clash-declarations", "modern-semantics.local-recovery", "fully-structured", "Reduces declaration clashes reported by type-clash analysis after semantic recovery.", true, true),
                 entry("tidy-variable-names", "output-polish.expression-polish", "fully-structured", "Renames locals to stable printable names without changing structure.", true, false),
                 entry("apply-local-variable-metadata", "output-polish.validation-and-metadata", "fully-structured", "Applies LVTT and type-annotation metadata after structure is finalized.", false, false)
         );

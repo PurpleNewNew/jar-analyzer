@@ -13,6 +13,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterF
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionVisitor;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.types.StackType;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.ConfusedCFRException;
@@ -76,8 +77,15 @@ public class TernaryExpression extends AbstractExpression implements BoxingProce
     }
 
     public void improveBranchTypes(org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance targetType) {
+        if (targetType == null) {
+            return;
+        }
         ExpressionTypeHintHelper.improveExpressionType(lhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
         ExpressionTypeHintHelper.improveExpressionType(rhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
+        JavaTypeInstance currentType = getInferredJavaType().getJavaTypeInstance();
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, targetType)) {
+            getInferredJavaType().forceType(targetType, true);
+        }
     }
 
     @Override

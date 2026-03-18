@@ -11,7 +11,16 @@ public final class TypeRecoveryTrace {
                 String expectedType,
                 String beforeType,
                 String afterType) {
-        passes.add(new PassTrace(pass, expressionKind, expectedType, beforeType, afterType));
+        record(pass, expressionKind, expectedType, beforeType, afterType, null);
+    }
+
+    void record(StructuredPassEntry pass,
+                String expressionKind,
+                String expectedType,
+                String beforeType,
+                String afterType,
+                String detail) {
+        passes.add(new PassTrace(pass, expressionKind, expectedType, beforeType, afterType, detail));
     }
 
     public List<PassTrace> getPasses() {
@@ -28,17 +37,20 @@ public final class TypeRecoveryTrace {
         private final String expectedType;
         private final String beforeType;
         private final String afterType;
+        private final String detail;
 
         private PassTrace(StructuredPassEntry pass,
                           String expressionKind,
                           String expectedType,
                           String beforeType,
-                          String afterType) {
+                          String afterType,
+                          String detail) {
             this.pass = pass;
             this.expressionKind = expressionKind;
             this.expectedType = expectedType;
             this.beforeType = beforeType;
             this.afterType = afterType;
+            this.detail = detail;
         }
 
         public StructuredPassEntry getPass() {
@@ -59,6 +71,10 @@ public final class TypeRecoveryTrace {
 
         public String getAfterType() {
             return afterType;
+        }
+
+        public String getDetail() {
+            return detail;
         }
 
         public boolean isChanged() {

@@ -27,7 +27,9 @@ class TypeRecoveryObservabilityTest {
 
         assertFalse(passes.isEmpty());
         assertTrue(passes.stream().anyMatch(entry -> "assignment-rhs-hint".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "display-type-static-binder".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-static-return".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "display-type-member-binder".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-return".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "lambda-return-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "ternary-branch-target-hint".equals(entry.getDescriptor().getName())));
@@ -96,12 +98,27 @@ class TypeRecoveryObservabilityTest {
         TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
 
         assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "display-type-static-binder".equals(pass.getPass().getDescriptor().getName())
+                        && "StaticFunctionInvokation".equals(pass.getExpressionKind())
+                        && pass.getDetail() != null
+                        && pass.getDetail().contains("argBinder=")
+                        && pass.getDetail().contains("selected=")),
+                () -> describeTrace(trace));
+        assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "display-type-static-return".equals(pass.getPass().getDescriptor().getName())
                         && "StaticFunctionInvokation".equals(pass.getExpressionKind())
                         && pass.getExpectedType() != null
                         && pass.getExpectedType().contains("java.util.List")
                         && pass.getAfterType() != null
                         && pass.getAfterType().contains("java.util.List")),
+                () -> describeTrace(trace));
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "display-type-member-binder".equals(pass.getPass().getDescriptor().getName())
+                        && "MemberFunctionInvokation".equals(pass.getExpressionKind())
+                        && pass.getDetail() != null
+                        && pass.getDetail().contains("objectBinder=")
+                        && pass.getDetail().contains("expectedBinder=")
+                        && pass.getDetail().contains("selected=")),
                 () -> describeTrace(trace));
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "display-type-member-return".equals(pass.getPass().getDescriptor().getName())
@@ -127,7 +144,8 @@ class TypeRecoveryObservabilityTest {
                         + " | " + pass.getExpressionKind()
                         + " | expected=" + pass.getExpectedType()
                         + " | before=" + pass.getBeforeType()
-                        + " | after=" + pass.getAfterType())
+                        + " | after=" + pass.getAfterType()
+                        + " | detail=" + pass.getDetail())
                 .collect(Collectors.joining("\n"));
     }
 }

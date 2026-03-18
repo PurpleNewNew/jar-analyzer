@@ -3,13 +3,16 @@ package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 import org.benf.cfr.reader.bytecode.StructuredPassEntry;
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
+import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaWildcardTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
+import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 
 import java.util.List;
 
@@ -36,32 +39,64 @@ public final class ExpressionTypeHintHelper {
     }
 
     public static JavaTypeInstance getDisplayType(Expression expression) {
+        return getDisplayType(expression, null);
+    }
+
+    public static JavaTypeInstance getDisplayType(Expression expression, JavaTypeInstance expectedType) {
         if (expression == null) {
             return null;
         }
+        JavaTypeInstance normalizedExpectedType = normalizeExpectedType(expectedType);
         if (expression instanceof ConstructorInvokationSimple) {
+            if (normalizedExpectedType != null) {
+                ((ConstructorInvokationSimple) expression).improveConstructionType(normalizedExpectedType);
+            }
             return ((ConstructorInvokationSimple) expression).getDisplayTypeInstance();
         }
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
+            DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            TypeRecoveryTracing.traceObservedType(
+                    TypeRecoveryPasses.DISPLAY_TYPE_STATIC_BINDER,
+                    staticFunctionInvokation,
+                    normalizedExpectedType,
+                    resolution::getResolvedType,
+                    resolution::getDetail,
+                    () -> {
+                    }
+            );
             return TypeRecoveryTracing.traceObservedType(
                     TypeRecoveryPasses.DISPLAY_TYPE_STATIC_RETURN,
                     staticFunctionInvokation,
-                    staticFunctionInvokation::getDisplayReturnType,
-                    () -> staticFunctionInvokation.improveAgainstExpectedType(null)
+                    normalizedExpectedType,
+                    resolution::getResolvedType,
+                    resolution::getDetail,
+                    () -> staticFunctionInvokation.improveAgainstExpectedType(normalizedExpectedType)
             );
         }
         if (expression instanceof MemberFunctionInvokation) {
             MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
+            DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            TypeRecoveryTracing.traceObservedType(
+                    TypeRecoveryPasses.DISPLAY_TYPE_MEMBER_BINDER,
+                    memberFunctionInvokation,
+                    normalizedExpectedType,
+                    resolution::getResolvedType,
+                    resolution::getDetail,
+                    () -> {
+                    }
+            );
             return TypeRecoveryTracing.traceObservedType(
                     TypeRecoveryPasses.DISPLAY_TYPE_MEMBER_RETURN,
                     memberFunctionInvokation,
-                    () -> memberFunctionInvokation.getDisplayReturnType(null),
-                    () -> memberFunctionInvokation.improveAgainstExpectedType(null)
+                    normalizedExpectedType,
+                    resolution::getResolvedType,
+                    resolution::getDetail,
+                    () -> memberFunctionInvokation.improveAgainstExpectedType(normalizedExpectedType)
             );
         }
         if (expression instanceof AssignmentExpression) {
-            return getDisplayType(((AssignmentExpression) expression).getrValue());
+            return getDisplayType(((AssignmentExpression) expression).getrValue(), normalizedExpectedType);
         }
         if (expression instanceof CastExpression) {
             return expression.getInferredJavaType().getJavaTypeInstance();
@@ -144,6 +179,83 @@ public final class ExpressionTypeHintHelper {
         return true;
     }
 
+    public static boolean shouldPreferResolvedType(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        if (candidateType == null || candidateType == RawJavaType.VOID) {
+            return false;
+        }
+        if (currentType == null) {
+            return true;
+        }
+        if (currentType.equals(candidateType)) {
+            return false;
+        }
+        if (currentType instanceof JavaGenericPlaceholderTypeInstance
+                && !(candidateType instanceof JavaGenericPlaceholderTypeInstance)) {
+            return true;
+        }
+        if (!(currentType instanceof JavaGenericPlaceholderTypeInstance)
+                && candidateType instanceof JavaGenericPlaceholderTypeInstance) {
+            return false;
+        }
+        if (currentType == TypeConstants.OBJECT) {
+            return true;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
+        if (currentBaseType.equals(candidateBaseType)) {
+            if (!(currentType instanceof JavaGenericBaseInstance)
+                    && candidateType instanceof JavaGenericBaseInstance
+                    && canDisplayTypeArguments(candidateType)) {
+                return true;
+            }
+            if (currentType instanceof JavaGenericBaseInstance
+                    && candidateType instanceof JavaGenericBaseInstance) {
+                JavaGenericBaseInstance currentGeneric = (JavaGenericBaseInstance) currentType;
+                JavaGenericBaseInstance candidateGeneric = (JavaGenericBaseInstance) candidateType;
+                boolean currentDisplayable = canDisplayTypeArguments(currentType);
+                boolean candidateDisplayable = canDisplayTypeArguments(candidateType);
+                if (!currentDisplayable && candidateDisplayable) {
+                    return true;
+                }
+                if (currentDisplayable && !candidateDisplayable) {
+                    return false;
+                }
+                if (currentGeneric.hasUnbound() && !candidateGeneric.hasUnbound()) {
+                    return true;
+                }
+                if (!currentGeneric.hasUnbound() && candidateGeneric.hasUnbound()) {
+                    return false;
+                }
+            }
+        }
+        BindingSuperContainer candidateSupers = candidateType.getBindingSupers();
+        if (candidateSupers != null && candidateSupers.containsBase(currentBaseType)) {
+            return false;
+        }
+        BindingSuperContainer currentSupers = currentType.getBindingSupers();
+        if (currentSupers != null && currentSupers.containsBase(candidateBaseType)) {
+            if (candidateBaseType == TypeConstants.OBJECT) {
+                return false;
+            }
+            if (isSpecific(currentType) && !isSpecific(candidateType)) {
+                return false;
+            }
+            return true;
+        }
+        if (currentType instanceof JavaGenericBaseInstance
+                && ((JavaGenericBaseInstance) currentType).hasUnbound()) {
+            return !currentBaseType.equals(candidateBaseType)
+                    || candidateType instanceof JavaGenericPlaceholderTypeInstance
+                    || isSpecific(candidateType);
+        }
+        return !currentBaseType.equals(candidateBaseType)
+                || (!isSpecific(currentType) && isSpecific(candidateType));
+    }
+
+    public static JavaTypeInstance preferResolvedType(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        return shouldPreferResolvedType(currentType, candidateType) ? candidateType : currentType;
+    }
+
     public static String describeObservedType(Expression expression) {
         if (expression == null) {
             return null;
@@ -162,6 +274,25 @@ public final class ExpressionTypeHintHelper {
 
     public static String describeType(JavaTypeInstance type) {
         return type == null ? null : type.toString();
+    }
+
+    public static Expression applyExpectedCastIfNeeded(Expression expression, JavaTypeInstance expectedType) {
+        JavaTypeInstance normalizedExpectedType = normalizeExpectedType(expectedType);
+        if (expression == null || normalizedExpectedType == null || expression instanceof CastExpression) {
+            return expression;
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            DisplayTypeResolution resolution = ((MemberFunctionInvokation) expression).resolveDisplayReturnType(normalizedExpectedType);
+            if (resolution.requiresExplicitCast()) {
+                return new CastExpression(
+                        BytecodeLoc.NONE,
+                        new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),
+                        expression,
+                        true
+                );
+            }
+        }
+        return expression;
     }
 
     private static void doImproveExpressionType(Expression expression, JavaTypeInstance normalizedExpectedType) {
