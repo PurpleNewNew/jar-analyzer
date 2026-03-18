@@ -7,6 +7,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.Matc
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -65,6 +66,9 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             LValue.Creation.dump(dumper, lvalue);
         } else {
             dumper.dump(lvalue);
+        }
+        if (rvalue instanceof ConstructorInvokationSimple) {
+            ((ConstructorInvokationSimple) rvalue).improveConstructionType(lvalue.getInferredJavaType().getJavaTypeInstance());
         }
         dumper.operator(" = ").dump(rvalue).endCodeln();
         return dumper;

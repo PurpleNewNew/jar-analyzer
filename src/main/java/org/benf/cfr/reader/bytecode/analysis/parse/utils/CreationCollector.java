@@ -192,8 +192,12 @@ public class CreationCollector {
                 // We'd prefer to use inferredJavaType here, as it can capture generic information
                 // What would be *nicer* to do is to chain the generic information for the captured
                 // construction type.
-                if (inferredJavaType.getJavaTypeInstance() instanceof JavaGenericBaseInstance) {
-                    constructionType = inferredJavaType;
+                if (inferredJavaType.getJavaTypeInstance() instanceof JavaGenericBaseInstance
+                        && inferredJavaType.getJavaTypeInstance().getDeGenerifiedType().equals(lValueType.getDeGenerifiedType())) {
+                    constructionType = new InferredJavaType(
+                            inferredJavaType.getJavaTypeInstance(),
+                            InferredJavaType.Source.CONSTRUCTOR
+                    );
                 }
 
                 ConstructorInvokationSimple cis = new ConstructorInvokationSimple(

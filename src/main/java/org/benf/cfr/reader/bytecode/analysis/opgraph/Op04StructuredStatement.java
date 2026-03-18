@@ -704,8 +704,10 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             }
             List<Op04StructuredStatement> statements = ((Block) in).getBlockStatements();
             for (int x = 0; x < statements.size() - 1; ++x) {
-                StructuredStatement current = statements.get(x).getStatement();
-                StructuredStatement next = statements.get(x + 1).getStatement();
+                Op04StructuredStatement currentContainer = statements.get(x);
+                Op04StructuredStatement nextContainer = statements.get(x + 1);
+                StructuredStatement current = currentContainer.getStatement();
+                StructuredStatement next = nextContainer.getStatement();
                 if (!(current instanceof StructuredAssignment) || !(next instanceof StructuredIf)) {
                     continue;
                 }
@@ -718,7 +720,8 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
                         structuredIf.rewriteExpressions(new LocalAliasExpressionRewriter(alias, assigned));
                     }
                 }
-                if (!shouldInlineAssignment(assignment, structuredIf.getConditionalExpression())) {
+                if (!shouldInlineAssignment(assignment, structuredIf.getConditionalExpression())
+                        || isUsedAfterIf(statements, x + 2, assignment.getLvalue())) {
                     continue;
                 }
                 structuredIf.rewriteExpressions(new InlineAssignmentExpressionRewriter(
@@ -728,6 +731,7 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
                 if (assignment.isCreator(assignment.getLvalue())) {
                     statements.set(x, new Op04StructuredStatement(new StructuredDefinition(assignment.getLvalue())));
                 } else {
+                    bypassRemovedAssignment(currentContainer, nextContainer);
                     statements.remove(x);
                     --x;
                 }
@@ -782,6 +786,43 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
             AssignmentUseCounter counter = new AssignmentUseCounter(assignment.getLvalue());
             counter.rewriteExpression(condition, null, null, ExpressionRewriterFlags.RVALUE);
             return counter.useCount == 1;
+        }
+
+        private boolean isUsedAfterIf(List<Op04StructuredStatement> statements, int fromIdx, LValue lValue) {
+            if (statements == null || lValue == null) {
+                return false;
+            }
+            AssignmentUseCounter counter = new AssignmentUseCounter(lValue);
+            for (int idx = Math.max(0, fromIdx); idx < statements.size(); ++idx) {
+                Op04StructuredStatement statement = statements.get(idx);
+                if (statement == null || statement.getStatement() == null) {
+                    continue;
+                }
+                statement.getStatement().rewriteExpressions(counter);
+                if (counter.useCount > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void bypassRemovedAssignment(Op04StructuredStatement assignmentContainer,
+                                             Op04StructuredStatement nextContainer) {
+            if (assignmentContainer == null || nextContainer == null || assignmentContainer == nextContainer) {
+                return;
+            }
+            List<Op04StructuredStatement> incoming = ListFactory.newList(assignmentContainer.getSources());
+            for (Op04StructuredStatement source : incoming) {
+                source.replaceTarget(assignmentContainer, nextContainer);
+                if (!nextContainer.getSources().contains(source)) {
+                    nextContainer.addSource(source);
+                }
+            }
+            while (nextContainer.getSources().remove(assignmentContainer)) {
+                // Remove the detached assignment node from the fallthrough chain.
+            }
+            assignmentContainer.setSources(ListFactory.<Op04StructuredStatement>newList());
+            assignmentContainer.setTargets(ListFactory.<Op04StructuredStatement>newList());
         }
     }
 

@@ -13,8 +13,16 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverer;
+import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionStatement;
+import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
+import org.benf.cfr.reader.entities.ClassFile;
+import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.StringUtils;
 import org.benf.cfr.reader.util.output.Dumper;
@@ -91,6 +99,7 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
 
     @Override
     public Dumper dumpInner(Dumper d) {
+        improveResultType(null);
         boolean multi = args.size() != 1;
         boolean first = true;
         if (explicitArgTypes != null && explicitArgTypes.size() == args.size()) {
@@ -118,6 +127,72 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         d.dump(result);
         d.removePendingCarriageReturn();
         return d;
+    }
+
+    public void improveResultType(JavaTypeInstance expectedFunctionalType) {
+        ConstructorInvokationSimple constructor = getResultConstructor();
+        if (constructor == null) {
+            return;
+        }
+        JavaTypeInstance expectedReturnType = getExpectedReturnType(expectedFunctionalType);
+        if (expectedReturnType != null) {
+            constructor.improveConstructionType(expectedReturnType);
+        }
+    }
+
+    private JavaTypeInstance getExpectedReturnType(JavaTypeInstance expectedFunctionalType) {
+        JavaTypeInstance lambdaType = expectedFunctionalType == null ? getInferredJavaType().getJavaTypeInstance() : expectedFunctionalType;
+        if (lambdaType == null) {
+            return null;
+        }
+        JavaTypeInstance rawLambdaType = lambdaType.getDeGenerifiedType();
+        if (!(rawLambdaType instanceof JavaRefTypeInstance)) {
+            return null;
+        }
+        ClassFile classFile = ((JavaRefTypeInstance) rawLambdaType).getClassFile();
+        if (classFile == null) {
+            return null;
+        }
+        Method sam = null;
+        for (Method method : classFile.getMethods()) {
+            if (method.hasCodeAttribute()) {
+                continue;
+            }
+            if (sam != null) {
+                return null;
+            }
+            sam = method;
+        }
+        if (sam == null) {
+            return null;
+        }
+        JavaTypeInstance returnType = sam.getMethodPrototype().getReturnType();
+        JavaTypeInstance classGeneralType =
+                classFile.getClassSignature().getThisGeneralTypeClass(classFile.getClassType(), classFile.getConstantPool());
+        if (classGeneralType instanceof JavaGenericBaseInstance) {
+            returnType = GenericTypeBinder
+                    .extractBindings((JavaGenericBaseInstance) classGeneralType, lambdaType)
+                    .getBindingFor(returnType);
+        }
+        return returnType;
+    }
+
+    private ConstructorInvokationSimple getResultConstructor() {
+        if (result instanceof ConstructorInvokationSimple) {
+            return (ConstructorInvokationSimple) result;
+        }
+        if (!(result instanceof StructuredStatementExpression)) {
+            return null;
+        }
+        StructuredStatement content = ((StructuredStatementExpression) result).getContent();
+        if (!(content instanceof StructuredExpressionStatement)) {
+            return null;
+        }
+        Expression expression = ((StructuredExpressionStatement) content).getExpression();
+        if (expression instanceof ConstructorInvokationSimple) {
+            return (ConstructorInvokationSimple) expression;
+        }
+        return null;
     }
 
     /*

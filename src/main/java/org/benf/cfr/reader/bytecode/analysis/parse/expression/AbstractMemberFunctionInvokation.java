@@ -135,6 +135,32 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         return cp;
     }
 
+    protected void improveLambdaArgumentTypes(MethodPrototype methodPrototype) {
+        OverloadMethodSet overloadMethodSet = getOverloadMethodSet();
+        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
+        List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
+        for (int x = 0; x < args.size(); ++x) {
+            if (methodPrototype.isHiddenArg(x)) {
+                continue;
+            }
+            Expression arg = args.get(x);
+            if (!(arg instanceof LambdaExpression)) {
+                continue;
+            }
+            JavaTypeInstance expectedArgType = null;
+            if (overloadMethodSet != null) {
+                expectedArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+            }
+            if (expectedArgType == null && x < prototypeArgs.size()) {
+                expectedArgType = prototypeArgs.get(x);
+                if (genericTypeBinder != null) {
+                    expectedArgType = genericTypeBinder.getBindingFor(expectedArgType);
+                }
+            }
+            ((LambdaExpression) arg).improveResultType(expectedArgType);
+        }
+    }
+
 
     @Override
     public void collectUsedLValues(LValueUsageCollector lValueUsageCollector) {

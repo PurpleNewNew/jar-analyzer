@@ -4,8 +4,6 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.AbstractUnStructuredStatement;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,10 +27,6 @@ final class StructureRecoveryPipeline {
     }
 
     void recoverToFixedPoint(Op04StructuredStatement block, MethodAnalysisContext context) {
-        if (!context.bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES)
-                && !context.options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
-            return;
-        }
         heavyRecovery.runToFixedPoint(block, context, MAX_HEAVY_RECOVERY_PASSES);
     }
 
@@ -65,6 +59,7 @@ final class StructureRecoveryPipeline {
         }
         passes.add(new StructureRecoveryPasses.InlinePossiblesPass());
         passes.add(new StructureRecoveryPasses.RemoveStructuredGotosPass());
+        passes.add(new StructureRecoveryPasses.RewriteConditionLocalAliasesPass());
         passes.add(new StructureRecoveryPasses.RemovePointlessBlocksPass());
         passes.add(new StructureRecoveryPasses.RemovePointlessReturnPass());
         passes.add(new StructureRecoveryPasses.RemovePointlessControlFlowPass());
@@ -81,7 +76,6 @@ final class StructureRecoveryPipeline {
     private List<StructureRecoveryPass> outputPolishPasses() {
         List<StructureRecoveryPass> passes = new ArrayList<StructureRecoveryPass>();
         passes.add(new StructureRecoveryPasses.RewriteForwardIfGotosPass());
-        passes.add(new StructureRecoveryPasses.RewriteConditionLocalAliasesPass());
         passes.add(new StructureRecoveryPasses.RemovePointlessBlocksPass());
         passes.add(new StructureRecoveryPasses.RemovePointlessControlFlowPass());
         passes.add(new StructureRecoveryPasses.RemovePrimitiveDeconversionPass());

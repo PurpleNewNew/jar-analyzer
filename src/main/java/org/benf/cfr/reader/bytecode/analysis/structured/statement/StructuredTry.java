@@ -209,6 +209,7 @@ public class StructuredTry extends AbstractStructuredStatement {
     }
 
     private boolean isPointlessTry() {
+        if (resourceBlock != null) return false;
         if (!catchBlocks.isEmpty()) return false;
         if (finallyBlock == null) return true;
         // If finally block is empty, we can remove.

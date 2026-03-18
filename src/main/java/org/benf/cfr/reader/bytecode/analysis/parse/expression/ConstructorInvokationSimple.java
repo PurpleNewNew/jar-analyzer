@@ -12,6 +12,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.types.*;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
+import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.ClassFileField;
 import org.benf.cfr.reader.entities.classfilehelpers.OverloadMethodSet;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
@@ -50,11 +51,134 @@ public class ConstructorInvokationSimple extends AbstractConstructorInvokation i
     }
 
     private JavaTypeInstance getFinalDisplayTypeInstance() {
-        JavaTypeInstance res = constructionType.getJavaTypeInstance();
+        JavaTypeInstance res = recoverConstructionDisplayType(
+                constructionType.getJavaTypeInstance(),
+                getInferredJavaType().getJavaTypeInstance()
+        );
         if (!(res instanceof JavaGenericBaseInstance)) return res;
         if (!((JavaGenericBaseInstance) res).hasL01Wildcard()) return res;
         res = ((JavaGenericBaseInstance) res).getWithoutL01Wildcard();
         return res;
+    }
+
+    public void improveConstructionType(JavaTypeInstance targetType) {
+        if (targetType == null) {
+            return;
+        }
+        if (targetType instanceof JavaGenericBaseInstance && ((JavaGenericBaseInstance) targetType).hasL01Wildcard()) {
+            targetType = ((JavaGenericBaseInstance) targetType).getWithoutL01Wildcard();
+        }
+        JavaTypeInstance improved = recoverConstructionDisplayType(constructionType.getJavaTypeInstance(), targetType);
+        if (!improved.equals(constructionType.getJavaTypeInstance())) {
+            constructionType.forceType(improved, true);
+        }
+    }
+
+    private JavaTypeInstance recoverConstructionDisplayType(JavaTypeInstance constructionDisplayType,
+                                                            JavaTypeInstance candidateType) {
+        if (candidateType == null) {
+            return constructionDisplayType;
+        }
+        if (candidateType instanceof JavaGenericBaseInstance && ((JavaGenericBaseInstance) candidateType).hasL01Wildcard()) {
+            candidateType = ((JavaGenericBaseInstance) candidateType).getWithoutL01Wildcard();
+        }
+
+        JavaTypeInstance rebound = reboundFromClassSignature(constructionDisplayType, candidateType);
+        if (isImprovement(constructionDisplayType, rebound)) {
+            return rebound;
+        }
+
+        if (!(constructionDisplayType instanceof JavaGenericBaseInstance)) {
+            return constructionDisplayType;
+        }
+        JavaGenericBaseInstance genericConstructionType = (JavaGenericBaseInstance) constructionDisplayType;
+        if (!genericConstructionType.hasUnbound()) {
+            return constructionDisplayType;
+        }
+
+        JavaTypeInstance reboundDirect = maybeRebindWithBindings(genericConstructionType, constructionDisplayType, candidateType);
+        if (isImprovement(constructionDisplayType, reboundDirect)) {
+            return reboundDirect;
+        }
+
+        BindingSuperContainer constructionSupers = constructionDisplayType.getBindingSupers();
+        if (constructionSupers != null && candidateType != null) {
+            JavaGenericRefTypeInstance candidateBound = constructionSupers.getBoundSuperForBase(candidateType.getDeGenerifiedType());
+            if (candidateBound != null) {
+                JavaTypeInstance reboundFromBound = maybeRebindWithBindings(candidateBound, constructionDisplayType, candidateType);
+                if (isImprovement(constructionDisplayType, reboundFromBound)) {
+                    return reboundFromBound;
+                }
+            }
+        }
+
+        if (candidateType instanceof JavaGenericBaseInstance) {
+            JavaTypeInstance reboundFromBase = GenericTypeBinder
+                    .extractBaseBindings(genericConstructionType, candidateType)
+                    .getBindingFor(constructionDisplayType);
+            if (isImprovement(constructionDisplayType, reboundFromBase)) {
+                return reboundFromBase;
+            }
+        }
+
+        if (candidateType instanceof JavaGenericBaseInstance
+                && constructionDisplayType.getDeGenerifiedType().equals(candidateType.getDeGenerifiedType())
+                && !((JavaGenericBaseInstance) candidateType).hasUnbound()) {
+            return candidateType;
+        }
+        return constructionDisplayType;
+    }
+
+    private JavaTypeInstance reboundFromClassSignature(JavaTypeInstance constructionDisplayType, JavaTypeInstance candidateType) {
+        JavaTypeInstance rawConstructionType = constructionDisplayType.getDeGenerifiedType();
+        if (!(rawConstructionType instanceof JavaRefTypeInstance)) {
+            return constructionDisplayType;
+        }
+        ClassFile classFile = ((JavaRefTypeInstance) rawConstructionType).getClassFile();
+        if (classFile == null) {
+            return constructionDisplayType;
+        }
+        JavaTypeInstance unboundConstructionType =
+                classFile.getClassSignature().getThisGeneralTypeClass(rawConstructionType, classFile.getConstantPool());
+        if (!(unboundConstructionType instanceof JavaGenericRefTypeInstance)) {
+            return constructionDisplayType;
+        }
+        BindingSuperContainer bindingSupers = unboundConstructionType.getBindingSupers();
+        if (bindingSupers == null) {
+            return constructionDisplayType;
+        }
+        JavaGenericRefTypeInstance unboundCandidate = bindingSupers.getBoundSuperForBase(candidateType.getDeGenerifiedType());
+        if (unboundCandidate == null) {
+            return constructionDisplayType;
+        }
+        return maybeRebindWithBindings((JavaGenericBaseInstance) unboundCandidate, unboundConstructionType, candidateType);
+    }
+
+    private JavaTypeInstance maybeRebindWithBindings(JavaGenericBaseInstance bindingSource,
+                                                     JavaTypeInstance reboundTarget,
+                                                     JavaTypeInstance candidateType) {
+        JavaTypeInstance rebound = GenericTypeBinder
+                .extractBindings(bindingSource, candidateType)
+                .getBindingFor(reboundTarget);
+        return rebound == null ? reboundTarget : rebound;
+    }
+
+    private boolean isImprovement(JavaTypeInstance currentType, JavaTypeInstance reboundType) {
+        if (reboundType == null || reboundType.equals(currentType)) {
+            return false;
+        }
+        if (!(reboundType instanceof JavaGenericBaseInstance)) {
+            return true;
+        }
+        if (!(currentType instanceof JavaGenericBaseInstance)) {
+            return true;
+        }
+        JavaGenericBaseInstance currentGeneric = (JavaGenericBaseInstance) currentType;
+        JavaGenericBaseInstance reboundGeneric = (JavaGenericBaseInstance) reboundType;
+        if (currentGeneric.hasUnbound() && !reboundGeneric.hasUnbound()) {
+            return true;
+        }
+        return !reboundGeneric.hasUnbound();
     }
 
     @Override

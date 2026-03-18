@@ -339,7 +339,12 @@ public class ForwardIfGotoRewriter implements StructuredStatementTransformer {
         if (!(elseBlock.getStatement() instanceof UnstructuredGoto) || elseBlock.getTargets().size() != 1) {
             return false;
         }
-        if (elseBlock.getTargets().get(0) != statements.get(idx + 1)) {
+        int nextIdx = nextSignificantIndex(statements, idx + 1);
+        if (nextIdx < 0) {
+            return false;
+        }
+        Op04StructuredStatement next = statements.get(nextIdx);
+        if (!matchesFallthroughTarget(elseBlock.getTargets().get(0), next)) {
             return false;
         }
         Op04StructuredStatement target = elseBlock.getTargets().get(0);
@@ -350,6 +355,17 @@ public class ForwardIfGotoRewriter implements StructuredStatementTransformer {
         }
         structuredIf.clearElseBlock();
         return true;
+    }
+
+    private boolean matchesFallthroughTarget(Op04StructuredStatement target, Op04StructuredStatement next) {
+        if (target == null || next == null) {
+            return false;
+        }
+        if (target == next) {
+            return true;
+        }
+        Op04StructuredStatement unwrapped = unwrapSingleStatementBlock(next);
+        return unwrapped != null && target == unwrapped;
     }
 
     private RewriteCandidate findRewriteCandidate(List<Op04StructuredStatement> statements, int idx) {

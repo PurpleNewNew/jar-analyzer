@@ -6,6 +6,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -147,6 +148,9 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (!structuredAssignment.isCreator(localVariable)) return;
 
         Expression rvalue = structuredAssignment.getRvalue();
+        if (rvalue instanceof ConstructorInvokationSimple) {
+            ((ConstructorInvokationSimple) rvalue).improveConstructionType(creatorType);
+        }
         if (rvalue.getInferredJavaType().getJavaTypeInstance().implicitlyCastsTo(creatorType, null)) return;
         if (rvalue instanceof CastExpression) {
             JavaTypeInstance castType = rvalue.getInferredJavaType().getJavaTypeInstance();

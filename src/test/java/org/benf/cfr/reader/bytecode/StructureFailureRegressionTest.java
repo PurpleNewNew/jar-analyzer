@@ -82,4 +82,41 @@ class StructureFailureRegressionTest {
         assertFalse(decompiled.contains("empty if block"));
         assertFalse(decompiled.contains("Unable to fully structure code"));
     }
+
+    @Test
+    void shouldKeepGuardReturnChainStructured(@TempDir Path tempDir) throws IOException {
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
+                tempDir,
+                "structure-failure",
+                "GuardReturnChainSample",
+                "--release", "21");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+
+        assertFalse(decompiled.contains("Unable to fully structure code"), decompiled);
+        assertFalse(decompiled.contains("** GOTO"), decompiled);
+        assertTrue(decompiled.contains("allowedHashes.isEmpty()"), decompiled);
+        assertTrue(decompiled.contains("int lastDash;"), decompiled);
+        assertTrue(decompiled.contains("return allowedHashes.contains(suffix);"), decompiled);
+    }
+
+    @Test
+    void shouldKeepLambdaCollectorStructured(@TempDir Path tempDir) throws IOException {
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
+                tempDir,
+                "structure-failure",
+                "LambdaGuardCollectorSample",
+                "--release", "21");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+
+        assertFalse(decompiled.contains("Unable to fully structure code"), decompiled);
+        assertFalse(decompiled.contains("** GOTO"), decompiled);
+        assertFalse(decompiled.contains("lambda$"), decompiled);
+        assertFalse(decompiled.contains("new List<Path>()"), decompiled);
+        assertTrue(decompiled.contains("stream.forEach("), decompiled);
+        assertTrue(decompiled.contains("Files.walk(root"), decompiled);
+        assertTrue(decompiled.contains("new ArrayList<Path>()"), decompiled);
+        assertTrue(decompiled.contains("jars.add"), decompiled);
+    }
 }

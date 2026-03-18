@@ -120,6 +120,7 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
 
     @Override
     public Dumper dumpInner(Dumper d) {
+        improveLambdaArgumentTypes();
         if (object != null) {
             d.dump(object).separator(".");
         } else {
@@ -144,6 +145,30 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         }
         d.separator(")");
         return d;
+    }
+
+    private void improveLambdaArgumentTypes() {
+        MethodPrototype methodPrototype = getMethodPrototype();
+        OverloadMethodSet overloadMethodSet = methodPrototype.getOverloadMethodSet();
+        GenericTypeBinder genericTypeBinder = methodPrototype.getTypeBinderFor(args);
+        List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
+        for (int x = 0; x < args.size(); ++x) {
+            Expression arg = args.get(x);
+            if (!(arg instanceof LambdaExpression)) {
+                continue;
+            }
+            JavaTypeInstance expectedArgType = null;
+            if (overloadMethodSet != null) {
+                expectedArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+            }
+            if (expectedArgType == null && x < prototypeArgs.size()) {
+                expectedArgType = prototypeArgs.get(x);
+                if (genericTypeBinder != null) {
+                    expectedArgType = genericTypeBinder.getBindingFor(expectedArgType);
+                }
+            }
+            ((LambdaExpression) arg).improveResultType(expectedArgType);
+        }
     }
 
     @Override
