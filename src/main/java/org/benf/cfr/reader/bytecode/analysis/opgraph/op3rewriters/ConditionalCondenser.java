@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters;
 
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.InstrIndex;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03SimpleStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
@@ -222,7 +223,7 @@ public class ConditionalCondenser {
         if (ifStatements.isEmpty()) return;
 
         boolean testEclipse = options.getOption(OptionsImpl.ECLIPSE);
-        boolean notBeforeInstanceOf = options.getOption(OptionsImpl.INSTANCEOF_PATTERN, classFileVersion);
+        boolean notBeforeInstanceOf = ModernFeatureStrategy.from(options, classFileVersion).supportsInstanceOfPatterns();
         ConditionalCondenser c = new ConditionalCondenser(testEclipse, notBeforeInstanceOf);
         for (Op03SimpleStatement statement : ifStatements) {
             c.collapseAssignmentsIntoConditional(statement);

@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters;
 
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.*;
@@ -29,7 +30,6 @@ import org.benf.cfr.reader.entities.*;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.getopt.Options;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 import java.util.List;
 import java.util.Map;
@@ -43,7 +43,7 @@ public class AssertRewriter {
 
     public AssertRewriter(ClassFile classFile, Options options) {
         this.classFile = classFile;
-        this.switchExpressions = options.getOption(OptionsImpl.SWITCH_EXPRESSION, classFile.getClassFileVersion());
+        this.switchExpressions = ModernFeatureStrategy.from(options, classFile.getClassFileVersion()).supportsSwitchExpressions();
     }
 
     public void sugarAsserts(Method staticInit) {

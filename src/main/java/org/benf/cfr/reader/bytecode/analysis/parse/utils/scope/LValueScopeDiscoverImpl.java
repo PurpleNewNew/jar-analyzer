@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.bytecode.analysis.parse.utils.scope;
 
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
@@ -16,14 +17,13 @@ import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.MiscConstants;
 import org.benf.cfr.reader.util.getopt.Options;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 public class LValueScopeDiscoverImpl extends AbstractLValueScopeDiscoverer {
     private final boolean instanceOfDefines;
 
     public LValueScopeDiscoverImpl(Options options, MethodPrototype prototype, VariableFactory variableFactory, ClassFileVersion version) {
         super(options, prototype, variableFactory);
-        instanceOfDefines = options.getOption(OptionsImpl.INSTANCEOF_PATTERN, version);
+        instanceOfDefines = ModernFeatureStrategy.from(options, version).supportsInstanceOfPatterns();
     }
 
     @Override

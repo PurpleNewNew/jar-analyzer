@@ -4,7 +4,7 @@ import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
-final class ModernFeatureStrategy {
+public final class ModernFeatureStrategy {
     enum FeatureLevel {
         DISABLED,
         PREVIEW,
@@ -46,7 +46,7 @@ final class ModernFeatureStrategy {
         this.instanceofPattern = instanceofPattern;
     }
 
-    static ModernFeatureStrategy from(Options options, ClassFileVersion classFileVersion) {
+    public static ModernFeatureStrategy from(Options options, ClassFileVersion classFileVersion) {
         boolean previewFeaturesEnabled = options.getOption(OptionsImpl.PREVIEW_FEATURES);
         return new ModernFeatureStrategy(
                 classFileVersion,
@@ -87,50 +87,50 @@ final class ModernFeatureStrategy {
         return preview ? FeatureLevel.PREVIEW : FeatureLevel.RELEASED;
     }
 
-    boolean supportsSealedTypes() {
+    public boolean supportsSealedTypes() {
         return sealed.enabled();
     }
 
-    boolean supportsSwitchExpressions() {
+    public boolean supportsSwitchExpressions() {
         return switchExpression.enabled();
     }
 
-    boolean supportsInstanceOfPatterns() {
+    public boolean supportsInstanceOfPatterns() {
         return instanceofPattern.enabled();
     }
 
-    boolean supportsRecordTypes() {
+    public boolean supportsRecordTypes() {
         return recordTypes.enabled();
     }
 
-    boolean supportsPatternSwitches() {
+    public boolean supportsPatternSwitches() {
         if (classFileVersion.equalOrLater(ClassFileVersion.JAVA_21)) {
             return true;
         }
         return previewFeaturesEnabled && classFileVersion.isExperimental();
     }
 
-    boolean supportsBindingPatterns() {
+    public boolean supportsBindingPatterns() {
         return supportsInstanceOfPatterns() || supportsPatternSwitches();
     }
 
-    boolean supportsRecordPatterns() {
+    public boolean supportsRecordPatterns() {
         return supportsPatternSwitches() && supportsRecordTypes();
     }
 
-    boolean supportsGuardedPatterns() {
+    public boolean supportsGuardedPatterns() {
         return supportsPatternSwitches();
     }
 
-    boolean shouldEmitPreviewSealedComment() {
+    public boolean shouldEmitPreviewSealedComment() {
         return sealed.preview() && !sealedExplicit;
     }
 
-    boolean shouldEmitPreviewSwitchExpressionComment() {
+    public boolean shouldEmitPreviewSwitchExpressionComment() {
         return switchExpression.preview() && !switchExpressionExplicit;
     }
 
-    boolean prefersPatternOutput() {
+    public boolean prefersPatternOutput() {
         return supportsBindingPatterns() || supportsRecordPatterns() || supportsGuardedPatterns();
     }
 }

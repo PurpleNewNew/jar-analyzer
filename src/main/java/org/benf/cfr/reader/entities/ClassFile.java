@@ -1,6 +1,7 @@
 package org.benf.cfr.reader.entities;
 
 import org.benf.cfr.reader.bytecode.CodeAnalyserWholeClass;
+import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationAnonymousInner;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
@@ -233,7 +234,7 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
         this.attributes = new AttributeMap(tmpAttributes);
         AccessFlag.applyAttributes(attributes, accessFlags);
         if (attributes.containsKey(AttributePermittedSubclasses.ATTRIBUTE_NAME)) {
-            if (options.getOption(OptionsImpl.SEALED, classFileVersion)) {
+            if (ModernFeatureStrategy.from(options, classFileVersion).supportsSealedTypes()) {
                 accessFlags.add(ACC_FAKE_SEALED);
             } else {
                 ensureDecompilerComments().addComment(DecompilerComment.CHECK_SEALED);
