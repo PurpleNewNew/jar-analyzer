@@ -102,7 +102,7 @@ final class StructureRecoveryPasses {
 
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            patternSemanticsRewriter.rewrite(block, context.bytecodeMeta);
+            patternSemanticsRewriter.rewrite(block, context.bytecodeMeta, context.structureRecoveryTrace);
         }
     }
 

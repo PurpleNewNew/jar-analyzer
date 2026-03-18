@@ -30,7 +30,7 @@ final class ModernSemanticsStage {
         if (context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion)) {
             StructuredSemanticTransforms.removeEndResource(context.classFile, block);
         }
-        patternSemanticsRewriter.rewrite(block, context.bytecodeMeta);
+        patternSemanticsRewriter.rewrite(block, context.bytecodeMeta, context.structureRecoveryTrace);
         if (context.modernFeatures.supportsSwitchExpressions()) {
             StructuredSemanticTransforms.switchExpression(
                     context.method,

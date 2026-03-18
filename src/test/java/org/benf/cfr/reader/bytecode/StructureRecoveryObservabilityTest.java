@@ -47,6 +47,12 @@ class StructureRecoveryObservabilityTest {
         assertTrue(StructuredLocalVariableRecovery.describePasses().stream()
                 .anyMatch(entry -> "restore-creators-before-first-use".equals(entry.getDescriptor().getName())
                         && "output-polish.recovery-polish".equals(entry.getStage())));
+        assertTrue(StructuredPatternTransforms.describePasses().stream()
+                .anyMatch(entry -> "normalize-instanceof".equals(entry.getDescriptor().getName())
+                        && "pattern-semantics.normalize".equals(entry.getStage())));
+        assertTrue(StructuredAnalysisChecks.describePasses().stream()
+                .anyMatch(entry -> "check-type-clashes".equals(entry.getDescriptor().getName())
+                        && "analysis-checks".equals(entry.getStage())));
     }
 
     @Test
@@ -78,10 +84,17 @@ class StructureRecoveryObservabilityTest {
         assertNotNull(trace);
         assertFalse(trace.getPhases().isEmpty());
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "initial-cleanup".equals(phase.getPhase()) && !phase.isSkipped()));
+        assertTrue(trace.getPhases().stream().anyMatch(phase -> "pattern-semantics.normalize".equals(phase.getPhase())));
+        assertTrue(trace.getPhases().stream().anyMatch(phase -> "analysis-checks".equals(phase.getPhase())));
         assertTrue(trace.getPhases().stream()
                 .flatMap(phase -> phase.getRounds().stream())
                 .flatMap(round -> round.getPasses().stream())
                 .anyMatch(pass -> pass.getPass().getDescriptor().getName().equals("convert-unstructured-if")));
+        assertTrue(trace.getPhases().stream()
+                .flatMap(phase -> phase.getRounds().stream())
+                .flatMap(round -> round.getPasses().stream())
+                .anyMatch(pass -> pass.getPass().getDescriptor().getName().equals("check-type-clashes")
+                        && !pass.hasStructuralDelta()));
         assertTrue(trace.getPhases().stream()
                 .flatMap(phase -> phase.getRounds().stream())
                 .flatMap(round -> round.getPasses().stream())

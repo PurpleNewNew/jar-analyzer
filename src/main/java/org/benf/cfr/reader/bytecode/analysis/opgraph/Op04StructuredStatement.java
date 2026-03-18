@@ -1,6 +1,5 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
-import org.benf.cfr.reader.bytecode.BytecodeMeta;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.*;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.*;
@@ -64,13 +63,6 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         this.structuredStatement = structuredStatement;
         this.blockMembership = blockSet(blockMembership);
         structuredStatement.setContainer(this);
-    }
-
-    // Later stages assume that certain instanceof operations are leaf nodes in boolean op trees.
-    public static void normalizeInstanceOf(Op04StructuredStatement root, boolean enabled) {
-        if (enabled) {
-            new InstanceOfTreeTransformer().transform(root);
-        }
     }
 
     // TODO: This isn't quite right.  Should actually be removing the node.
@@ -514,18 +506,4 @@ public class Op04StructuredStatement implements MutableGraph<Op04StructuredState
         statement out of the innermost breakable block - if that's the case, the specific reference
         to the named block is unnecessary.
      */
-    public static void tidyInstanceMatches(Op04StructuredStatement block) {
-        InstanceofMatchTidyingRewriter.rewrite(block);
-    }
-
-    public static boolean checkTypeClashes(Op04StructuredStatement block, BytecodeMeta bytecodeMeta) {
-        LValueTypeClashCheck clashCheck = new LValueTypeClashCheck();
-        clashCheck.processOp04Statement(block);
-        Set<Integer> clashes = clashCheck.getClashes();
-        if (!clashes.isEmpty()) {
-            bytecodeMeta.informLivenessClashes(clashes);
-            return true;
-        }
-        return false;
-    }
 }

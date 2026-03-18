@@ -284,7 +284,7 @@ public class CodeAnalyser {
 
         // Only check for type clashes on first pass.
         if (passIdx == 0) {
-            if (Op04StructuredStatement.checkTypeClashes(block, bytecodeMeta)) {
+            if (StructuredAnalysisChecks.checkTypeClashes(block, bytecodeMeta, analysisContext.structureRecoveryTrace)) {
                 comments.addComment(DecompilerComment.TYPE_CLASHES);
             }
         }

@@ -18,8 +18,10 @@ final class PatternSemanticsRewriter {
         );
     }
 
-    void rewrite(Op04StructuredStatement block, BytecodeMeta bytecodeMeta) {
-        engine.rewrite(block, bytecodeMeta);
+    void rewrite(Op04StructuredStatement block,
+                 BytecodeMeta bytecodeMeta,
+                 StructureRecoveryTrace trace) {
+        engine.rewrite(block, bytecodeMeta, trace);
     }
 
     private enum PatternSemanticPhase {
@@ -29,6 +31,8 @@ final class PatternSemanticsRewriter {
     }
 
     private interface PatternSemanticPass {
+        StructuredPassEntry entry(PatternSemanticPhase phase);
+
         boolean enabled(PatternSemanticContext context);
 
         default void apply(PatternSemanticContext context, PatternSemanticPhase phase) {
@@ -41,17 +45,20 @@ final class PatternSemanticsRewriter {
         private final boolean bindingPatternsEnabled;
         private final boolean patternOutputPreferred;
         private final boolean switchPatternsEnabled;
+        private final StructureRecoveryTrace trace;
 
         private PatternSemanticContext(Op04StructuredStatement root,
                                        BytecodeMeta bytecodeMeta,
                                        boolean bindingPatternsEnabled,
                                        boolean patternOutputPreferred,
-                                       boolean switchPatternsEnabled) {
+                                       boolean switchPatternsEnabled,
+                                       StructureRecoveryTrace trace) {
             this.root = root;
             this.bytecodeMeta = bytecodeMeta;
             this.bindingPatternsEnabled = bindingPatternsEnabled;
             this.patternOutputPreferred = patternOutputPreferred;
             this.switchPatternsEnabled = switchPatternsEnabled;
+            this.trace = trace;
         }
 
         private Op04StructuredStatement getRoot() {
@@ -64,6 +71,10 @@ final class PatternSemanticsRewriter {
 
         private boolean hasSwitches() {
             return bytecodeMeta.has(BytecodeMeta.CodeInfoFlag.SWITCHES);
+        }
+
+        private StructureRecoveryTrace getTrace() {
+            return trace;
         }
     }
 
@@ -81,13 +92,16 @@ final class PatternSemanticsRewriter {
             this.switchPatternsEnabled = modernFeatures.supportsPatternSwitches();
         }
 
-        private void rewrite(Op04StructuredStatement block, BytecodeMeta bytecodeMeta) {
+        private void rewrite(Op04StructuredStatement block,
+                             BytecodeMeta bytecodeMeta,
+                             StructureRecoveryTrace trace) {
             PatternSemanticContext context = new PatternSemanticContext(
                     block,
                     bytecodeMeta,
                     bindingPatternsEnabled,
                     patternOutputPreferred,
-                    switchPatternsEnabled
+                    switchPatternsEnabled,
+                    trace
             );
             runPhase(context, PatternSemanticPhase.NORMALIZE);
             runPhase(context, PatternSemanticPhase.RECOVER);
@@ -95,15 +109,45 @@ final class PatternSemanticsRewriter {
         }
 
         private void runPhase(PatternSemanticContext context, PatternSemanticPhase phase) {
+            StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(context.getRoot());
+            StructureRecoveryTrace.PhaseTrace phaseTrace = context.getTrace().beginPhase(
+                    "pattern-semantics." + phase.name().toLowerCase(),
+                    "any-structure-state",
+                    before
+            );
+            phaseTrace.recordInvariant("input-requirement", true, "accepted any-structure-state with " + before);
+            StructureRecoveryTrace.RoundTrace roundTrace = phaseTrace.beginRound(1, before);
             for (PatternSemanticPass pass : passes) {
-                if (pass.enabled(context)) {
+                StructuredPassEntry entry = pass.entry(phase);
+                if (entry == null) {
+                    continue;
+                }
+                StructureRecoverySnapshot passBefore = StructureRecoverySnapshot.capture(context.getRoot());
+                boolean enabled = pass.enabled(context);
+                if (enabled) {
                     pass.apply(context, phase);
                 }
+                roundTrace.recordPass(entry, enabled, passBefore, StructureRecoverySnapshot.capture(context.getRoot()));
             }
+            StructureRecoverySnapshot after = StructureRecoverySnapshot.capture(context.getRoot());
+            roundTrace.finish(after);
+            phaseTrace.finish(after);
         }
     }
 
     private static final class InstanceOfPatternPass implements PatternSemanticPass {
+        @Override
+        public StructuredPassEntry entry(PatternSemanticPhase phase) {
+            switch (phase) {
+                case NORMALIZE:
+                    return StructuredPatternTransforms.normalizeEntry();
+                case RECOVER:
+                    return StructuredPatternTransforms.tidyEntry();
+                default:
+                    return null;
+            }
+        }
+
         @Override
         public boolean enabled(PatternSemanticContext context) {
             return context.bindingPatternsEnabled;
@@ -113,11 +157,11 @@ final class PatternSemanticsRewriter {
         public void apply(PatternSemanticContext context, PatternSemanticPhase phase) {
             switch (phase) {
                 case NORMALIZE:
-                    Op04StructuredStatement.normalizeInstanceOf(context.getRoot(), true);
+                    StructuredPatternTransforms.normalizeInstanceOf(context.getRoot());
                     return;
                 case RECOVER:
                     if (context.hasInstanceOfMatches()) {
-                        Op04StructuredStatement.tidyInstanceMatches(context.getRoot());
+                        StructuredPatternTransforms.tidyInstanceMatches(context.getRoot());
                     }
                     return;
                 default:
@@ -127,10 +171,26 @@ final class PatternSemanticsRewriter {
     }
 
     private static final class SwitchPatternPass implements PatternSemanticPass {
+        private static final StructuredPassEntry EMIT_ENTRY = StructuredPassEntry.of(
+                "pattern-semantics",
+                "pattern-semantics.emit",
+                "any-structure-state",
+                StructuredPassDescriptor.of(
+                        "switch-pattern-emit",
+                        "Emits recovered switch patterns once semantic recovery is complete.",
+                        true,
+                        true
+                )
+        );
         private final SwitchPatternRewriter switchPatternRewriter;
 
         private SwitchPatternPass(SwitchPatternRewriter switchPatternRewriter) {
             this.switchPatternRewriter = switchPatternRewriter;
+        }
+
+        @Override
+        public StructuredPassEntry entry(PatternSemanticPhase phase) {
+            return phase == PatternSemanticPhase.EMIT ? EMIT_ENTRY : null;
         }
 
         @Override
