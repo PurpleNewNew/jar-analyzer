@@ -1,13 +1,8 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
-import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
-import org.benf.cfr.reader.bytecode.analysis.structured.statement.AbstractUnStructuredStatement;
-
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 final class StructureRecoveryPipeline {
@@ -20,6 +15,7 @@ final class StructureRecoveryPipeline {
 
     StructureRecoveryPipeline(PatternSemanticsRewriter patternSemanticsRewriter) {
         this.initialCleanup = RecoveryPhase.singlePass(
+                "initial-cleanup",
                 PhaseInputRequirement.ANY,
                 List.of(
                         frontierNormalizationSubphase(),
@@ -32,6 +28,7 @@ final class StructureRecoveryPipeline {
                 )
         );
         this.controlFlowRecovery = RecoveryPhase.toFixedPoint(
+                "control-flow-recovery",
                 PhaseInputRequirement.ANY,
                 MAX_CONTROL_FLOW_RECOVERY_ROUNDS,
                 List.of(
@@ -46,6 +43,7 @@ final class StructureRecoveryPipeline {
                 )
         );
         this.postModernCleanup = RecoveryPhase.singlePass(
+                "post-modern-cleanup",
                 PhaseInputRequirement.FULLY_STRUCTURED,
                 List.of(
                         frontierNormalizationSubphase(),
@@ -69,6 +67,7 @@ final class StructureRecoveryPipeline {
                 )
         );
         this.outputPolish = RecoveryPhase.singlePass(
+                "output-polish",
                 PhaseInputRequirement.FULLY_STRUCTURED,
                 List.of(
                         RecoverySubphase.of(
@@ -101,6 +100,15 @@ final class StructureRecoveryPipeline {
 
     void applyOutputPolish(Op04StructuredStatement block, MethodAnalysisContext context) {
         outputPolish.run(block, context);
+    }
+
+    List<StructuredPassEntry> describePasses() {
+        java.util.ArrayList<StructuredPassEntry> entries = new java.util.ArrayList<StructuredPassEntry>();
+        entries.addAll(initialCleanup.describePasses());
+        entries.addAll(controlFlowRecovery.describePasses());
+        entries.addAll(postModernCleanup.describePasses());
+        entries.addAll(outputPolish.describePasses());
+        return List.copyOf(entries);
     }
 
     private static RecoverySubphase frontierNormalizationSubphase() {
@@ -143,63 +151,110 @@ final class StructureRecoveryPipeline {
         };
 
         abstract boolean accepts(Op04StructuredStatement block);
+
+        String describe() {
+            return this == ANY ? "any-structure-state" : "fully-structured";
+        }
     }
 
     private static final class RecoveryPhase {
+        private final String phaseName;
         private final PhaseInputRequirement inputRequirement;
         private final List<RecoverySubphase> subphases;
         private final int maxRounds;
 
-        private RecoveryPhase(PhaseInputRequirement inputRequirement,
+        private RecoveryPhase(String phaseName,
+                              PhaseInputRequirement inputRequirement,
                               List<RecoverySubphase> subphases,
                               int maxRounds) {
+            this.phaseName = phaseName;
             this.inputRequirement = inputRequirement;
             this.subphases = subphases;
             this.maxRounds = maxRounds;
         }
 
-        static RecoveryPhase singlePass(PhaseInputRequirement inputRequirement,
+        static RecoveryPhase singlePass(String phaseName,
+                                        PhaseInputRequirement inputRequirement,
                                         List<RecoverySubphase> subphases) {
-            return new RecoveryPhase(inputRequirement, subphases, 1);
+            return new RecoveryPhase(phaseName, inputRequirement, subphases, 1);
         }
 
-        static RecoveryPhase toFixedPoint(PhaseInputRequirement inputRequirement,
+        static RecoveryPhase toFixedPoint(String phaseName,
+                                          PhaseInputRequirement inputRequirement,
                                           int maxRounds,
                                           List<RecoverySubphase> subphases) {
-            return new RecoveryPhase(inputRequirement, subphases, maxRounds);
+            return new RecoveryPhase(phaseName, inputRequirement, subphases, maxRounds);
         }
 
         void run(Op04StructuredStatement block, MethodAnalysisContext context) {
+            StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
             if (!inputRequirement.accepts(block)) {
+                context.structureRecoveryTrace.recordSkippedPhase(
+                        phaseName,
+                        inputRequirement.describe(),
+                        before,
+                        "input-requirement-not-met"
+                );
                 return;
             }
+            StructureRecoveryTrace.PhaseTrace phaseTrace = context.structureRecoveryTrace.beginPhase(
+                    phaseName,
+                    inputRequirement.describe(),
+                    before
+            );
             if (maxRounds == 1) {
-                runRound(block, context);
+                runRound(block, context, phaseTrace, 1);
+                phaseTrace.finish(StructureRecoverySnapshot.capture(block));
                 return;
             }
-            runToFixedPoint(block, context);
+            runToFixedPoint(block, context, phaseTrace);
         }
 
-        private void runToFixedPoint(Op04StructuredStatement block, MethodAnalysisContext context) {
+        List<StructuredPassEntry> describePasses() {
+            java.util.ArrayList<StructuredPassEntry> entries = new java.util.ArrayList<StructuredPassEntry>();
+            for (RecoverySubphase subphase : subphases) {
+                for (StructureRecoveryPass pass : subphase.passes) {
+                    entries.add(StructuredPassEntry.of(
+                            "structure-recovery",
+                            phaseName,
+                            inputRequirement.describe(),
+                            pass.descriptor()
+                    ));
+                }
+            }
+            return List.copyOf(entries);
+        }
+
+        private void runToFixedPoint(Op04StructuredStatement block,
+                                     MethodAnalysisContext context,
+                                     StructureRecoveryTrace.PhaseTrace phaseTrace) {
             StructureRecoverySnapshot current = StructureRecoverySnapshot.capture(block);
             Set<StructureRecoverySnapshot> seen = new HashSet<StructureRecoverySnapshot>();
             seen.add(current);
-            for (int round = 0; round < maxRounds && !current.fullyStructured; ++round) {
-                runRound(block, context);
+            for (int round = 0; round < maxRounds && !current.isFullyStructured(); ++round) {
+                runRound(block, context, phaseTrace, round + 1);
                 StructureRecoverySnapshot next = StructureRecoverySnapshot.capture(block);
                 // A recovery round must either expose a new state or finish structuring the block; repeating a
                 // previous snapshot means later rounds in this phase will only replay the same rewrites.
                 if (next.equals(current) || !seen.add(next)) {
+                    phaseTrace.finish(next);
                     return;
                 }
                 current = next;
             }
+            phaseTrace.finish(current);
         }
 
-        private void runRound(Op04StructuredStatement block, MethodAnalysisContext context) {
+        private void runRound(Op04StructuredStatement block,
+                              MethodAnalysisContext context,
+                              StructureRecoveryTrace.PhaseTrace phaseTrace,
+                              int roundNumber) {
+            StructureRecoverySnapshot roundBefore = StructureRecoverySnapshot.capture(block);
+            StructureRecoveryTrace.RoundTrace roundTrace = phaseTrace.beginRound(roundNumber, roundBefore);
             for (RecoverySubphase subphase : subphases) {
-                subphase.run(block, context);
+                subphase.run(block, context, phaseName, inputRequirement, roundTrace);
             }
+            roundTrace.finish(StructureRecoverySnapshot.capture(block));
         }
     }
 
@@ -214,75 +269,25 @@ final class StructureRecoveryPipeline {
             return new RecoverySubphase(List.of(passes));
         }
 
-        void run(Op04StructuredStatement block, MethodAnalysisContext context) {
+        void run(Op04StructuredStatement block,
+                 MethodAnalysisContext context,
+                 String phaseName,
+                 PhaseInputRequirement inputRequirement,
+                 StructureRecoveryTrace.RoundTrace roundTrace) {
             for (StructureRecoveryPass pass : passes) {
-                if (pass.enabled(block, context)) {
+                StructuredPassEntry passEntry = StructuredPassEntry.of(
+                        "structure-recovery",
+                        phaseName,
+                        inputRequirement.describe(),
+                        pass.descriptor()
+                );
+                StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
+                boolean enabled = pass.enabled(block, context);
+                if (enabled) {
                     pass.apply(block, context);
                 }
+                roundTrace.recordPass(passEntry, enabled, before, StructureRecoverySnapshot.capture(block));
             }
-        }
-    }
-
-    private static final class StructureRecoverySnapshot {
-        private final boolean fullyStructured;
-        private final int totalStatements;
-        private final int unstructuredStatements;
-        private final int nopStatements;
-        private final int contentHash;
-
-        private StructureRecoverySnapshot(boolean fullyStructured,
-                                          int totalStatements,
-                                          int unstructuredStatements,
-                                          int nopStatements,
-                                          int contentHash) {
-            this.fullyStructured = fullyStructured;
-            this.totalStatements = totalStatements;
-            this.unstructuredStatements = unstructuredStatements;
-            this.nopStatements = nopStatements;
-            this.contentHash = contentHash;
-        }
-
-        static StructureRecoverySnapshot capture(Op04StructuredStatement block) {
-            List<StructuredStatement> statements = MiscStatementTools.linearise(block);
-            if (statements == null) {
-                return new StructureRecoverySnapshot(block.isFullyStructured(), -1, -1, -1, block.toString().hashCode());
-            }
-            int unstructured = 0;
-            int nops = 0;
-            int contentHash = 1;
-            for (StructuredStatement statement : statements) {
-                if (statement instanceof AbstractUnStructuredStatement) {
-                    ++unstructured;
-                }
-                if (statement.isEffectivelyNOP()) {
-                    ++nops;
-                }
-                contentHash = 31 * contentHash + statement.getClass().getName().hashCode();
-                contentHash = 31 * contentHash + (statement.isEffectivelyNOP() ? 1 : 0);
-                contentHash = 31 * contentHash + statement.toString().hashCode();
-            }
-            return new StructureRecoverySnapshot(block.isFullyStructured(), statements.size(), unstructured, nops, contentHash);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (!(o instanceof StructureRecoverySnapshot)) {
-                return false;
-            }
-            StructureRecoverySnapshot other = (StructureRecoverySnapshot) o;
-            return fullyStructured == other.fullyStructured
-                    && totalStatements == other.totalStatements
-                    && unstructuredStatements == other.unstructuredStatements
-                    && nopStatements == other.nopStatements
-                    && contentHash == other.contentHash;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(fullyStructured, totalStatements, unstructuredStatements, nopStatements, contentHash);
         }
     }
 }

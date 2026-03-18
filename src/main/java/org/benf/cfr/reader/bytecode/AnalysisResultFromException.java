@@ -39,4 +39,9 @@ public class AnalysisResultFromException implements AnalysisResult {
     public AnonymousClassUsage getAnonymousClassUsage() {
         return new AnonymousClassUsage();
     }
+
+    @Override
+    public StructureRecoveryTrace getStructureRecoveryTrace() {
+        return StructureRecoveryTrace.empty();
+    }
 }

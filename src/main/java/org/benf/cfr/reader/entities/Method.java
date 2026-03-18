@@ -530,6 +530,11 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
         return analysis;
     }
 
+    public org.benf.cfr.reader.bytecode.AnalysisResult getAnalysisResult() {
+        if (codeAttribute == null) throw new ConfusedCFRException("No code in this method to analyze");
+        return codeAttribute.analyseResult();
+    }
+
     public boolean isConstructor() {
         return isConstructor.isConstructor();
     }

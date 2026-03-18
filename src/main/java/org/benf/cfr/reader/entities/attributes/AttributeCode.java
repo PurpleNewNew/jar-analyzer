@@ -94,6 +94,10 @@ public class AttributeCode extends Attribute {
         return codeAnalyser.getAnalysis(getConstantPool().getDCCommonState());
     }
 
+    public org.benf.cfr.reader.bytecode.AnalysisResult analyseResult() {
+        return codeAnalyser.getAnalysisResult(getConstantPool().getDCCommonState());
+    }
+
     public ConstantPool getConstantPool() {
         return cp;
     }

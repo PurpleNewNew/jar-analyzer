@@ -8,13 +8,18 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     private final DecompilerComments comments;
     private final Op04StructuredStatement code;
     private final AnonymousClassUsage anonymousClassUsage;
+    private final StructureRecoveryTrace structureRecoveryTrace;
     private final boolean failed;
     private final boolean exception;
 
-    AnalysisResultSuccessful(DecompilerComments comments, Op04StructuredStatement code, AnonymousClassUsage anonymousClassUsage) {
+    AnalysisResultSuccessful(DecompilerComments comments,
+                             Op04StructuredStatement code,
+                             AnonymousClassUsage anonymousClassUsage,
+                             StructureRecoveryTrace structureRecoveryTrace) {
         this.anonymousClassUsage = anonymousClassUsage;
         this.comments = comments;
         this.code = code;
+        this.structureRecoveryTrace = structureRecoveryTrace;
         boolean failed = false;
         boolean exception = false;
         for (DecompilerComment comment : comments.getCommentCollection()) {
@@ -52,5 +57,10 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     @Override
     public AnonymousClassUsage getAnonymousClassUsage() {
         return anonymousClassUsage;
+    }
+
+    @Override
+    public StructureRecoveryTrace getStructureRecoveryTrace() {
+        return structureRecoveryTrace;
     }
 }

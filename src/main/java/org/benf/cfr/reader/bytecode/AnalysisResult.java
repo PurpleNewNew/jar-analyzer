@@ -9,4 +9,5 @@ public interface AnalysisResult {
     Op04StructuredStatement getCode();
     DecompilerComments getComments();
     AnonymousClassUsage getAnonymousClassUsage();
+    StructureRecoveryTrace getStructureRecoveryTrace();
 }

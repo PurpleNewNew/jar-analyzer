@@ -46,9 +46,26 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.List;
 
 final class StructuredSemanticTransforms {
     private StructuredSemanticTransforms() {
+    }
+
+    static List<StructuredPassEntry> describePasses() {
+        return List.of(
+                entry("rewrite-explicit-type-usages", "modern-semantics", "fully-structured", "Rewrites explicit type usage to match modern anonymous and pattern semantics.", true, false),
+                entry("discover-variable-scopes", "modern-semantics", "fully-structured", "Discovers local variable scopes and records pattern-matching metadata.", false, false),
+                entry("remove-end-resource", "modern-semantics", "fully-structured", "Collapses try-with-resources synthetic release scaffolding.", true, true),
+                entry("switch-expression", "modern-semantics", "fully-structured", "Rewrites switch scaffolding into switch-expression form when supported.", true, true),
+                entry("rewrite-lambdas", "modern-semantics", "fully-structured", "Rewrites indy and synthetic lambda bodies into Java lambda syntax.", true, true),
+                entry("mark-lambda-captured-variables", "modern-semantics", "fully-structured", "Marks locals captured by lambda bodies after lambda rewriting.", true, false, "rewrite-lambdas"),
+                entry("remove-redundant-intersection-casts", "modern-semantics", "fully-structured", "Removes redundant intersection casts after semantic rewrites.", true, false, "rewrite-lambdas"),
+                entry("discover-local-class-scopes", "modern-semantics", "fully-structured", "Discovers local/anonymous class scopes after lambda and cast cleanup.", false, false, "mark-lambda-captured-variables"),
+                entry("reduce-clash-declarations", "output-polish.recovery-polish", "fully-structured", "Reduces declaration clashes reported by type-clash analysis.", true, true),
+                entry("tidy-variable-names", "output-polish.expression-polish", "fully-structured", "Renames locals to stable printable names without changing structure.", true, false),
+                entry("apply-local-variable-metadata", "output-polish.validation-and-metadata", "fully-structured", "Applies LVTT and type-annotation metadata after structure is finalized.", false, false)
+        );
     }
 
     static void rewriteExplicitTypeUsages(Op04StructuredStatement root,
@@ -253,5 +270,20 @@ final class StructuredSemanticTransforms {
             }
             return false;
         }
+    }
+
+    private static StructuredPassEntry entry(String name,
+                                             String stage,
+                                             String inputRequirement,
+                                             String outputPromise,
+                                             boolean idempotent,
+                                             boolean allowsStructuralChange,
+                                             String... dependencies) {
+        return StructuredPassEntry.of(
+                "semantic-transform",
+                stage,
+                inputRequirement,
+                StructuredPassDescriptor.of(name, outputPromise, idempotent, allowsStructuralChange, dependencies)
+        );
     }
 }

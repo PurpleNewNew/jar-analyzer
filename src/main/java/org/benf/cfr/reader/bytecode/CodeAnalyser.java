@@ -30,6 +30,7 @@ public class CodeAnalyser {
     private Method method;
 
     private Op04StructuredStatement analysed;
+    private AnalysisResult analysisResult;
     private static final Op04StructuredStatement POISON = new Op04StructuredStatement(new StructuredComment("Analysis utterly failed (Recursive inlining?)"));
 
     public CodeAnalyser(AttributeCode attributeCode) {
@@ -182,8 +183,14 @@ public class CodeAnalyser {
          */
         res.getAnonymousClassUsage().useNotes();
 
+        analysisResult = res;
         analysed = res.getCode();
         return analysed;
+    }
+
+    public AnalysisResult getAnalysisResult(DCCommonState dcCommonState) {
+        getAnalysis(dcCommonState);
+        return analysisResult;
     }
 
     /*
@@ -282,7 +289,12 @@ public class CodeAnalyser {
             }
         }
 
-        return new AnalysisResultSuccessful(comments, block, pipelineState.anonymousClassUsage);
+        return new AnalysisResultSuccessful(
+                comments,
+                block,
+                pipelineState.anonymousClassUsage,
+                analysisContext.structureRecoveryTrace
+        );
     }
 
     public void dump(Dumper d) {
@@ -292,5 +304,6 @@ public class CodeAnalyser {
 
     public void releaseCode() {
         analysed = null;
+        analysisResult = null;
     }
 }

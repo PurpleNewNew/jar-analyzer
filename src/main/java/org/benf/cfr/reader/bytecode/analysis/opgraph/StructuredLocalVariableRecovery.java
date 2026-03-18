@@ -1,7 +1,24 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
+import org.benf.cfr.reader.bytecode.StructuredPassDescriptor;
+import org.benf.cfr.reader.bytecode.StructuredPassEntry;
+
+import java.util.List;
+
 public final class StructuredLocalVariableRecovery {
     private StructuredLocalVariableRecovery() {
+    }
+
+    public static List<StructuredPassEntry> describePasses() {
+        return List.of(
+                entry("rewrite-condition-local-aliases", "structure-recovery", "any-structure-state", "Normalizes condition-local aliases before structure cleanup.", true, true),
+                entry("restore-liftable-definition-assignments", "modern-semantics", "fully-structured", "Lifts definition assignments back to the declaration/use boundary.", true, true),
+                entry("restore-creator-dependency-order", "output-polish.recovery-polish", "fully-structured", "Restores creator ordering when constructor dependencies were emitted out of order.", true, true),
+                entry("restore-creators-before-first-use", "output-polish.recovery-polish", "fully-structured", "Moves creator assignments back before the first semantic use.", true, true),
+                entry("restore-trailing-creator-assignments", "output-polish.recovery-polish", "fully-structured", "Pulls trailing creator assignments back into the declaration region.", true, true),
+                entry("restore-prefix-embedded-assignments", "output-polish.recovery-polish", "fully-structured", "Extracts embedded assignments that should be standalone prefix statements.", true, true),
+                entry("sink-definitions-to-first-use", "output-polish.recovery-polish", "fully-structured", "Sinks definition scaffolding to the first real use site during final polish.", true, true)
+        );
     }
 
     public static void rewriteConditionLocalAliases(Op04StructuredStatement root) {
@@ -39,5 +56,20 @@ public final class StructuredLocalVariableRecovery {
         restoreLiftableDefinitionAssignments(root);
         restoreTrailingCreatorAssignments(root);
         restorePrefixEmbeddedAssignments(root);
+    }
+
+    private static StructuredPassEntry entry(String name,
+                                             String stage,
+                                             String inputRequirement,
+                                             String outputPromise,
+                                             boolean idempotent,
+                                             boolean allowsStructuralChange,
+                                             String... dependencies) {
+        return StructuredPassEntry.of(
+                "local-variable-recovery",
+                stage,
+                inputRequirement,
+                StructuredPassDescriptor.of(name, outputPromise, idempotent, allowsStructuralChange, dependencies)
+        );
     }
 }

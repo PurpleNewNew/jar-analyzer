@@ -28,6 +28,7 @@ final class MethodAnalysisContext {
     final ConstantPool constantPool;
     final BlockIdentifierFactory blockIdentifierFactory;
     final ModernFeatureStrategy modernFeatures;
+    final StructureRecoveryTrace structureRecoveryTrace;
 
     MethodAnalysisContext(DCCommonState commonState,
                           Options options,
@@ -43,6 +44,40 @@ final class MethodAnalysisContext {
                           ConstantPool constantPool,
                           BlockIdentifierFactory blockIdentifierFactory,
                           ModernFeatureStrategy modernFeatures) {
+        this(
+                commonState,
+                options,
+                method,
+                classFile,
+                classFileVersion,
+                bytecodeMeta,
+                comments,
+                variableFactory,
+                anonymousClassUsage,
+                originalCodeAttribute,
+                lutByOffset,
+                constantPool,
+                blockIdentifierFactory,
+                modernFeatures,
+                new StructureRecoveryTrace()
+        );
+    }
+
+    MethodAnalysisContext(DCCommonState commonState,
+                          Options options,
+                          Method method,
+                          ClassFile classFile,
+                          ClassFileVersion classFileVersion,
+                          BytecodeMeta bytecodeMeta,
+                          DecompilerComments comments,
+                          VariableFactory variableFactory,
+                          AnonymousClassUsage anonymousClassUsage,
+                          AttributeCode originalCodeAttribute,
+                          SortedMap<Integer, Integer> lutByOffset,
+                          ConstantPool constantPool,
+                          BlockIdentifierFactory blockIdentifierFactory,
+                          ModernFeatureStrategy modernFeatures,
+                          StructureRecoveryTrace structureRecoveryTrace) {
         this.commonState = commonState;
         this.options = options;
         this.method = method;
@@ -57,5 +92,6 @@ final class MethodAnalysisContext {
         this.constantPool = constantPool;
         this.blockIdentifierFactory = blockIdentifierFactory;
         this.modernFeatures = modernFeatures;
+        this.structureRecoveryTrace = structureRecoveryTrace;
     }
 }

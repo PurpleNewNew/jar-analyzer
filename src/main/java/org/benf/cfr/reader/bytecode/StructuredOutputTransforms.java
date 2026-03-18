@@ -21,8 +21,22 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ConstantFoldingRewr
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 
+import java.util.List;
+
 final class StructuredOutputTransforms {
     private StructuredOutputTransforms() {
+    }
+
+    static List<StructuredPassEntry> describePasses() {
+        return List.of(
+                entry("remove-constructor-boilerplate", "output-polish.expression-polish", "fully-structured", "Removes redundant constructor super boilerplate.", true, false),
+                entry("remove-unnecessary-vararg-arrays", "output-polish.expression-polish", "fully-structured", "Elides synthetic vararg array wrappers.", true, false),
+                entry("rewrite-bad-cast-chains", "output-polish.expression-polish", "fully-structured", "Simplifies cast chains produced by earlier rewrites.", true, false),
+                entry("rewrite-narrowing-assignments", "output-polish.expression-polish", "fully-structured", "Rewrites explicit narrowing assignment scaffolding.", true, false),
+                entry("tidy-obfuscation", "output-polish.expression-polish", "fully-structured", "Folds obfuscation constants when configured.", true, false),
+                entry("misc-keyhole-transforms", "output-polish.expression-polish", "fully-structured", "Applies keyhole expression cleanups that preserve structure.", true, false),
+                entry("apply-checker", "output-polish.validation-and-metadata", "fully-structured", "Runs output validators and records any decompiler comments.", false, false)
+        );
     }
 
     static void removeConstructorBoilerplate(Op04StructuredStatement root) {
@@ -60,5 +74,20 @@ final class StructuredOutputTransforms {
     static void applyChecker(Op04Checker checker, Op04StructuredStatement root, DecompilerComments comments) {
         root.transform(checker, new StructuredScope());
         checker.commentInto(comments);
+    }
+
+    private static StructuredPassEntry entry(String name,
+                                             String stage,
+                                             String inputRequirement,
+                                             String outputPromise,
+                                             boolean idempotent,
+                                             boolean allowsStructuralChange,
+                                             String... dependencies) {
+        return StructuredPassEntry.of(
+                "output-transform",
+                stage,
+                inputRequirement,
+                StructuredPassDescriptor.of(name, outputPromise, idempotent, allowsStructuralChange, dependencies)
+        );
     }
 }
