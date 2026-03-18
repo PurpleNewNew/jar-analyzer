@@ -131,13 +131,14 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     }
 
     private LocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
-        int offset = localVariable.getOriginalRawOffset();
+        int rawOffset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
-        if (offset < 0 || slot < 0) return null;
+        if (rawOffset < 0 || slot < 0) return null;
         TreeSet<LocalVariableTypeEntry> entries = localVariableTypeEntries.get(slot);
         if (entries == null || entries.isEmpty()) return null;
 
-        offset = offset > 0 ? offset + 2 : 0;
+        boolean currentMethodOffset = isCurrentMethodOffset(rawOffset);
+        int offset = rawOffset > 0 ? rawOffset + 2 : 0;
         String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
 
         LocalVariableTypeEntry bestCovered = null;
@@ -171,8 +172,16 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             }
         }
         if (bestCoveredNamed != null) return bestCoveredNamed;
-        if (bestCovered != null) return bestCovered;
+        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) return bestCovered;
         return bestNearbyNamed;
+    }
+
+    private boolean isCurrentMethodOffset(int rawOffset) {
+        return rawOffset == 0 || instrsByOffset.containsKey(rawOffset);
+    }
+
+    private boolean hasGoodName(LocalVariable localVariable) {
+        return localVariable.getName() != null && localVariable.getName().isGoodName();
     }
 
     private boolean isOffsetCovered(LocalVariableTypeEntry entry, int offset) {

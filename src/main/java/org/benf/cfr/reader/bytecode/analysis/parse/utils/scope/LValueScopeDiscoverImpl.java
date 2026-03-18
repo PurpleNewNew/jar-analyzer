@@ -28,7 +28,6 @@ public class LValueScopeDiscoverImpl extends AbstractLValueScopeDiscoverer {
 
     @Override
     public void collectLocalVariableAssignment(LocalVariable localVariable, StatementContainer<StructuredStatement> statementContainer, Expression value) {
-
         // Ensure type clashes are collapsed, otherwise PairTest3 gets duplicate definitions.
         localVariable.getInferredJavaType().collapseTypeClash();
 

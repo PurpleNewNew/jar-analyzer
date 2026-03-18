@@ -62,6 +62,7 @@ public class StructuredExpressionStatement extends AbstractStructuredStatement {
 
     @Override
     public void traceLocalVariableScope(LValueScopeDiscoverer scopeDiscoverer) {
+        new EmbeddedAssignmentScopeCollector(getContainer(), scopeDiscoverer).collect(expression);
         expression.collectUsedLValues(scopeDiscoverer);
     }
 

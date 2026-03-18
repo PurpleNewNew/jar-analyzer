@@ -18,7 +18,7 @@ class StructureFailureRegressionTest {
                 "TestDefiniteAssignment",
                 "--release", "21");
 
-        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
 
         assertFalse(decompiled.contains("Unable to fully structure code"), decompiled);
         assertFalse(decompiled.contains("** GOTO"), decompiled);
@@ -33,7 +33,8 @@ class StructureFailureRegressionTest {
         assertTrue(decompiled.contains("if (!bool) {"), decompiled);
         assertTrue(decompiled.contains("} else {"), decompiled);
         assertTrue(decompiled.contains("c += 5.0;"), decompiled);
-        assertTrue(decompiled.contains("if (x = (d = (double)n) > 0.0)"), decompiled);
+        assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(tempDir, "TestDefiniteAssignment", decompiled);
     }
 
     @Test
@@ -59,12 +60,14 @@ class StructureFailureRegressionTest {
                 "TestTail",
                 "--release", "21");
 
-        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
 
         assertFalse(decompiled.contains("double d2 = n;"), decompiled);
         assertFalse(decompiled.contains("if (x = d > 0.0)"), decompiled);
-        assertTrue(decompiled.contains("if (x = (d = (double)n) > 0.0)"), decompiled);
+        assertTrue(decompiled.contains("boolean x = d > 0.0;"), decompiled);
+        assertTrue(decompiled.contains("if (x) {"), decompiled);
         assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(tempDir, "TestTail", decompiled);
     }
 
     @Test
@@ -91,13 +94,14 @@ class StructureFailureRegressionTest {
                 "GuardReturnChainSample",
                 "--release", "21");
 
-        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
 
         assertFalse(decompiled.contains("Unable to fully structure code"), decompiled);
         assertFalse(decompiled.contains("** GOTO"), decompiled);
         assertTrue(decompiled.contains("allowedHashes.isEmpty()"), decompiled);
-        assertTrue(decompiled.contains("int lastDash;"), decompiled);
+        assertTrue(decompiled.contains("dirName.lastIndexOf(45)"), decompiled);
         assertTrue(decompiled.contains("return allowedHashes.contains(suffix);"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(tempDir, "GuardReturnChainSample", decompiled);
     }
 
     @Test

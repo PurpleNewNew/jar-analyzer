@@ -14,6 +14,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
+import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollectorSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverer;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
@@ -57,7 +58,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
     public boolean isCreator(LValue lvalue) {
-        return creator && this.lvalue.equals(lvalue);
+        return creator && this.lvalue.equals(lvalue) && !isSelfReferentialCreator();
     }
 
     @Override
@@ -80,7 +81,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             dumper.dump(rvalue).endCodeln();
             return dumper;
         }
-        if (creator) {
+        if (isEffectiveCreator()) {
             if (lvalue.isFinal()) dumper.print("final ");
             LValue.Creation.dump(dumper, lvalue);
         } else {
@@ -92,7 +93,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
     private void harmonizeCreatorTypeFromRvalue() {
-        if (!creator) {
+        if (!isEffectiveCreator()) {
             return;
         }
         harmonizeAssignedLocalTypeFromRvalue();
@@ -159,7 +160,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
     private void harmonizeCreatorTypeFromAssignmentTarget() {
-        if (!creator) {
+        if (!isEffectiveCreator()) {
             return;
         }
         if (!(lvalue instanceof LocalVariable)) {
@@ -185,7 +186,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
     private boolean shouldInlineSyntheticCreator() {
-        if (!creator) {
+        if (!isEffectiveCreator()) {
             return false;
         }
         if (!(lvalue instanceof LocalVariable)) {
@@ -216,6 +217,7 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
 
     @Override
     public void traceLocalVariableScope(LValueScopeDiscoverer scopeDiscoverer) {
+        new EmbeddedAssignmentScopeCollector(getContainer(), scopeDiscoverer).collect(rvalue);
         rvalue.collectUsedLValues(scopeDiscoverer);
         // todo - what if rvalue is an assignment?
         lvalue.collectLValueAssignments(rvalue, getContainer(), scopeDiscoverer);
@@ -239,11 +241,52 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
 
     @Override
     public List<LValue> findCreatedHere() {
-        if (creator) {
+        if (isEffectiveCreator()) {
             return ListFactory.newImmutableList(lvalue);
         } else {
             return null;
         }
+    }
+
+    private boolean isEffectiveCreator() {
+        return isCreator(lvalue);
+    }
+
+    private boolean isSelfReferentialCreator() {
+        if (!creator) {
+            return false;
+        }
+        if (!(lvalue instanceof LocalVariable)) {
+            return false;
+        }
+        LocalVariable localVariable = (LocalVariable) lvalue;
+        LValueUsageCollectorSimple collector = new LValueUsageCollectorSimple();
+        rvalue.collectUsedLValues(collector);
+        for (LValue used : collector.getUsedLValues()) {
+            if (!(used instanceof LocalVariable)) {
+                continue;
+            }
+            LocalVariable usedLocal = (LocalVariable) used;
+            if (localVariable.matchesReadableAlias(usedLocal)) {
+                return true;
+            }
+            if (localVariable.getName() == null
+                    || usedLocal.getName() == null
+                    || !localVariable.getName().isGoodName()
+                    || !usedLocal.getName().isGoodName()) {
+                continue;
+            }
+            if (!localVariable.getInferredJavaType().getJavaTypeInstance()
+                    .equals(usedLocal.getInferredJavaType().getJavaTypeInstance())) {
+                continue;
+            }
+            String localName = localVariable.getName().getStringName();
+            String usedName = usedLocal.getName().getStringName();
+            if (localName != null && localName.equals(usedName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public LValue getLvalue() {

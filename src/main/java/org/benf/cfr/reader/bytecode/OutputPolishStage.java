@@ -35,14 +35,17 @@ final class OutputPolishStage {
         Op04StructuredStatement.tidyObfuscation(context.options, block);
         Op04StructuredStatement.miscKeyholeTransforms(context.variableFactory, block);
         structureRecoveryPipeline.applyOutputPolish(block, context);
+        Op04StructuredStatement.reduceClashDeclarations(block, context.bytecodeMeta);
         Op04StructuredStatement.sinkDefinitionsToFirstUse(block);
         Op04StructuredStatement.restoreCreatorDependencyOrder(block);
+        Op04StructuredStatement.restoreCreatorsBeforeFirstUse(block);
         Op04StructuredStatement.restoreLiftableDefinitionAssignments(block);
+        Op04StructuredStatement.restoreTrailingCreatorAssignments(block);
+        Op04StructuredStatement.restorePrefixEmbeddedAssignments(block);
         Op04StructuredStatement.applyChecker(new LooseCatchChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new VoidVariableChecker(), block, context.comments);
         Op04StructuredStatement.applyChecker(new IllegalReturnChecker(), block, context.comments);
         Op04StructuredStatement.flattenNonReferencedBlocks(block);
-        Op04StructuredStatement.reduceClashDeclarations(block, context.bytecodeMeta);
         Op04StructuredStatement.applyLocalVariableMetadata(context.originalCodeAttribute, block, context.lutByOffset, context.comments);
     }
 }

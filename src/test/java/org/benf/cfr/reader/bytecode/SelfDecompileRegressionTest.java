@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SelfDecompileRegressionTest {
     @Test
     void shouldKeepJarAnalyzerCfrEngineStructured() throws IOException {
-        String decompiled = CfrDecompilerRegressionSupport.decompile(
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
                 CfrDecompilerRegressionSupport.locateClassFile(CFRDecompileEngine.class));
 
         assertStructured(decompiled);
@@ -33,10 +33,13 @@ class SelfDecompileRegressionTest {
                 decompiled.contains("stream.forEach(path -> {")
                         || decompiled.contains("stream.forEach((Path path) -> {"),
                 decompiled);
-        assertTrue(decompiled.contains("isNestedLibPath(rel = root.relativize"), decompiled);
+        assertTrue(decompiled.contains("String name = path.getFileName().toString().toLowerCase(Locale.ROOT);"), decompiled);
+        assertTrue(decompiled.contains("String rel = root.relativize((Path)path).toString().replace(\"\\\\\", \"/\");"), decompiled);
+        assertTrue(decompiled.contains("isNestedLibPath(rel)"), decompiled);
         assertTrue(decompiled.contains("new BuildScopedLru<String, String>("), decompiled);
         assertTrue(decompiled.contains("new LinkedHashMap<Path, List<String>>()"), decompiled);
         assertTrue(decompiled.contains("new ArrayList<String>()"), decompiled);
+        assertFalse(decompiled.contains("Stream<Path> name ="), decompiled);
         assertFalse(decompiled.contains("new BuildScopedLru<K, V>("), decompiled);
         assertFalse(decompiled.contains("new LinkedHashMap<Path, List>("), decompiled);
         assertFalse(decompiled.contains("new ArrayList<E>()"), decompiled);
@@ -54,15 +57,21 @@ class SelfDecompileRegressionTest {
     }
 
     @Test
-    void shouldKeepJarAnalyzerClassLookupStructured() throws IOException {
-        String decompiled = CfrDecompilerRegressionSupport.decompile(
+    void shouldKeepJarAnalyzerClassLookupStructured(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
                 CfrDecompilerRegressionSupport.locateClassFile(ClassLookupService.class));
 
         assertStructured(decompiled);
         assertTrue(decompiled.contains("public static LookupResult find(String nameOrPath, Integer preferJarId)"), decompiled);
-        assertTrue(decompiled.contains("raw.indexOf(33)) > 0 && ClassLookupService.looksLikePath(raw)"), decompiled);
         assertTrue(decompiled.contains("ClassLookupService.findClassInternal("), decompiled);
         assertTrue(decompiled.contains("return new LookupResult(data, path.toString(), null, path.toString());"), decompiled);
+        assertFalse(decompiled.contains("byte[] external = BytecodeCache.read(path);"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "ClassLookupService",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
     }
 
     @Test
