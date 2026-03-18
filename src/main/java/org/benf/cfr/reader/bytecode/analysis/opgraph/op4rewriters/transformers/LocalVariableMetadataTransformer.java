@@ -22,6 +22,8 @@ import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeIn
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.annotations.AnnotationTableTypeEntry;
 import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTypeTable;
+import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTable;
+import org.benf.cfr.reader.entities.attributes.LocalVariableEntry;
 import org.benf.cfr.reader.entities.attributes.AttributeTypeAnnotations;
 import org.benf.cfr.reader.entities.attributes.LocalVariableTypeEntry;
 import org.benf.cfr.reader.entities.attributes.TypeAnnotationTargetInfo;
@@ -50,8 +52,10 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     private final DecompilerComments comments;
     private final ConstantPool cp;
     private final Map<Integer, TreeSet<LocalVariableTypeEntry>> localVariableTypeEntries = new HashMap<Integer, TreeSet<LocalVariableTypeEntry>>();
+    private final Map<Integer, TreeSet<LocalVariableEntry>> localVariableEntries = new HashMap<Integer, TreeSet<LocalVariableEntry>>();
 
-    public LocalVariableMetadataTransformer(AttributeLocalVariableTypeTable localVariableTypeTable,
+    public LocalVariableMetadataTransformer(AttributeLocalVariableTable localVariableTable,
+                                            AttributeLocalVariableTypeTable localVariableTypeTable,
                                             AttributeTypeAnnotations vis,
                                             AttributeTypeAnnotations invis,
                                             SortedMap<Integer, Integer> instrsByOffset,
@@ -63,6 +67,16 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         this.variableAnnotations = ListFactory.orEmptyList(ListFactory.combinedOptimistic(
                 vis == null ? null : vis.getAnnotationsFor(type_localvar, type_resourcevar),
                 invis == null ? null : invis.getAnnotationsFor(type_localvar, type_resourcevar)));
+        if (localVariableTable != null) {
+            for (LocalVariableEntry entry : localVariableTable.getLocalVariableEntryList()) {
+                TreeSet<LocalVariableEntry> entries = localVariableEntries.get(entry.getIndex());
+                if (entries == null) {
+                    entries = new TreeSet<LocalVariableEntry>(new OrderLocalVariables());
+                    localVariableEntries.put(entry.getIndex(), entries);
+                }
+                entries.add(entry);
+            }
+        }
         if (localVariableTypeTable != null) {
             for (LocalVariableTypeEntry entry : localVariableTypeTable.getLocalVariableTypeEntryList()) {
                 TreeSet<LocalVariableTypeEntry> entries = localVariableTypeEntries.get(entry.getIndex());
@@ -123,11 +137,17 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     }
 
     private JavaTypeInstance getLocalVariableCreatorType(LocalVariable localVariable) {
-        LocalVariableTypeEntry entry = getLocalVariableTypeEntry(localVariable);
+        LocalVariableTypeEntry typeEntry = getLocalVariableTypeEntry(localVariable);
+        if (typeEntry != null) {
+            String signature = cp.getUTF8Entry(typeEntry.getSignatureIndex()).getValue();
+            return ConstantPoolUtils.decodeTypeTok(signature, cp);
+        }
+
+        LocalVariableEntry entry = getLocalVariableEntry(localVariable);
         if (entry == null) return null;
 
-        String signature = cp.getUTF8Entry(entry.getSignatureIndex()).getValue();
-        return ConstantPoolUtils.decodeTypeTok(signature, cp);
+        String descriptor = cp.getUTF8Entry(entry.getDescriptorIndex()).getValue();
+        return ConstantPoolUtils.decodeTypeTok(descriptor, cp);
     }
 
     private LocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
@@ -176,6 +196,52 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         return bestNearbyNamed;
     }
 
+    private LocalVariableEntry getLocalVariableEntry(LocalVariable localVariable) {
+        int rawOffset = localVariable.getOriginalRawOffset();
+        int slot = localVariable.getIdx();
+        if (rawOffset < 0 || slot < 0) return null;
+        TreeSet<LocalVariableEntry> entries = localVariableEntries.get(slot);
+        if (entries == null || entries.isEmpty()) return null;
+
+        boolean currentMethodOffset = isCurrentMethodOffset(rawOffset);
+        int offset = rawOffset > 0 ? rawOffset + 2 : 0;
+        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
+
+        LocalVariableEntry bestCovered = null;
+        LocalVariableEntry bestCoveredNamed = null;
+        LocalVariableEntry bestNearbyNamed = null;
+        int bestCoveredDistance = Integer.MAX_VALUE;
+        int bestCoveredNamedDistance = Integer.MAX_VALUE;
+        int bestNearbyNamedDistance = Integer.MAX_VALUE;
+
+        for (LocalVariableEntry entry : entries) {
+            int distance = distanceFromScope(entry, offset);
+            boolean nameMatches = localName != null && entry.getNameIndex() >= 0
+                    && localName.equals(cp.getUTF8Entry(entry.getNameIndex()).getValue());
+            if (isOffsetCovered(entry, offset)) {
+                if (nameMatches && distance < bestCoveredNamedDistance) {
+                    bestCoveredNamed = entry;
+                    bestCoveredNamedDistance = distance;
+                }
+                if (distance < bestCoveredDistance) {
+                    bestCovered = entry;
+                    bestCoveredDistance = distance;
+                }
+                continue;
+            }
+            if (distance > 4) {
+                continue;
+            }
+            if (nameMatches && distance < bestNearbyNamedDistance) {
+                bestNearbyNamed = entry;
+                bestNearbyNamedDistance = distance;
+            }
+        }
+        if (bestCoveredNamed != null) return bestCoveredNamed;
+        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) return bestCovered;
+        return bestNearbyNamed;
+    }
+
     private boolean isCurrentMethodOffset(int rawOffset) {
         return rawOffset == 0 || instrsByOffset.containsKey(rawOffset);
     }
@@ -192,7 +258,26 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         return offset + 2 >= entry.getStartPc() && offset <= entry.getEndPc();
     }
 
+    private boolean isOffsetCovered(LocalVariableEntry entry, int offset) {
+        if (entry == null) return false;
+        if (offset >= entry.getStartPc() && offset <= entry.getEndPc()) {
+            return true;
+        }
+        return offset + 2 >= entry.getStartPc() && offset <= entry.getEndPc();
+    }
+
     private int distanceFromScope(LocalVariableTypeEntry entry, int offset) {
+        if (entry == null) return Integer.MAX_VALUE;
+        if (isOffsetCovered(entry, offset)) {
+            return Math.abs(offset - entry.getStartPc());
+        }
+        if (offset < entry.getStartPc()) {
+            return entry.getStartPc() - offset;
+        }
+        return offset - entry.getEndPc();
+    }
+
+    private int distanceFromScope(LocalVariableEntry entry, int offset) {
         if (entry == null) return Integer.MAX_VALUE;
         if (isOffsetCovered(entry, offset)) {
             return Math.abs(offset - entry.getStartPc());
@@ -246,7 +331,7 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             return;
         }
 
-        if (variableAnnotations.isEmpty() && localVariableTypeEntries.isEmpty()) return;
+        if (variableAnnotations.isEmpty() && localVariableTypeEntries.isEmpty() && localVariableEntries.isEmpty()) return;
         List<LValue> createdHere = stm.findCreatedHere();
         if (createdHere == null || createdHere.isEmpty()) return;
 
@@ -287,6 +372,19 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             x = a.getLength() - b.getLength();
             if (x != 0) return x;
             x = a.getSignatureIndex() - b.getSignatureIndex();
+            if (x != 0) return x;
+            return a.getNameIndex() - b.getNameIndex();
+        }
+    }
+
+    private static class OrderLocalVariables implements Comparator<LocalVariableEntry> {
+        @Override
+        public int compare(LocalVariableEntry a, LocalVariableEntry b) {
+            int x = a.getStartPc() - b.getStartPc();
+            if (x != 0) return x;
+            x = a.getLength() - b.getLength();
+            if (x != 0) return x;
+            x = a.getDescriptorIndex() - b.getDescriptorIndex();
             if (x != 0) return x;
             return a.getNameIndex() - b.getNameIndex();
         }

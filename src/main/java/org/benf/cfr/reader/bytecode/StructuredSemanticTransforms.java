@@ -32,6 +32,7 @@ import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.entities.attributes.AttributeCode;
+import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTable;
 import org.benf.cfr.reader.entities.attributes.AttributeLocalVariableTypeTable;
 import org.benf.cfr.reader.entities.attributes.AttributeTypeAnnotations;
 import org.benf.cfr.reader.state.ClassCache;
@@ -64,7 +65,7 @@ final class StructuredSemanticTransforms {
                 entry("discover-local-class-scopes", "modern-semantics", "fully-structured", "Discovers local/anonymous class scopes after lambda and cast cleanup.", false, false, "mark-lambda-captured-variables"),
                 entry("reduce-clash-declarations", "modern-semantics.local-recovery", "fully-structured", "Reduces declaration clashes reported by type-clash analysis after semantic recovery.", true, true),
                 entry("tidy-variable-names", "output-polish.expression-polish", "fully-structured", "Renames locals to stable printable names without changing structure.", true, false),
-                entry("apply-local-variable-metadata", "output-polish.validation-and-metadata", "fully-structured", "Applies LVTT and type-annotation metadata after structure is finalized.", false, false)
+                entry("apply-local-variable-metadata", "output-polish.validation-and-metadata", "fully-structured", "Applies LVT/LVTT and type-annotation metadata after structure is finalized.", false, false)
         );
     }
 
@@ -103,13 +104,15 @@ final class StructuredSemanticTransforms {
                                            Op04StructuredStatement root,
                                            SortedMap<Integer, Integer> instrsByOffset,
                                            DecompilerComments comments) {
+        AttributeLocalVariableTable localVariableTable = code.getLocalVariableTable();
         AttributeLocalVariableTypeTable localVariableTypeTable = code.getLocalVariableTypeTable();
         AttributeTypeAnnotations vis = code.getRuntimeVisibleTypeAnnotations();
         AttributeTypeAnnotations invis = code.getRuntimeInvisibleTypeAnnotations();
-        if (vis == null && invis == null && localVariableTypeTable == null) {
+        if (vis == null && invis == null && localVariableTypeTable == null && localVariableTable == null) {
             return;
         }
         LocalVariableMetadataTransformer transformer = new LocalVariableMetadataTransformer(
+                localVariableTable,
                 localVariableTypeTable,
                 vis,
                 invis,

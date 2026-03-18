@@ -65,34 +65,52 @@ public class FormalTypeParameter implements Dumpable, TypeUsageCollectable {
 
     @Override
     public Dumper dump(Dumper d) {
-        JavaTypeInstance dispInterface = getBound();
         d.print(name);
-        if (dispInterface != null) {
-            if (!TypeConstants.objectName.equals(dispInterface.getRawName())) {
-                d.print(" extends ").dump(dispInterface);
-            }
-        }
+        dumpBounds(d, classBound, interfaceBound);
         return d;
     }
 
     // TODO: This really shouldn't be at display time.
     public Dumper dump(Dumper d, List<AnnotationTableTypeEntry> typeAnnotations, List<AnnotationTableTypeEntry> typeBoundAnnotations) {
-        JavaTypeInstance dispInterface = getBound();
         if (!typeAnnotations.isEmpty()) {
             typeAnnotations.get(0).dump(d);
             d.print(' ');
         }
         d.print(name);
-        if (dispInterface != null) {
-            JavaAnnotatedTypeInstance ati = dispInterface.getAnnotatedInstance();
+        JavaTypeInstance annotatedPrimary = classBound == null ? interfaceBound : classBound;
+        if (annotatedPrimary != null) {
+            JavaAnnotatedTypeInstance ati = annotatedPrimary.getAnnotatedInstance();
             DecompilerComments comments = new DecompilerComments();
             TypeAnnotationHelper.apply(ati, typeBoundAnnotations, comments);
             d.dump(comments);
-            if (!TypeConstants.objectName.equals(dispInterface.getRawName())) {
-                d.print(" extends ").dump(ati);
-            }
+            dumpAnnotatedBounds(d, classBound, ati, classBound == null ? null : interfaceBound);
         }
         return d;
+    }
+
+    private static void dumpBounds(Dumper d, JavaTypeInstance classBound, JavaTypeInstance interfaceBound) {
+        boolean printedBound = false;
+        if (classBound != null && !TypeConstants.objectName.equals(classBound.getRawName())) {
+            d.print(" extends ").dump(classBound);
+            printedBound = true;
+        }
+        if (interfaceBound != null) {
+            d.print(printedBound ? " & " : " extends ").dump(interfaceBound);
+        }
+    }
+
+    private static void dumpAnnotatedBounds(Dumper d,
+                                            JavaTypeInstance rawClassBound,
+                                            JavaAnnotatedTypeInstance annotatedClassBound,
+                                            JavaTypeInstance interfaceBound) {
+        boolean printedBound = false;
+        if (annotatedClassBound != null && rawClassBound != null && !TypeConstants.objectName.equals(rawClassBound.getRawName())) {
+            d.print(" extends ").dump(annotatedClassBound);
+            printedBound = true;
+        }
+        if (interfaceBound != null) {
+            d.print(printedBound ? " & " : " extends ").dump(interfaceBound);
+        }
     }
 
     @Override

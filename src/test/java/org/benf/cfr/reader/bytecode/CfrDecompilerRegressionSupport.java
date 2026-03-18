@@ -125,15 +125,22 @@ final class CfrDecompilerRegressionSupport {
                                                         String decompiledSource,
                                                         String... methodNames) throws IOException {
         String originalSource = loadFixtureSource(fixtureSuite, className);
+        assertMethodGenericSignaturesEquivalent(tempDir, className, originalSource, decompiledSource, new String[]{"--release", "21"}, methodNames);
+    }
+
+    static void assertMethodGenericSignaturesEquivalent(Path tempDir,
+                                                        String className,
+                                                        String originalSource,
+                                                        String decompiledSource,
+                                                        String[] javacArgs,
+                                                        String... methodNames) throws IOException {
         Path originalDir = Files.createDirectories(tempDir.resolve("original-signature-check"));
         Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-signature-check"));
-        compileJava(originalDir, className, originalSource, "--release", "21");
-        compileJava(decompiledDir, className, decompiledSource, "--release", "21");
-        Class<?> originalClass = loadCompiledClass(originalDir, className, originalSource);
-        Class<?> decompiledClass = loadCompiledClass(decompiledDir, className, decompiledSource);
+        compileJava(originalDir, className, originalSource, javacArgs);
+        compileJava(decompiledDir, className, decompiledSource, javacArgs);
         for (String methodName : methodNames) {
-            List<String> originalSignatures = describeMethodSignatures(originalClass, methodName);
-            List<String> decompiledSignatures = describeMethodSignatures(decompiledClass, methodName);
+            List<String> originalSignatures = describeMethodSignatures(originalDir, className, originalSource, methodName);
+            List<String> decompiledSignatures = describeMethodSignatures(decompiledDir, className, decompiledSource, methodName);
             assertEquals(originalSignatures, decompiledSignatures,
                     "Generic method signatures changed for " + methodName
                             + "\noriginal=" + originalSignatures
@@ -168,22 +175,22 @@ final class CfrDecompilerRegressionSupport {
         return decompiled.substring(start);
     }
 
-    private static Class<?> loadCompiledClass(Path outputDir, String className, String source) throws IOException {
+    private static List<String> describeMethodSignatures(Path outputDir,
+                                                         String className,
+                                                         String source,
+                                                         String methodName) throws IOException {
         String packageName = extractPackageName(source);
         String fqcn = packageName.isEmpty() ? className : packageName + "." + className;
         try (URLClassLoader loader = new URLClassLoader(new URL[]{outputDir.toUri().toURL()}, null)) {
-            return Class.forName(fqcn, false, loader);
+            Class<?> type = Class.forName(fqcn, false, loader);
+            return Arrays.stream(type.getDeclaredMethods())
+                    .filter(method -> methodName.equals(method.getName()))
+                    .filter(method -> !method.isSynthetic() && !method.isBridge())
+                    .map(Method::toGenericString)
+                    .sorted()
+                    .collect(Collectors.toList());
         } catch (ReflectiveOperationException ex) {
             throw new IOException("Failed to load compiled class " + fqcn + " from " + outputDir, ex);
         }
-    }
-
-    private static List<String> describeMethodSignatures(Class<?> type, String methodName) {
-        return Arrays.stream(type.getDeclaredMethods())
-                .filter(method -> methodName.equals(method.getName()))
-                .filter(method -> !method.isSynthetic() && !method.isBridge())
-                .map(Method::toGenericString)
-                .sorted()
-                .collect(Collectors.toList());
     }
 }
