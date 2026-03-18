@@ -25,5 +25,12 @@ class LambdaTernaryTypingRegressionTest {
         assertFalse(Pattern.compile("new ArrayList\\(\\) : new LinkedList\\(\\)").matcher(decompiled).find(), decompiled);
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "LambdaTernaryTypingSample", decompiled, "--release", "21");
+        CfrDecompilerRegressionSupport.assertMethodGenericSignaturesEquivalent(
+                tempDir,
+                "type-recovery",
+                "LambdaTernaryTypingSample",
+                decompiled,
+                "choose"
+        );
     }
 }

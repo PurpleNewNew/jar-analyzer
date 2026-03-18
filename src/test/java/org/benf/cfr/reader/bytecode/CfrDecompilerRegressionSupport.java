@@ -6,7 +6,10 @@ import org.benf.cfr.reader.api.SinkReturns;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
+import java.lang.reflect.Method;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -115,6 +119,28 @@ final class CfrDecompilerRegressionSupport {
         }
     }
 
+    static void assertMethodGenericSignaturesEquivalent(Path tempDir,
+                                                        String fixtureSuite,
+                                                        String className,
+                                                        String decompiledSource,
+                                                        String... methodNames) throws IOException {
+        String originalSource = loadFixtureSource(fixtureSuite, className);
+        Path originalDir = Files.createDirectories(tempDir.resolve("original-signature-check"));
+        Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-signature-check"));
+        compileJava(originalDir, className, originalSource, "--release", "21");
+        compileJava(decompiledDir, className, decompiledSource, "--release", "21");
+        Class<?> originalClass = loadCompiledClass(originalDir, className, originalSource);
+        Class<?> decompiledClass = loadCompiledClass(decompiledDir, className, decompiledSource);
+        for (String methodName : methodNames) {
+            List<String> originalSignatures = describeMethodSignatures(originalClass, methodName);
+            List<String> decompiledSignatures = describeMethodSignatures(decompiledClass, methodName);
+            assertEquals(originalSignatures, decompiledSignatures,
+                    "Generic method signatures changed for " + methodName
+                            + "\noriginal=" + originalSignatures
+                            + "\ndecompiled=" + decompiledSignatures);
+        }
+    }
+
     private static Path resolveCompiledClassFile(Path tempDir, String className, String source) {
         String packageName = extractPackageName(source);
         Path classFile = tempDir;
@@ -140,5 +166,24 @@ final class CfrDecompilerRegressionSupport {
             return decompiled;
         }
         return decompiled.substring(start);
+    }
+
+    private static Class<?> loadCompiledClass(Path outputDir, String className, String source) throws IOException {
+        String packageName = extractPackageName(source);
+        String fqcn = packageName.isEmpty() ? className : packageName + "." + className;
+        try (URLClassLoader loader = new URLClassLoader(new URL[]{outputDir.toUri().toURL()}, null)) {
+            return Class.forName(fqcn, false, loader);
+        } catch (ReflectiveOperationException ex) {
+            throw new IOException("Failed to load compiled class " + fqcn + " from " + outputDir, ex);
+        }
+    }
+
+    private static List<String> describeMethodSignatures(Class<?> type, String methodName) {
+        return Arrays.stream(type.getDeclaredMethods())
+                .filter(method -> methodName.equals(method.getName()))
+                .filter(method -> !method.isSynthetic() && !method.isBridge())
+                .map(Method::toGenericString)
+                .sorted()
+                .collect(Collectors.toList());
     }
 }

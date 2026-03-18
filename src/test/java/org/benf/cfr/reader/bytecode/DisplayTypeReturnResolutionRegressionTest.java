@@ -27,5 +27,13 @@ class DisplayTypeReturnResolutionRegressionTest {
         assertFalse(Pattern.compile("List fromMember = ").matcher(decompiled).find(), decompiled);
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "DisplayTypeReturnSample", decompiled, "--release", "21");
+        CfrDecompilerRegressionSupport.assertMethodGenericSignaturesEquivalent(
+                tempDir,
+                "type-recovery",
+                "DisplayTypeReturnSample",
+                decompiled,
+                "wrap",
+                "collect"
+        );
     }
 }

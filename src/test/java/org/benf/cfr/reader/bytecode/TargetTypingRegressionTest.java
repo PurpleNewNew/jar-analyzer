@@ -27,5 +27,13 @@ class TargetTypingRegressionTest {
         assertFalse(Pattern.compile("new ArrayList<E>\\(\\)").matcher(decompiled).find(), decompiled);
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "TargetTypingConstructorSample", decompiled, "--release", "21");
+        CfrDecompilerRegressionSupport.assertMethodGenericSignaturesEquivalent(
+                tempDir,
+                "type-recovery",
+                "TargetTypingConstructorSample",
+                decompiled,
+                "createMap",
+                "indexByValue"
+        );
     }
 }

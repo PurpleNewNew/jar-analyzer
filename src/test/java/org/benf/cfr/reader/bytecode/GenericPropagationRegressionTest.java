@@ -25,5 +25,13 @@ class GenericPropagationRegressionTest {
         assertFalse(decompiled.contains("List keys ="), decompiled);
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "GenericPropagationSample", decompiled, "--release", "21");
+        CfrDecompilerRegressionSupport.assertMethodGenericSignaturesEquivalent(
+                tempDir,
+                "generic-propagation",
+                "GenericPropagationSample",
+                decompiled,
+                "withoutNulls",
+                "keys"
+        );
     }
 }

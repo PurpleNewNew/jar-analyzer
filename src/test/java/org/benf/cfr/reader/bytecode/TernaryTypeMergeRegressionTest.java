@@ -26,5 +26,13 @@ class TernaryTypeMergeRegressionTest {
         assertFalse(Pattern.compile("new ArrayList\\(\\) : new LinkedList\\(\\)").matcher(decompiled).find(), decompiled);
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "TernaryTypeMergeSample", decompiled, "--release", "21");
+        CfrDecompilerRegressionSupport.assertMethodGenericSignaturesEquivalent(
+                tempDir,
+                "type-recovery",
+                "TernaryTypeMergeSample",
+                decompiled,
+                "chooseCollection",
+                "copyInput"
+        );
     }
 }

@@ -169,20 +169,33 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         GenericTypeBinder expectedTypeBinder = getExpectedTypeBinder(expectedType);
         GenericTypeBinder argBinder = methodPrototype.getTypeBinderFor(args);
         JavaTypeInstance selectedReturnType = null;
+        String selectedSource = null;
         JavaTypeInstance expectedBoundReturnType = null;
         if (expectedTypeBinder != null) {
             expectedBoundReturnType = expectedTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, expectedBoundReturnType);
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, expectedBoundReturnType)) {
+                selectedReturnType = expectedBoundReturnType;
+                selectedSource = "expected-bound-return";
+            }
         }
         JavaTypeInstance argBoundReturnType = null;
         if (argBinder != null) {
             argBoundReturnType = argBinder.getBindingFor(methodPrototype.getReturnType());
-            selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, argBoundReturnType);
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, argBoundReturnType)) {
+                selectedReturnType = argBoundReturnType;
+                selectedSource = "arg-bound-return";
+            }
         }
         JavaTypeInstance fallbackReturnType = methodPrototype.getReturnType(clazz, args);
-        selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, fallbackReturnType);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, fallbackReturnType)) {
+            selectedReturnType = fallbackReturnType;
+            selectedSource = "fallback-return";
+        }
         JavaTypeInstance inferredReturnType = getInferredJavaType().getJavaTypeInstance();
-        selectedReturnType = ExpressionTypeHintHelper.preferResolvedType(selectedReturnType, inferredReturnType);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, inferredReturnType)) {
+            selectedReturnType = inferredReturnType;
+            selectedSource = "inferred-return";
+        }
         return new DisplayTypeResolution(
                 selectedReturnType,
                 false,
@@ -193,6 +206,7 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
                         + ", argBoundReturn=" + ExpressionTypeHintHelper.describeType(argBoundReturnType)
                         + ", fallbackReturn=" + ExpressionTypeHintHelper.describeType(fallbackReturnType)
                         + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
+                        + ", selectedSource=" + selectedSource
                         + ", selected=" + ExpressionTypeHintHelper.describeType(selectedReturnType)
         );
     }

@@ -102,6 +102,7 @@ class TypeRecoveryObservabilityTest {
                         && "StaticFunctionInvokation".equals(pass.getExpressionKind())
                         && pass.getDetail() != null
                         && pass.getDetail().contains("argBinder=")
+                        && pass.getDetail().contains("selectedSource=")
                         && pass.getDetail().contains("selected=")),
                 () -> describeTrace(trace));
         assertTrue(trace.getPasses().stream()
@@ -118,6 +119,7 @@ class TypeRecoveryObservabilityTest {
                         && pass.getDetail() != null
                         && pass.getDetail().contains("objectBinder=")
                         && pass.getDetail().contains("expectedBinder=")
+                        && pass.getDetail().contains("selectedSource=")
                         && pass.getDetail().contains("selected=")),
                 () -> describeTrace(trace));
         assertTrue(trace.getPasses().stream()

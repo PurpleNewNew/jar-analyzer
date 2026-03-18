@@ -168,23 +168,36 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         }
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
         JavaTypeInstance resolvedReturnType = null;
+        String selectedSource = null;
         JavaTypeInstance objectResolvedReturnType = null;
         if (objectType != null) {
             objectResolvedReturnType = methodPrototype.getReturnType(objectType, args);
-            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, objectResolvedReturnType);
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectResolvedReturnType)) {
+                resolvedReturnType = objectResolvedReturnType;
+                selectedSource = "object-resolved-return";
+            }
         }
         JavaTypeInstance objectBoundReturnType = null;
         if (objectTypeBinder != null) {
             objectBoundReturnType = objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, objectBoundReturnType);
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectBoundReturnType)) {
+                resolvedReturnType = objectBoundReturnType;
+                selectedSource = "object-bound-return";
+            }
         }
         JavaTypeInstance expectedBoundReturnType = null;
         if (genericTypeBinder != null) {
             expectedBoundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, expectedBoundReturnType);
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, expectedBoundReturnType)) {
+                resolvedReturnType = expectedBoundReturnType;
+                selectedSource = "expected-bound-return";
+            }
         }
         JavaTypeInstance inferredReturnType = getInferredJavaType().getJavaTypeInstance();
-        resolvedReturnType = ExpressionTypeHintHelper.preferResolvedType(resolvedReturnType, inferredReturnType);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, inferredReturnType)) {
+            resolvedReturnType = inferredReturnType;
+            selectedSource = "inferred-return";
+        }
         boolean requiresExplicitCast = resolvedReturnType != null
                 && expectedType != null
                 && !resolvedReturnType.equals(objectResolvedReturnType)
@@ -201,6 +214,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
                         + ", expectedBoundReturn=" + ExpressionTypeHintHelper.describeType(expectedBoundReturnType)
                         + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
                         + ", explicitCast=" + requiresExplicitCast
+                        + ", selectedSource=" + selectedSource
                         + ", selected=" + ExpressionTypeHintHelper.describeType(resolvedReturnType)
         );
     }
