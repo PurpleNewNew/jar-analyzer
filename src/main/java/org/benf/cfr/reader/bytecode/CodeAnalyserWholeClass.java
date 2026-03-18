@@ -104,7 +104,7 @@ public class CodeAnalyserWholeClass {
         for (Method method : classFile.getMethods()) {
             if (method.hasCodeAttribute()) {
                 Op04StructuredStatement code = method.getAnalysis();
-                Op04StructuredStatement.replaceNestedSyntheticOuterRefs(code);
+                StructuredClassTransforms.replaceNestedSyntheticOuterRefs(code);
             }
         }
     }
@@ -113,7 +113,7 @@ public class CodeAnalyserWholeClass {
         for (Method method : classFile.getMethods()) {
             if (method.hasCodeAttribute()) {
                 Op04StructuredStatement code = method.getAnalysis();
-                Op04StructuredStatement.inlineSyntheticAccessors(state, method, code);
+                StructuredClassTransforms.inlineSyntheticAccessors(state, method, code);
             }
         }
     }
@@ -156,7 +156,12 @@ public class CodeAnalyserWholeClass {
         if (classFile.isInnerClass()) {
             Set<MethodPrototype> processed = SetFactory.newSet();
             for (Method method : classFile.getConstructors()) {
-                Op04StructuredStatement.fixInnerClassConstructorSyntheticOuterArgs(classFile, method, method.getAnalysis(), processed);
+                StructuredClassTransforms.fixInnerClassConstructorSyntheticOuterArgs(
+                        classFile,
+                        method,
+                        method.getAnalysis(),
+                        processed
+                );
             }
         }
     }
@@ -165,7 +170,7 @@ public class CodeAnalyserWholeClass {
         for (Method method : classFile.getMethods()) {
             if (method.hasCodeAttribute()) {
                 Op04StructuredStatement code = method.getAnalysis();
-                Op04StructuredStatement.tidyAnonymousConstructors(code);
+                StructuredClassTransforms.tidyAnonymousConstructors(code);
                 //code.
             }
         }
@@ -255,7 +260,7 @@ public class CodeAnalyserWholeClass {
         ClassFileField classFileField = null;
         for (Method method : classFile.getConstructors()) {
             if (ConstructorUtils.isDelegating(method)) continue;
-            FieldVariable outerThis = Op04StructuredStatement.findInnerClassOuterThis(method, method.getAnalysis());
+            FieldVariable outerThis = StructuredClassTransforms.findInnerClassOuterThis(method, method.getAnalysis());
             if (outerThis == null) return;
             if (foundOuterThis == null) {
                 foundOuterThis = outerThis;
@@ -312,7 +317,7 @@ public class CodeAnalyserWholeClass {
                 prototype.setInnerOuterThis();
                 prototype.hide(0);
             }
-            Op04StructuredStatement.removeInnerClassOuterThis(method, method.getAnalysis());
+            StructuredClassTransforms.removeInnerClassOuterThis(method, method.getAnalysis());
         }
 
         String originalName = foundOuterThis.getFieldName();

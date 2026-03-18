@@ -2,6 +2,7 @@ package org.benf.cfr.reader.entities;
 
 import org.benf.cfr.reader.bytecode.CodeAnalyserWholeClass;
 import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
+import org.benf.cfr.reader.bytecode.StructuredClassTransforms;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationAnonymousInner;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
@@ -964,7 +965,7 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
             Op04StructuredStatement code = method.getAnalysis();
             if (code == null) return;
             if (options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, getClassFileVersion())) {
-                boolean isResourceRelease = Op04StructuredStatement.isTryWithResourceSynthetic(method, code);
+                boolean isResourceRelease = StructuredClassTransforms.isTryWithResourceSynthetic(method, code);
                 if (isResourceRelease) {
                     method.getAccessFlags().add(AccessFlagMethod.ACC_FAKE_END_RESOURCE);
                 }
