@@ -4,6 +4,8 @@ import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 
+import java.util.function.Supplier;
+
 public final class TypeRecoveryTracing {
     private static final ThreadLocal<TypeRecoveryTrace> ACTIVE = new ThreadLocal<TypeRecoveryTrace>();
 
@@ -34,6 +36,28 @@ public final class TypeRecoveryTracing {
                 beforeType,
                 ExpressionTypeHintHelper.describeObservedType(expression)
         );
+    }
+
+    public static JavaTypeInstance traceObservedType(StructuredPassEntry pass,
+                                                     Expression expression,
+                                                     Supplier<JavaTypeInstance> observedTypeSupplier,
+                                                     Runnable action) {
+        TypeRecoveryTrace trace = ACTIVE.get();
+        if (trace == null || pass == null || expression == null) {
+            action.run();
+            return observedTypeSupplier.get();
+        }
+        String beforeType = ExpressionTypeHintHelper.describeObservedType(expression);
+        action.run();
+        JavaTypeInstance observedType = observedTypeSupplier.get();
+        trace.record(
+                pass,
+                expression.getClass().getSimpleName(),
+                ExpressionTypeHintHelper.describeType(observedType),
+                beforeType,
+                ExpressionTypeHintHelper.describeObservedType(expression)
+        );
+        return observedType;
     }
 
     public static final class Scope implements AutoCloseable {

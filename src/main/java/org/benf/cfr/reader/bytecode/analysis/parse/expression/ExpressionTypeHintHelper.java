@@ -44,13 +44,21 @@ public final class ExpressionTypeHintHelper {
         }
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
-            staticFunctionInvokation.improveAgainstExpectedType(null);
-            return staticFunctionInvokation.getDisplayReturnType();
+            return TypeRecoveryTracing.traceObservedType(
+                    TypeRecoveryPasses.DISPLAY_TYPE_STATIC_RETURN,
+                    staticFunctionInvokation,
+                    staticFunctionInvokation::getDisplayReturnType,
+                    () -> staticFunctionInvokation.improveAgainstExpectedType(null)
+            );
         }
         if (expression instanceof MemberFunctionInvokation) {
             MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
-            memberFunctionInvokation.improveAgainstExpectedType(null);
-            return memberFunctionInvokation.getDisplayReturnType(null);
+            return TypeRecoveryTracing.traceObservedType(
+                    TypeRecoveryPasses.DISPLAY_TYPE_MEMBER_RETURN,
+                    memberFunctionInvokation,
+                    () -> memberFunctionInvokation.getDisplayReturnType(null),
+                    () -> memberFunctionInvokation.improveAgainstExpectedType(null)
+            );
         }
         if (expression instanceof AssignmentExpression) {
             return getDisplayType(((AssignmentExpression) expression).getrValue());

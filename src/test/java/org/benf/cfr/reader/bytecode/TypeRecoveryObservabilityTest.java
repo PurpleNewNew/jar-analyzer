@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -26,6 +27,8 @@ class TypeRecoveryObservabilityTest {
 
         assertFalse(passes.isEmpty());
         assertTrue(passes.stream().anyMatch(entry -> "assignment-rhs-hint".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "display-type-static-return".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "display-type-member-return".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "lambda-return-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "ternary-branch-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().allMatch(entry -> !entry.getDescriptor().allowsStructuralChange()));
@@ -78,11 +81,53 @@ class TypeRecoveryObservabilityTest {
                         && "ConstructorInvokationSimple".equals(pass.getExpressionKind())));
     }
 
+    @Test
+    void shouldCaptureDisplayTypeReturnResolutionTrace(@TempDir Path tempDir) throws Exception {
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
+                tempDir,
+                "type-recovery",
+                "DisplayTypeReturnSample",
+                "--release", "21");
+
+        ClassFile loadedClass = loadClass(classFile);
+        loadedClass.dump(new ToStringDumper());
+
+        Method method = loadedClass.getMethodByName("collect").get(0);
+        TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
+
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "display-type-static-return".equals(pass.getPass().getDescriptor().getName())
+                        && "StaticFunctionInvokation".equals(pass.getExpressionKind())
+                        && pass.getExpectedType() != null
+                        && pass.getExpectedType().contains("java.util.List")
+                        && pass.getAfterType() != null
+                        && pass.getAfterType().contains("java.util.List")),
+                () -> describeTrace(trace));
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "display-type-member-return".equals(pass.getPass().getDescriptor().getName())
+                        && "MemberFunctionInvokation".equals(pass.getExpressionKind())
+                        && pass.getExpectedType() != null
+                        && pass.getExpectedType().contains("java.util.List")
+                        && pass.getAfterType() != null
+                        && pass.getAfterType().contains("java.util.List")),
+                () -> describeTrace(trace));
+    }
+
     private static ClassFile loadClass(Path classFile) throws IOException {
         Options options = new OptionsImpl(Map.of("showversion", "false", "silent", "true"));
         ClassFileSourceImpl classFileSource = new ClassFileSourceImpl(options);
         classFileSource.informAnalysisRelativePathDetail(classFile.toString(), classFile.toString());
         DCCommonState dcCommonState = new DCCommonState(options, classFileSource);
         return dcCommonState.loadClassFileAtPath(classFile.toString());
+    }
+
+    private static String describeTrace(TypeRecoveryTrace trace) {
+        return trace.getPasses().stream()
+                .map(pass -> pass.getPass().getDescriptor().getName()
+                        + " | " + pass.getExpressionKind()
+                        + " | expected=" + pass.getExpectedType()
+                        + " | before=" + pass.getBeforeType()
+                        + " | after=" + pass.getAfterType())
+                .collect(Collectors.joining("\n"));
     }
 }
