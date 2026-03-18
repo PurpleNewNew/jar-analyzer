@@ -28,7 +28,6 @@ final class OutputPolishStage {
             StructuredOutputTransforms.removeConstructorBoilerplate(block);
         }
         StructuredOutputTransforms.removeUnnecessaryVarargArrays(block);
-        StructureRecoveryTransforms.removePrimitiveDeconversion(context.options, block);
         StructuredOutputTransforms.rewriteBadCastChains(block);
         StructuredOutputTransforms.rewriteNarrowingAssignments(block);
         StructuredSemanticTransforms.tidyVariableNames(

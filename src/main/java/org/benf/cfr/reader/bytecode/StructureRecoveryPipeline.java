@@ -71,12 +71,7 @@ final class StructureRecoveryPipeline {
                 PhaseInputRequirement.FULLY_STRUCTURED,
                 List.of(
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.RewriteForwardIfGotosPass(),
-                                new StructureRecoveryPasses.RemovePointlessBlocksPass(),
-                                new StructureRecoveryPasses.RemovePointlessControlFlowPass(),
-                                new StructureRecoveryPasses.RemovePrimitiveDeconversionPass(),
-                                new StructureRecoveryPasses.RemoveUnnecessaryLabelledBreaksPass(),
-                                new StructureRecoveryPasses.FlattenNonReferencedBlocksPass()
+                                new StructureRecoveryPasses.RemovePrimitiveDeconversionPass()
                         )
                 )
         );
@@ -202,9 +197,16 @@ final class StructureRecoveryPipeline {
                     inputRequirement.describe(),
                     before
             );
+            phaseTrace.recordInvariant(
+                    "input-requirement",
+                    true,
+                    "accepted " + inputRequirement.describe() + " with " + before
+            );
             if (maxRounds == 1) {
                 runRound(block, context, phaseTrace, 1);
-                phaseTrace.finish(StructureRecoverySnapshot.capture(block));
+                StructureRecoverySnapshot after = StructureRecoverySnapshot.capture(block);
+                verifyPhaseInvariants(phaseTrace, before, after);
+                phaseTrace.finish(after);
                 return;
             }
             runToFixedPoint(block, context, phaseTrace);
@@ -237,11 +239,13 @@ final class StructureRecoveryPipeline {
                 // A recovery round must either expose a new state or finish structuring the block; repeating a
                 // previous snapshot means later rounds in this phase will only replay the same rewrites.
                 if (next.equals(current) || !seen.add(next)) {
+                    verifyPhaseInvariants(phaseTrace, phaseTrace.getBefore(), next);
                     phaseTrace.finish(next);
                     return;
                 }
                 current = next;
             }
+            verifyPhaseInvariants(phaseTrace, phaseTrace.getBefore(), current);
             phaseTrace.finish(current);
         }
 
@@ -254,7 +258,35 @@ final class StructureRecoveryPipeline {
             for (RecoverySubphase subphase : subphases) {
                 subphase.run(block, context, phaseName, inputRequirement, roundTrace);
             }
-            roundTrace.finish(StructureRecoverySnapshot.capture(block));
+            StructureRecoverySnapshot roundAfter = StructureRecoverySnapshot.capture(block);
+            verifyRoundInvariants(roundTrace, roundBefore, roundAfter);
+            roundTrace.finish(roundAfter);
+        }
+
+        private void verifyPhaseInvariants(StructureRecoveryTrace.PhaseTrace phaseTrace,
+                                           StructureRecoverySnapshot before,
+                                           StructureRecoverySnapshot after) {
+            if ("output-polish".equals(phaseName)) {
+                boolean passed = !before.hasStructuralDelta(after);
+                phaseTrace.recordInvariant(
+                        "no-structural-delta",
+                        passed,
+                        "before=" + before + ", after=" + after
+                );
+            }
+        }
+
+        private void verifyRoundInvariants(StructureRecoveryTrace.RoundTrace roundTrace,
+                                           StructureRecoverySnapshot before,
+                                           StructureRecoverySnapshot after) {
+            if ("control-flow-recovery".equals(phaseName)) {
+                boolean passed = after.getUnstructuredStatements() <= before.getUnstructuredStatements();
+                roundTrace.recordInvariant(
+                        "unstructured-non-increasing",
+                        passed,
+                        "before=" + before.getUnstructuredStatements() + ", after=" + after.getUnstructuredStatements()
+                );
+            }
         }
     }
 

@@ -11,6 +11,7 @@ public final class StructureRecoveryTrace {
                             StructureRecoverySnapshot before,
                             String reason) {
         PhaseTrace phaseTrace = new PhaseTrace(phase, inputRequirement, before, before);
+        phaseTrace.recordInvariant("input-requirement", false, reason + " for " + inputRequirement + " with " + before);
         phaseTrace.markSkipped(reason);
         phases.add(phaseTrace);
     }
@@ -36,6 +37,7 @@ public final class StructureRecoveryTrace {
         private final String inputRequirement;
         private final StructureRecoverySnapshot before;
         private final List<RoundTrace> rounds = new ArrayList<RoundTrace>();
+        private final List<InvariantTrace> invariants = new ArrayList<InvariantTrace>();
         private StructureRecoverySnapshot after;
         private boolean skipped;
         private String skipReason;
@@ -58,6 +60,10 @@ public final class StructureRecoveryTrace {
 
         void finish(StructureRecoverySnapshot after) {
             this.after = after;
+        }
+
+        void recordInvariant(String name, boolean passed, String detail) {
+            invariants.add(new InvariantTrace(name, passed, detail));
         }
 
         void markSkipped(String reason) {
@@ -92,12 +98,17 @@ public final class StructureRecoveryTrace {
         public List<RoundTrace> getRounds() {
             return List.copyOf(rounds);
         }
+
+        public List<InvariantTrace> getInvariants() {
+            return List.copyOf(invariants);
+        }
     }
 
     public static final class RoundTrace {
         private final int round;
         private final StructureRecoverySnapshot before;
         private final List<PassTrace> passes = new ArrayList<PassTrace>();
+        private final List<InvariantTrace> invariants = new ArrayList<InvariantTrace>();
         private StructureRecoverySnapshot after;
 
         private RoundTrace(int round,
@@ -119,6 +130,10 @@ public final class StructureRecoveryTrace {
             this.after = after;
         }
 
+        void recordInvariant(String name, boolean passed, String detail) {
+            invariants.add(new InvariantTrace(name, passed, detail));
+        }
+
         public int getRound() {
             return round;
         }
@@ -133,6 +148,10 @@ public final class StructureRecoveryTrace {
 
         public List<PassTrace> getPasses() {
             return List.copyOf(passes);
+        }
+
+        public List<InvariantTrace> getInvariants() {
+            return List.copyOf(invariants);
         }
     }
 
@@ -178,6 +197,30 @@ public final class StructureRecoveryTrace {
 
         public boolean respectsStructureContract() {
             return pass.getDescriptor().allowsStructuralChange() || !hasStructuralDelta();
+        }
+    }
+
+    public static final class InvariantTrace {
+        private final String name;
+        private final boolean passed;
+        private final String detail;
+
+        private InvariantTrace(String name, boolean passed, String detail) {
+            this.name = name;
+            this.passed = passed;
+            this.detail = detail;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public boolean isPassed() {
+            return passed;
+        }
+
+        public String getDetail() {
+            return detail;
         }
     }
 }

@@ -30,7 +30,10 @@ class StructureRecoveryObservabilityTest {
 
         assertFalse(entries.isEmpty());
         assertTrue(entries.stream().anyMatch(this::isInitialCleanupCatchTidier));
-        assertTrue(entries.stream().anyMatch(this::isOutputPolishForwardGotoRewrite));
+        assertTrue(entries.stream()
+                .filter(entry -> "output-polish".equals(entry.getStage()))
+                .allMatch(entry -> !entry.getDescriptor().allowsStructuralChange()));
+        assertTrue(entries.stream().anyMatch(this::isOutputPolishPrimitiveDeconversion));
     }
 
     @Test
@@ -83,6 +86,19 @@ class StructureRecoveryObservabilityTest {
                 .flatMap(phase -> phase.getRounds().stream())
                 .flatMap(round -> round.getPasses().stream())
                 .allMatch(pass -> pass.getBefore() != null && pass.getAfter() != null));
+        assertTrue(trace.getPhases().stream()
+                .flatMap(phase -> phase.getInvariants().stream())
+                .allMatch(StructureRecoveryTrace.InvariantTrace::isPassed));
+        assertTrue(trace.getPhases().stream()
+                .filter(phase -> "control-flow-recovery".equals(phase.getPhase()))
+                .flatMap(phase -> phase.getRounds().stream())
+                .flatMap(round -> round.getInvariants().stream())
+                .filter(invariant -> "unstructured-non-increasing".equals(invariant.getName()))
+                .allMatch(StructureRecoveryTrace.InvariantTrace::isPassed));
+        assertTrue(trace.getPhases().stream()
+                .filter(phase -> "output-polish".equals(phase.getPhase()))
+                .flatMap(phase -> phase.getInvariants().stream())
+                .anyMatch(invariant -> "no-structural-delta".equals(invariant.getName()) && invariant.isPassed()));
     }
 
     private boolean isInitialCleanupCatchTidier(StructuredPassEntry entry) {
@@ -92,10 +108,10 @@ class StructureRecoveryObservabilityTest {
                 && "any-structure-state".equals(entry.getInputRequirement());
     }
 
-    private boolean isOutputPolishForwardGotoRewrite(StructuredPassEntry entry) {
+    private boolean isOutputPolishPrimitiveDeconversion(StructuredPassEntry entry) {
         return "structure-recovery".equals(entry.getCategory())
                 && "output-polish".equals(entry.getStage())
-                && "rewrite-forward-if-gotos".equals(entry.getDescriptor().getName())
+                && "remove-primitive-deconversion".equals(entry.getDescriptor().getName())
                 && "fully-structured".equals(entry.getInputRequirement());
     }
 }
