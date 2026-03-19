@@ -341,6 +341,9 @@ final class StructuredConditionLocalRecovery {
                 if (localVariable == null) {
                     continue;
                 }
+                if (promoteFirstWriteCreator(statements, idx, localVariable)) {
+                    continue;
+                }
                 int firstUse = findFirstUseIndex(statements, idx + 1, localVariable);
                 if (firstUse <= idx + 1) {
                     continue;
@@ -349,6 +352,95 @@ final class StructuredConditionLocalRecovery {
                 statements.add(firstUse - 1, moved);
             }
             return in;
+        }
+
+        private boolean promoteFirstWriteCreator(List<Op04StructuredStatement> statements,
+                                                int creatorIndex,
+                                                LocalVariable localVariable) {
+            StructuredStatement creatorStatement = statements.get(creatorIndex).getStatement();
+            if (!isPromotableDeclarationOrigin(creatorStatement, localVariable)) {
+                return false;
+            }
+            PromotableWriteSearch promoted = findFirstPromotableWrite(statements, creatorIndex + 1, localVariable);
+            if (!promoted.hasAssignment()) {
+                return false;
+            }
+            promoted.replaceWithCreator(statements, creatorIndex, localVariable);
+            return true;
+        }
+
+        private boolean isPromotableDeclarationOrigin(StructuredStatement statement, LocalVariable localVariable) {
+            if (statement instanceof StructuredDefinition) {
+                LValue lValue = ((StructuredDefinition) statement).getLvalue();
+                return lValue instanceof LocalVariable
+                        && StructuredLocalVariableRecoverySupport.matchesLateResolvedLocal(localVariable, (LocalVariable) lValue);
+            }
+            if (!(statement instanceof StructuredAssignment)) {
+                return false;
+            }
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            return assignment.isCreator(localVariable)
+                    && StructuredLocalVariableRecoverySupport.isNullLike(assignment.getRvalue());
+        }
+
+        private PromotableWriteSearch findFirstPromotableWrite(List<Op04StructuredStatement> statements,
+                                                               int start,
+                                                               LocalVariable localVariable) {
+            for (int idx = start; idx < statements.size(); ++idx) {
+                Op04StructuredStatement statementContainer = statements.get(idx);
+                StructuredStatement statement = statementContainer.getStatement();
+                if (statement instanceof StructuredComment) {
+                    continue;
+                }
+                StructuredAssignment promoted = getPromotableTopLevelWrite(statement, localVariable);
+                if (promoted != null) {
+                    return PromotableWriteSearch.assignment(statements, idx, promoted);
+                }
+                if (statement instanceof Block) {
+                    PromotableWriteSearch nested = findFirstPromotableWrite(((Block) statement).getBlockStatements(), 0, localVariable);
+                    if (nested.hasAssignment() || nested.isBlocked()) {
+                        return nested;
+                    }
+                }
+                if (StructuredLocalVariableRecoverySupport.statementAccessesLocal(statement, localVariable)
+                        || StructuredLocalVariableRecoverySupport.statementTopLevelWritesLocal(statement, localVariable)) {
+                    return PromotableWriteSearch.blocked();
+                }
+            }
+            return PromotableWriteSearch.none();
+        }
+
+        private StructuredAssignment getPromotableTopLevelWrite(StructuredStatement statement, LocalVariable localVariable) {
+            if (!(statement instanceof StructuredAssignment)) {
+                return null;
+            }
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            if (!(assignment.getLvalue() instanceof LocalVariable)) {
+                return null;
+            }
+            LocalVariable assigned = (LocalVariable) assignment.getLvalue();
+            if (!StructuredLocalVariableRecoverySupport.matchesLateResolvedLocal(localVariable, assigned)) {
+                return null;
+            }
+            if (StructuredLocalVariableRecoverySupport.expressionUsesLocal(assignment.getRvalue(), localVariable)
+                    || usesAnyLocal(assignment.getRvalue())) {
+                return null;
+            }
+            return assignment;
+        }
+
+        private boolean usesAnyLocal(Expression expression) {
+            if (expression == null) {
+                return false;
+            }
+            LValueUsageCollectorSimple collector = new LValueUsageCollectorSimple();
+            expression.collectUsedLValues(collector);
+            for (LValue used : collector.getUsedLValues()) {
+                if (used instanceof LocalVariable) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private LocalVariable getSinkableLocal(StructuredStatement statement) {
@@ -398,6 +490,57 @@ final class StructuredConditionLocalRecovery {
                 }
             }
             return false;
+        }
+
+        private static final class PromotableWriteSearch {
+            private static final PromotableWriteSearch NONE = new PromotableWriteSearch(null, -1, null, false);
+            private static final PromotableWriteSearch BLOCKED = new PromotableWriteSearch(null, -1, null, true);
+
+            private final List<Op04StructuredStatement> statements;
+            private final int index;
+            private final StructuredAssignment assignment;
+            private final boolean blocked;
+
+            private PromotableWriteSearch(List<Op04StructuredStatement> statements,
+                                          int index,
+                                          StructuredAssignment assignment,
+                                          boolean blocked) {
+                this.statements = statements;
+                this.index = index;
+                this.assignment = assignment;
+                this.blocked = blocked;
+            }
+
+            private static PromotableWriteSearch none() {
+                return NONE;
+            }
+
+            private static PromotableWriteSearch blocked() {
+                return BLOCKED;
+            }
+
+            private static PromotableWriteSearch assignment(List<Op04StructuredStatement> statements,
+                                                            int index,
+                                                            StructuredAssignment assignment) {
+                return new PromotableWriteSearch(statements, index, assignment, false);
+            }
+
+            private boolean hasAssignment() {
+                return assignment != null;
+            }
+
+            private boolean isBlocked() {
+                return blocked;
+            }
+
+            private void replaceWithCreator(List<Op04StructuredStatement> ownerStatements,
+                                            int ownerIndex,
+                                            LocalVariable localVariable) {
+                ownerStatements.set(ownerIndex, new Op04StructuredStatement(
+                        new StructuredAssignment(assignment.getCombinedLoc(), localVariable, assignment.getRvalue(), true)
+                ));
+                statements.remove(index);
+            }
         }
     }
 

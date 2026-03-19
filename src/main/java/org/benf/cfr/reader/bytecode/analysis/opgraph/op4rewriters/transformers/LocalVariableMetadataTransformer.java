@@ -7,6 +7,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpressionCommon;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -103,6 +104,11 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
 
     @Override
     public Expression rewriteExpression(Expression expression, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
+        if (expression instanceof LambdaExpressionCommon) {
+            // Lambda bodies are analysed as synthetic methods with their own LVT/LVTT.
+            // Re-applying the enclosing method's metadata here corrupts inline lambda locals.
+            return expression;
+        }
         return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
     }
 

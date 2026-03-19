@@ -3,6 +3,7 @@ package org.benf.cfr.reader.bytecode;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCall;
 import me.n1ar4.jar.analyzer.analyze.spring.asm.SpringClassVisitor;
 import me.n1ar4.jar.analyzer.core.CallGraphPlan;
+import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.JspCompileRunner;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
@@ -23,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SelfDecompileRegressionTest {
     @Test
-    void shouldKeepJarAnalyzerCfrEngineStructured() throws IOException {
+    void shouldKeepJarAnalyzerCfrEngineStructured(@TempDir Path tempDir) throws IOException {
         String decompiled = CfrDecompilerRegressionSupport.decompileJava(
                 CfrDecompilerRegressionSupport.locateClassFile(CFRDecompileEngine.class));
 
@@ -39,10 +40,23 @@ class SelfDecompileRegressionTest {
         assertTrue(decompiled.contains("new BuildScopedLru<String, String>("), decompiled);
         assertTrue(decompiled.contains("new LinkedHashMap<Path, List<String>>()"), decompiled);
         assertTrue(decompiled.contains("new ArrayList<String>()"), decompiled);
+        assertTrue(decompiled.contains("SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled)obj;"), decompiled);
+        assertTrue(decompiled.contains("int[] failures = new int[]{0};"), decompiled);
+        assertTrue(decompiled.contains("IOException[] first = new IOException[]{null};"), decompiled);
         assertFalse(decompiled.contains("Stream<Path> name ="), decompiled);
+        assertFalse(decompiled.contains("Sink<Object>"), decompiled);
         assertFalse(decompiled.contains("new BuildScopedLru<K, V>("), decompiled);
         assertFalse(decompiled.contains("new LinkedHashMap<Path, List>("), decompiled);
         assertFalse(decompiled.contains("new ArrayList<E>()"), decompiled);
+        assertFalse(decompiled.contains("OutputSinkFactory.SinkClass decompiled ="), decompiled);
+        assertFalse(decompiled.contains("int[] failures = null;"), decompiled);
+        assertFalse(decompiled.contains("IOException[] first = null;"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "CFRDecompileEngine",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
     }
 
     @Test
@@ -66,6 +80,8 @@ class SelfDecompileRegressionTest {
         assertTrue(decompiled.contains("ClassLookupService.findClassInternal("), decompiled);
         assertTrue(decompiled.contains("return new LookupResult(data, path.toString(), null, path.toString());"), decompiled);
         assertFalse(decompiled.contains("byte[] external = BytecodeCache.read(path);"), decompiled);
+        assertFalse(decompiled.contains("LookupResult lookupResult = result;"), decompiled);
+        assertFalse(decompiled.contains("InputStream inputStream = zipFile.getInputStream(entry);"), decompiled);
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "ClassLookupService",
@@ -223,6 +239,22 @@ class SelfDecompileRegressionTest {
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "AliasRuleSupport",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
+    void shouldKeepJarAnalyzerCoreRunnerSnapshotTypedWithinLambda(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                CfrDecompilerRegressionSupport.locateClassFile(CoreRunner.class));
+
+        assertStructured(decompiled);
+        assertTrue(decompiled.contains("ProjectRuntimeSnapshot snapshot = DatabaseManager.buildProjectRuntimeSnapshot("), decompiled);
+        assertFalse(decompiled.contains("int snapshot = (int)DatabaseManager.buildProjectRuntimeSnapshot("), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "CoreRunner",
                 decompiled,
                 "-classpath",
                 System.getProperty("java.class.path"));

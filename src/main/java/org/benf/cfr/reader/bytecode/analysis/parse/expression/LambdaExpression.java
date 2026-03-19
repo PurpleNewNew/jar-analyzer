@@ -20,8 +20,10 @@ import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredSta
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionStatement;
 import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaWildcardTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.ClassFile;
@@ -136,6 +138,7 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
     }
 
     public void improveResultType(JavaTypeInstance expectedFunctionalType) {
+        harmonizeFunctionalType(expectedFunctionalType);
         List<JavaTypeInstance> expectedArgTypes = getExpectedArgTypes(expectedFunctionalType);
         if (expectedArgTypes != null) {
             setExplicitArgTypes(expectedArgTypes);
@@ -161,6 +164,83 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
             return;
         }
         ExpressionTypeHintHelper.improveExpressionType(resultExpression, expectedReturnType, TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT);
+    }
+
+    private void harmonizeFunctionalType(JavaTypeInstance expectedFunctionalType) {
+        JavaTypeInstance normalizedExpectedType = ExpressionTypeHintHelper.normalizeExpectedType(expectedFunctionalType);
+        if (normalizedExpectedType == null) {
+            return;
+        }
+        JavaTypeInstance currentType = getInferredJavaType().getJavaTypeInstance();
+        if (!shouldPreferFunctionalTargetType(currentType, normalizedExpectedType)) {
+            return;
+        }
+        getInferredJavaType().forceType(normalizedExpectedType, true);
+    }
+
+    private boolean shouldPreferFunctionalTargetType(JavaTypeInstance currentType, JavaTypeInstance expectedType) {
+        if (expectedType == null || currentType != null && currentType.equals(expectedType)) {
+            return false;
+        }
+        if (currentType == null) {
+            return true;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance expectedBaseType = expectedType.getDeGenerifiedType();
+        if (!currentBaseType.equals(expectedBaseType)) {
+            return ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, expectedType);
+        }
+        if (!(expectedType instanceof JavaGenericBaseInstance)) {
+            return ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, expectedType);
+        }
+        if (!(currentType instanceof JavaGenericBaseInstance)) {
+            return true;
+        }
+        boolean currentErased = hasErasedFunctionalGeneric(currentType);
+        boolean expectedErased = hasErasedFunctionalGeneric(expectedType);
+        if (currentErased && !expectedErased) {
+            return true;
+        }
+        if (!currentErased && expectedErased) {
+            return false;
+        }
+        if (containsGenericPlaceholder(expectedType) && !containsGenericPlaceholder(currentType)) {
+            return currentErased || ((JavaGenericBaseInstance) currentType).hasUnbound();
+        }
+        return ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, expectedType);
+    }
+
+    private boolean hasErasedFunctionalGeneric(JavaTypeInstance type) {
+        if (!(type instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        JavaGenericBaseInstance genericType = (JavaGenericBaseInstance) type;
+        if (genericType.hasUnbound() || genericType.hasL01Wildcard()) {
+            return true;
+        }
+        for (JavaTypeInstance parameterType : genericType.getGenericTypes()) {
+            if (parameterType == TypeConstants.OBJECT
+                    || parameterType instanceof JavaWildcardTypeInstance
+                    || hasErasedFunctionalGeneric(parameterType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsGenericPlaceholder(JavaTypeInstance type) {
+        if (type instanceof JavaGenericPlaceholderTypeInstance) {
+            return true;
+        }
+        if (!(type instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        for (JavaTypeInstance parameterType : ((JavaGenericBaseInstance) type).getGenericTypes()) {
+            if (containsGenericPlaceholder(parameterType)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<JavaTypeInstance> getExpectedArgTypes(JavaTypeInstance expectedFunctionalType) {
