@@ -34,14 +34,6 @@ final class StructuredConditionLocalRecovery {
         root.transform(new ConditionLocalAliasCleaner(), new StructuredScope());
     }
 
-    static void restoreLiftableDefinitionAssignments(Op04StructuredStatement root) {
-        StructuredConditionLocalRecoveryPasses.restoreLiftableDefinitionAssignments(root);
-    }
-
-    static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
-        StructuredConditionLocalRecoveryPasses.sinkDefinitionsToFirstUse(root);
-    }
-
     private static class ConditionLocalAliasCleaner implements StructuredStatementTransformer {
         @Override
         public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {

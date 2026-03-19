@@ -27,7 +27,7 @@ public final class StructuredLocalVariableRecovery {
     }
 
     public static void restoreLiftableDefinitionAssignments(Op04StructuredStatement root) {
-        StructuredConditionLocalRecovery.restoreLiftableDefinitionAssignments(root);
+        StructuredConditionLocalRecoveryPasses.restoreLiftableDefinitionAssignments(root);
     }
 
     public static void restoreCreatorDependencyOrder(Op04StructuredStatement root) {
@@ -47,7 +47,7 @@ public final class StructuredLocalVariableRecovery {
     }
 
     public static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
-        StructuredConditionLocalRecovery.sinkDefinitionsToFirstUse(root);
+        StructuredConditionLocalRecoveryPasses.sinkDefinitionsToFirstUse(root);
     }
 
     private static StructuredPassEntry entry(String name,

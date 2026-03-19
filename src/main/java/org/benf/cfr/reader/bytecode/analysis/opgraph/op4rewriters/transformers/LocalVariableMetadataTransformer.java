@@ -369,11 +369,6 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (!(rawStatement instanceof StructuredStatement)) return;
         StructuredStatement stm = (StructuredStatement) rawStatement;
 
-        if (stm instanceof StructuredCatch) {
-            handleCatchStatement((StructuredCatch) stm);
-            return;
-        }
-
         if (variableAnnotations.isEmpty() && localVariableTypeEntries.isEmpty() && localVariableEntries.isEmpty()) return;
         List<LValue> createdHere = stm.findCreatedHere();
         if (createdHere == null || createdHere.isEmpty()) return;
@@ -400,11 +395,6 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             }
             TypeAnnotationHelper.apply(annotatedTypeInstance, entries, comments);
         }
-    }
-
-    private void handleCatchStatement(StructuredCatch stm) {
-        // Need to link our catch back to the ORIGINAL catch index.
-        // TODO : NYI - we need to link up.
     }
 
     private static class OrderLocalVariableTypes implements Comparator<LocalVariableTypeEntry> {
