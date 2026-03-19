@@ -95,14 +95,6 @@ public class ConfigEngine {
             Properties properties = new Properties();
             properties.load(new ByteArrayInputStream(Files.readAllBytes(configPath)));
             ConfigFile obj = new ConfigFile();
-            obj.setDbPath(properties.getProperty("db-path"));
-            obj.setDbSize(properties.getProperty("db-size"));
-            obj.setJarPath(properties.getProperty("jar-path"));
-            obj.setTempPath(properties.getProperty("temp-path"));
-            obj.setTotalClass(properties.getProperty("total-class"));
-            obj.setTotalJar(properties.getProperty("total-jar"));
-            obj.setTotalMethod(properties.getProperty("total-method"));
-            obj.setTotalEdge(properties.getProperty("total-edge"));
             obj.setLang(properties.getProperty("lang"));
             obj.setTheme(properties.getProperty("theme"));
             obj.setStripeShowNames(getBool(properties, "stripe-show-names", false));
@@ -153,15 +145,6 @@ public class ConfigEngine {
             Path configPath = Paths.get(CONFIG_FILE_PATH);
             Properties properties = new Properties();
 
-            // Core paths/metrics (optional; allow saving partial configs, e.g. MCP-only).
-            setIfPresent(properties, "db-path", configFile.getDbPath());
-            setIfPresent(properties, "db-size", configFile.getDbSize());
-            setIfPresent(properties, "jar-path", configFile.getJarPath());
-            setIfPresent(properties, "temp-path", configFile.getTempPath());
-            setIfPresent(properties, "total-class", configFile.getTotalClass());
-            setIfPresent(properties, "total-jar", configFile.getTotalJar());
-            setIfPresent(properties, "total-method", configFile.getTotalMethod());
-            setIfPresent(properties, "total-edge", configFile.getTotalEdge());
             setIfPresent(properties, "lang", configFile.getLang());
             setIfPresent(properties, "theme", configFile.getTheme() == null ? "default" : configFile.getTheme());
             properties.setProperty("stripe-show-names", String.valueOf(configFile.isStripeShowNames()));

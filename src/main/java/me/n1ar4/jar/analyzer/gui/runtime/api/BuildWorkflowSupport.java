@@ -1,7 +1,5 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
-import me.n1ar4.jar.analyzer.config.ConfigEngine;
-import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
@@ -10,12 +8,10 @@ import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRoot;
 import me.n1ar4.jar.analyzer.engine.project.ProjectRootKind;
-import me.n1ar4.jar.analyzer.gui.GlobalOptions;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectGraphStoreFacade;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
-import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.utils.BuildToolClasspathResolver;
 import me.n1ar4.log.LogManager;
 import me.n1ar4.log.Logger;
@@ -165,25 +161,6 @@ final class BuildWorkflowSupport {
                     taintPropagationMode
             ));
         }
-    }
-
-    void saveBuildConfig(String jarPath, CoreRunner.BuildResult result, int language) {
-        ConfigFile cfg = ConfigEngine.parseConfig();
-        if (cfg == null) {
-            cfg = new ConfigFile();
-        }
-        cfg.setJarPath(jarPath);
-        Path projectStore = services.projectStore()
-                .resolveProjectHome(ActiveProjectContext.getActiveProjectKey());
-        cfg.setDbPath(projectStore.toString());
-        cfg.setTempPath(Const.tempDir);
-        cfg.setTotalJar(String.valueOf(result.getJarCount()));
-        cfg.setTotalClass(String.valueOf(result.getClassCount()));
-        cfg.setTotalMethod(String.valueOf(result.getMethodCount()));
-        cfg.setTotalEdge(String.valueOf(result.getEdgeCount()));
-        cfg.setDbSize(result.getDbSizeLabel());
-        cfg.setLang(language == GlobalOptions.ENGLISH ? "en" : "zh");
-        ConfigEngine.saveConfig(cfg);
     }
 
     String resolveCurrentEdgeCount() {

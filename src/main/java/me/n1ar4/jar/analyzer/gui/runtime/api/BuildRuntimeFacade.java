@@ -142,9 +142,6 @@ final class BuildRuntimeFacade implements BuildFacade {
                 state.setDatabaseSize(result.getDbSizeLabel());
                 state.setBuildProgress(100);
                 state.setBuildStatusText(tr("构建完成", "build finished"));
-                buildWorkflow.saveBuildConfig((inputResolution.selectedInputPath() == null
-                        ? settings.activeInputPath()
-                        : inputResolution.selectedInputPath().toString()), result, state.language());
             } catch (OutOfMemoryError oom) {
                 handleOutOfMemory(oom);
             } catch (Throwable ex) {
