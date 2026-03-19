@@ -10,5 +10,7 @@ public interface AnalysisResult {
     DecompilerComments getComments();
     AnonymousClassUsage getAnonymousClassUsage();
     StructureRecoveryTrace getStructureRecoveryTrace();
+    VariableRecoveryTrace getVariableRecoveryTrace();
     TypeRecoveryTrace getTypeRecoveryTrace();
+    MethodDecompileRecord getMethodDecompileRecord();
 }

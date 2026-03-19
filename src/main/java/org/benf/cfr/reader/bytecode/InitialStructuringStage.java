@@ -1,9 +1,6 @@
 package org.benf.cfr.reader.bytecode;
 
-import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03SimpleStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-
-import java.util.List;
 
 final class InitialStructuringStage {
     private final StructureRecoveryPipeline structureRecoveryPipeline;
@@ -12,9 +9,7 @@ final class InitialStructuringStage {
         this.structureRecoveryPipeline = structureRecoveryPipeline;
     }
 
-    Op04StructuredStatement build(List<Op03SimpleStatement> op03SimpleParseNodes, MethodAnalysisContext context) {
-        Op04StructuredStatement block = Op03SimpleStatement.createInitialStructuredBlock(op03SimpleParseNodes);
+    void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
         structureRecoveryPipeline.applyInitialCleanup(block, context);
-        return block;
     }
 }

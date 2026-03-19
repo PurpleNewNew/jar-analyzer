@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,10 +47,13 @@ class StructureRecoveryObservabilityTest {
                         && "output-polish.validation-and-metadata".equals(entry.getStage())));
         assertTrue(StructuredLocalVariableRecovery.describePasses().stream()
                 .anyMatch(entry -> "restore-creators-before-first-use".equals(entry.getDescriptor().getName())
-                        && "modern-semantics.local-recovery".equals(entry.getStage())));
-        assertTrue(StructuredSemanticTransforms.describePasses().stream()
+                        && "variable-recovery".equals(entry.getStage())));
+        assertTrue(VariableRecoveryPasses.describePasses().stream()
+                .anyMatch(entry -> "discover-variable-scopes".equals(entry.getDescriptor().getName())
+                        && "variable-preparation".equals(entry.getStage())));
+        assertTrue(VariableRecoveryPasses.describePasses().stream()
                 .anyMatch(entry -> "reduce-clash-declarations".equals(entry.getDescriptor().getName())
-                        && "modern-semantics.local-recovery".equals(entry.getStage())));
+                        && "variable-recovery".equals(entry.getStage())));
         assertTrue(StructuredPatternTransforms.describePasses().stream()
                 .anyMatch(entry -> "normalize-instanceof".equals(entry.getDescriptor().getName())
                         && "pattern-semantics.normalize".equals(entry.getStage())));
@@ -83,12 +87,33 @@ class StructureRecoveryObservabilityTest {
 
         AnalysisResult analysisResult = method.getAnalysisResult();
         StructureRecoveryTrace trace = analysisResult.getStructureRecoveryTrace();
+        VariableRecoveryTrace variableTrace = analysisResult.getVariableRecoveryTrace();
+        MethodDecompileRecord record = analysisResult.getMethodDecompileRecord();
 
         assertNotNull(trace);
+        assertNotNull(variableTrace);
+        assertNotNull(record);
         assertFalse(trace.getPhases().isEmpty());
+        assertEquals(
+                List.of("initial-structuring", "control-flow-recovery", "variable-preparation", "modern-semantics", "variable-recovery", "output-stage"),
+                record.getStages().stream().map(MethodDecompileRecord.StageRecord::getStage).toList()
+        );
+        assertTrue(record.getStages().stream()
+                .filter(stage -> "variable-preparation".equals(stage.getStage()))
+                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()));
+        assertTrue(record.getStages().stream()
+                .filter(stage -> "modern-semantics".equals(stage.getStage()))
+                .allMatch(stage -> stage.getAfterVariablePassCount() == stage.getBeforeVariablePassCount()));
+        assertTrue(record.getStages().stream()
+                .filter(stage -> "variable-recovery".equals(stage.getStage()))
+                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "initial-cleanup".equals(phase.getPhase()) && !phase.isSkipped()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "pattern-semantics.normalize".equals(phase.getPhase())));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "analysis-checks".equals(phase.getPhase())));
+        assertTrue(variableTrace.getPasses().stream()
+                .anyMatch(pass -> "discover-variable-scopes".equals(pass.getPass().getDescriptor().getName())));
+        assertTrue(variableTrace.getPasses().stream()
+                .anyMatch(pass -> "restore-liftable-definition-assignments".equals(pass.getPass().getDescriptor().getName())));
         assertTrue(trace.getPhases().stream()
                 .flatMap(phase -> phase.getRounds().stream())
                 .flatMap(round -> round.getPasses().stream())

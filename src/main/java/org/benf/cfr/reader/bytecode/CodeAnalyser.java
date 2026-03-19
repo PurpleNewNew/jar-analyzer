@@ -282,7 +282,7 @@ public class CodeAnalyser {
         );
         Op04StructuredStatement block;
         try (TypeRecoveryTracing.Scope ignored = TypeRecoveryTracing.activate(analysisContext.typeRecoveryTrace)) {
-            block = new StructuredAnalysisPipeline(analysisContext).analyse(pipelineState.op03SimpleParseNodes, analysisContext);
+            block = new MethodDecompilePipeline(analysisContext).analyse(pipelineState.op03SimpleParseNodes, analysisContext);
 
             // Only check for type clashes on first pass.
             if (passIdx == 0) {
@@ -297,7 +297,9 @@ public class CodeAnalyser {
                 block,
                 pipelineState.anonymousClassUsage,
                 analysisContext.structureRecoveryTrace,
-                analysisContext.typeRecoveryTrace
+                analysisContext.variableRecoveryTrace,
+                analysisContext.typeRecoveryTrace,
+                analysisContext.methodDecompileRecord
         );
     }
 

@@ -29,7 +29,9 @@ final class MethodAnalysisContext {
     final BlockIdentifierFactory blockIdentifierFactory;
     final ModernFeatureStrategy modernFeatures;
     final StructureRecoveryTrace structureRecoveryTrace;
+    final VariableRecoveryTrace variableRecoveryTrace;
     final TypeRecoveryTrace typeRecoveryTrace;
+    final MethodDecompileRecord methodDecompileRecord;
 
     MethodAnalysisContext(DCCommonState commonState,
                           Options options,
@@ -61,7 +63,9 @@ final class MethodAnalysisContext {
                 blockIdentifierFactory,
                 modernFeatures,
                 new StructureRecoveryTrace(),
-                new TypeRecoveryTrace()
+                new VariableRecoveryTrace(),
+                new TypeRecoveryTrace(),
+                new MethodDecompileRecord()
         );
     }
 
@@ -80,7 +84,9 @@ final class MethodAnalysisContext {
                           BlockIdentifierFactory blockIdentifierFactory,
                           ModernFeatureStrategy modernFeatures,
                           StructureRecoveryTrace structureRecoveryTrace,
-                          TypeRecoveryTrace typeRecoveryTrace) {
+                          VariableRecoveryTrace variableRecoveryTrace,
+                          TypeRecoveryTrace typeRecoveryTrace,
+                          MethodDecompileRecord methodDecompileRecord) {
         this.commonState = commonState;
         this.options = options;
         this.method = method;
@@ -96,6 +102,8 @@ final class MethodAnalysisContext {
         this.blockIdentifierFactory = blockIdentifierFactory;
         this.modernFeatures = modernFeatures;
         this.structureRecoveryTrace = structureRecoveryTrace;
+        this.variableRecoveryTrace = variableRecoveryTrace;
         this.typeRecoveryTrace = typeRecoveryTrace;
+        this.methodDecompileRecord = methodDecompileRecord;
     }
 }

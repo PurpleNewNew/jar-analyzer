@@ -46,7 +46,17 @@ public class AnalysisResultFromException implements AnalysisResult {
     }
 
     @Override
+    public VariableRecoveryTrace getVariableRecoveryTrace() {
+        return VariableRecoveryTrace.empty();
+    }
+
+    @Override
     public TypeRecoveryTrace getTypeRecoveryTrace() {
         return TypeRecoveryTrace.empty();
+    }
+
+    @Override
+    public MethodDecompileRecord getMethodDecompileRecord() {
+        return MethodDecompileRecord.empty();
     }
 }

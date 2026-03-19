@@ -2,6 +2,7 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
 import org.benf.cfr.reader.bytecode.StructuredPassDescriptor;
 import org.benf.cfr.reader.bytecode.StructuredPassEntry;
+import org.benf.cfr.reader.bytecode.VariableRecoveryPasses;
 
 import java.util.List;
 
@@ -12,12 +13,12 @@ public final class StructuredLocalVariableRecovery {
     public static List<StructuredPassEntry> describePasses() {
         return List.of(
                 entry("rewrite-condition-local-aliases", "structure-recovery", "any-structure-state", "Normalizes condition-local aliases before structure cleanup.", true, true),
-                entry("restore-liftable-definition-assignments", "modern-semantics", "fully-structured", "Lifts definition assignments back to the declaration/use boundary.", true, true),
-                entry("restore-creator-dependency-order", "modern-semantics.local-recovery", "fully-structured", "Restores creator ordering when constructor dependencies were emitted out of order.", true, true),
-                entry("restore-creators-before-first-use", "modern-semantics.local-recovery", "fully-structured", "Moves creator assignments back before the first semantic use.", true, true),
-                entry("restore-trailing-creator-assignments", "modern-semantics.local-recovery", "fully-structured", "Pulls trailing creator assignments back into the declaration region.", true, true),
-                entry("restore-prefix-embedded-assignments", "modern-semantics.local-recovery", "fully-structured", "Extracts embedded assignments that should be standalone prefix statements.", true, true),
-                entry("sink-definitions-to-first-use", "modern-semantics.local-recovery", "fully-structured", "Sinks definition scaffolding to the first real use site during semantic recovery.", true, true)
+                VariableRecoveryPasses.RESTORE_LIFTABLE_DEFINITION_ASSIGNMENTS,
+                VariableRecoveryPasses.RESTORE_CREATOR_DEPENDENCY_ORDER,
+                VariableRecoveryPasses.RESTORE_CREATORS_BEFORE_FIRST_USE,
+                VariableRecoveryPasses.RESTORE_TRAILING_CREATOR_ASSIGNMENTS,
+                VariableRecoveryPasses.RESTORE_PREFIX_EMBEDDED_ASSIGNMENTS,
+                VariableRecoveryPasses.SINK_DEFINITIONS_TO_FIRST_USE
         );
     }
 

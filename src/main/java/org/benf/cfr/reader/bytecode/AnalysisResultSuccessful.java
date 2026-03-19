@@ -9,7 +9,9 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     private final Op04StructuredStatement code;
     private final AnonymousClassUsage anonymousClassUsage;
     private final StructureRecoveryTrace structureRecoveryTrace;
+    private final VariableRecoveryTrace variableRecoveryTrace;
     private final TypeRecoveryTrace typeRecoveryTrace;
+    private final MethodDecompileRecord methodDecompileRecord;
     private final boolean failed;
     private final boolean exception;
 
@@ -17,12 +19,16 @@ public class AnalysisResultSuccessful implements AnalysisResult {
                              Op04StructuredStatement code,
                              AnonymousClassUsage anonymousClassUsage,
                              StructureRecoveryTrace structureRecoveryTrace,
-                             TypeRecoveryTrace typeRecoveryTrace) {
+                             VariableRecoveryTrace variableRecoveryTrace,
+                             TypeRecoveryTrace typeRecoveryTrace,
+                             MethodDecompileRecord methodDecompileRecord) {
         this.anonymousClassUsage = anonymousClassUsage;
         this.comments = comments;
         this.code = code;
         this.structureRecoveryTrace = structureRecoveryTrace;
+        this.variableRecoveryTrace = variableRecoveryTrace;
         this.typeRecoveryTrace = typeRecoveryTrace;
+        this.methodDecompileRecord = methodDecompileRecord;
         boolean failed = false;
         boolean exception = false;
         for (DecompilerComment comment : comments.getCommentCollection()) {
@@ -68,7 +74,17 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     }
 
     @Override
+    public VariableRecoveryTrace getVariableRecoveryTrace() {
+        return variableRecoveryTrace;
+    }
+
+    @Override
     public TypeRecoveryTrace getTypeRecoveryTrace() {
         return typeRecoveryTrace;
+    }
+
+    @Override
+    public MethodDecompileRecord getMethodDecompileRecord() {
+        return methodDecompileRecord;
     }
 }

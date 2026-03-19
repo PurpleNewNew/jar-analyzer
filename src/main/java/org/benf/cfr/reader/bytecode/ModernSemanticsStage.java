@@ -1,7 +1,6 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredLocalVariableRecovery;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 final class ModernSemanticsStage {
@@ -19,14 +18,6 @@ final class ModernSemanticsStage {
             return;
         }
         StructuredSemanticTransforms.rewriteExplicitTypeUsages(block, context.anonymousClassUsage, context.modernFeatures);
-        StructuredSemanticTransforms.discoverVariableScopes(
-                context.method,
-                block,
-                context.variableFactory,
-                context.options,
-                context.classFileVersion,
-                context.bytecodeMeta
-        );
         if (context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion)) {
             StructuredSemanticTransforms.removeEndResource(context.classFile, block);
         }
@@ -41,15 +32,6 @@ final class ModernSemanticsStage {
         }
         structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
         StructuredSemanticTransforms.rewriteLambdas(context.commonState, context.method, block);
-        StructuredSemanticTransforms.markLambdaCapturedVariables(block);
         StructuredSemanticTransforms.removeRedundantIntersectionCasts(block);
-        StructuredLocalVariableRecovery.restoreLiftableDefinitionAssignments(block);
-        StructuredLocalVariableRecovery.sinkDefinitionsToFirstUse(block);
-        StructuredLocalVariableRecovery.restoreCreatorDependencyOrder(block);
-        StructuredLocalVariableRecovery.restoreCreatorsBeforeFirstUse(block);
-        StructuredLocalVariableRecovery.restoreTrailingCreatorAssignments(block);
-        StructuredLocalVariableRecovery.restorePrefixEmbeddedAssignments(block);
-        StructuredSemanticTransforms.reduceClashDeclarations(block, context.bytecodeMeta);
-        StructuredSemanticTransforms.discoverLocalClassScopes(context.method, block, context.variableFactory, context.options);
     }
 }
