@@ -12,9 +12,6 @@ import org.benf.cfr.reader.util.collections.ListFactory;
 import java.util.List;
 
 final class TypeConstraintStage {
-    private static final String PHASE = "type-constraint";
-    private static final String INPUT_REQUIREMENT = "fully-structured";
-
     void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
         if (!block.isFullyStructured()) {
             return;
@@ -56,13 +53,5 @@ final class TypeConstraintStage {
 
     private String describeLocal(LocalVariable localVariable) {
         return localVariable.getName().getStringName();
-    }
-
-    static String phaseName() {
-        return PHASE;
-    }
-
-    static String inputRequirement() {
-        return INPUT_REQUIREMENT;
     }
 }

@@ -70,12 +70,10 @@ public class StructuredStatementExpression extends AbstractExpression {
 
     @Override
     public void collectUsedLValues(LValueUsageCollector lValueUsageCollector) {
-        // Fugly.  TODO: Fix interface.
+        // Structured statement expressions only participate in local-scope discovery.
         if (lValueUsageCollector instanceof LValueScopeDiscoverer) {
             LValueScopeDiscoverer scopeDiscoverer = (LValueScopeDiscoverer) lValueUsageCollector;
-//            scopeDiscoverer.enterBlock(content);
             content.traceLocalVariableScope(scopeDiscoverer);
-//            scopeDiscoverer.leaveBlock(content);
         }
     }
 

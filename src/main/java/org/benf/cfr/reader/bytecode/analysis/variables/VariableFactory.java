@@ -76,8 +76,9 @@ public class VariableFactory {
 
         LValue tmp = new LocalVariable(stackPosition, ident, variableNamer, origCodeRawOffset,
                 clashes.contains(stackPosition)
-                // TODO : This is a hack disabling explicit clashes, to avoid breaking Tower. (see tests)
-                // However, it will need to be fixed to deal with bug #87
+                // TODO[algorithm]: This still disables explicit clashes for untyped args to avoid breaking
+                // Tower-style cases. Replace it with a proper synthetic-arg/clash deduction so bug #87 no
+                // longer needs a local exception here.
                 && typedArgs.get(stackPosition) == null,
                 varType);
         LValue val = cache.get(tmp);

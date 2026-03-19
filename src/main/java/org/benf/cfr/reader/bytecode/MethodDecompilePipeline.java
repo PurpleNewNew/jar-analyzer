@@ -13,6 +13,7 @@ final class MethodDecompilePipeline {
     private static final String CONTROL_FLOW_INPUT = "any-structure-state";
     private static final String VARIABLE_PREPARATION_STAGE = "variable-preparation";
     private static final String MODERN_SEMANTICS_STAGE = "modern-semantics";
+    private static final String VARIABLE_RECOVERY_STAGE = "variable-recovery";
     private static final String TYPE_CONSTRAINT_STAGE = "type-constraint";
     private static final String FULLY_STRUCTURED_INPUT = "fully-structured";
     private static final String OUTPUT_STAGE = "output-stage";
@@ -52,13 +53,13 @@ final class MethodDecompilePipeline {
                 modernSemanticsStage.apply(block, context);
             }
         };
-        this.variableRecoveryMethodStage = new MethodStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement()) {
+        this.variableRecoveryMethodStage = new MethodStage(VARIABLE_RECOVERY_STAGE, FULLY_STRUCTURED_INPUT) {
             @Override
             void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
                 variableRecoveryStage.apply(block, context);
             }
         };
-        this.typeConstraintMethodStage = new MethodStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement()) {
+        this.typeConstraintMethodStage = new MethodStage(TYPE_CONSTRAINT_STAGE, FULLY_STRUCTURED_INPUT) {
             @Override
             void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
                 typeConstraintStage.apply(block, context);

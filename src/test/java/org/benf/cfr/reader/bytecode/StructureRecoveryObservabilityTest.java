@@ -1,6 +1,5 @@
 package org.benf.cfr.reader.bytecode;
 
-import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredLocalVariableRecovery;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.state.ClassFileSourceImpl;
@@ -31,6 +30,9 @@ class StructureRecoveryObservabilityTest {
 
         assertFalse(entries.isEmpty());
         assertTrue(entries.stream().anyMatch(this::isInitialCleanupCatchTidier));
+        assertTrue(entries.stream().anyMatch(entry -> "structure-recovery".equals(entry.getCategory())
+                && "control-flow-recovery".equals(entry.getStage())
+                && "rewrite-condition-local-aliases".equals(entry.getDescriptor().getName())));
         assertTrue(entries.stream()
                 .filter(entry -> "output-polish".equals(entry.getStage()))
                 .allMatch(entry -> !entry.getDescriptor().allowsStructuralChange()));
@@ -45,12 +47,12 @@ class StructureRecoveryObservabilityTest {
         assertTrue(StructuredOutputTransforms.describePasses().stream()
                 .anyMatch(entry -> "apply-checker".equals(entry.getDescriptor().getName())
                         && "output-polish.validation-and-metadata".equals(entry.getStage())));
-        assertTrue(StructuredLocalVariableRecovery.describePasses().stream()
-                .anyMatch(entry -> "restore-creators-before-first-use".equals(entry.getDescriptor().getName())
-                        && "variable-recovery".equals(entry.getStage())));
         assertTrue(VariableRecoveryPasses.describePasses().stream()
                 .anyMatch(entry -> "discover-variable-scopes".equals(entry.getDescriptor().getName())
                         && "variable-preparation".equals(entry.getStage())));
+        assertTrue(VariableRecoveryPasses.describePasses().stream()
+                .anyMatch(entry -> "restore-creators-before-first-use".equals(entry.getDescriptor().getName())
+                        && "variable-recovery".equals(entry.getStage())));
         assertTrue(VariableRecoveryPasses.describePasses().stream()
                 .anyMatch(entry -> "reduce-clash-declarations".equals(entry.getDescriptor().getName())
                         && "variable-recovery".equals(entry.getStage())));

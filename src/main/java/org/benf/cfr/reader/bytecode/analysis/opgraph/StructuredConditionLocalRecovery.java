@@ -26,11 +26,11 @@ import org.benf.cfr.reader.util.collections.ListFactory;
 
 import java.util.List;
 
-final class StructuredConditionLocalRecovery {
+public final class StructuredConditionLocalRecovery {
     private StructuredConditionLocalRecovery() {
     }
 
-    static void rewriteConditionLocalAliases(Op04StructuredStatement root) {
+    public static void rewriteConditionLocalAliases(Op04StructuredStatement root) {
         root.transform(new ConditionLocalAliasCleaner(), new StructuredScope());
     }
 

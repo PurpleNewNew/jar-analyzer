@@ -27,15 +27,15 @@ import org.benf.cfr.reader.util.collections.ListFactory;
 import java.util.List;
 import java.util.Objects;
 
-final class StructuredEmbeddedAssignmentRecovery {
+public final class StructuredEmbeddedAssignmentRecovery {
     private StructuredEmbeddedAssignmentRecovery() {
     }
 
-    static void restoreTrailingCreatorAssignments(Op04StructuredStatement root) {
+    public static void restoreTrailingCreatorAssignments(Op04StructuredStatement root) {
         root.transform(new TrailingCreatorAssignmentRestorer(), new StructuredScope());
     }
 
-    static void restorePrefixEmbeddedAssignments(Op04StructuredStatement root) {
+    public static void restorePrefixEmbeddedAssignments(Op04StructuredStatement root) {
         root.transform(new PrefixEmbeddedAssignmentRestorer(), new StructuredScope());
     }
 

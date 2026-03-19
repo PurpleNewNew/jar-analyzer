@@ -1,7 +1,7 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredLocalVariableRecovery;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredConditionLocalRecovery;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
 final class StructureRecoveryPasses {
@@ -77,7 +77,7 @@ final class StructureRecoveryPasses {
 
         @Override
         public void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-            StructuredLocalVariableRecovery.rewriteConditionLocalAliases(block);
+            StructuredConditionLocalRecovery.rewriteConditionLocalAliases(block);
         }
     }
 

@@ -312,7 +312,7 @@ public class CodeAnalyserWholeClass {
 
         for (Method method : classFile.getConstructors()) {
             if (ConstructorUtils.isDelegating(method)) {
-                // TODO: This is a bit brittle.
+                // Delegating inner-class constructors still expose the synthetic outer-this slot here.
                 MethodPrototype prototype = method.getMethodPrototype();
                 prototype.setInnerOuterThis();
                 prototype.hide(0);
@@ -342,9 +342,8 @@ public class CodeAnalyserWholeClass {
         classFileField.overrideName(explicitName);
         classFileField.markSyntheticOuterRef();
         /*
-         * TODO :
-         * This is a bit of a hack - we may be referring to a classfile field from a partially analysed
-         * class.  So replace the local one with the field variable one.
+         * Partially analysed classes may still hold the local field shell here, so keep it in sync with the
+         * resolved field variable when both objects are present.
          */
         try {
             ClassFileField localClassFileField = classFile.getFieldByName(originalName, fieldType);

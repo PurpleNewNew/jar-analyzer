@@ -28,15 +28,15 @@ import org.benf.cfr.reader.util.collections.MapFactory;
 import java.util.List;
 import java.util.Map;
 
-final class StructuredConditionLocalRecoveryPasses {
+public final class StructuredConditionLocalRecoveryPasses {
     private StructuredConditionLocalRecoveryPasses() {
     }
 
-    static void restoreLiftableDefinitionAssignments(Op04StructuredStatement root) {
+    public static void restoreLiftableDefinitionAssignments(Op04StructuredStatement root) {
         root.transform(new DefinitionIfAssignmentRestorer(), new StructuredScope());
     }
 
-    static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
+    public static void sinkDefinitionsToFirstUse(Op04StructuredStatement root) {
         root.transform(new DefinitionFirstUseSinker(), new StructuredScope());
     }
 

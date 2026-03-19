@@ -14,15 +14,15 @@ import org.benf.cfr.reader.util.collections.ListFactory;
 
 import java.util.List;
 
-final class StructuredCreatorOrderingRecovery {
+public final class StructuredCreatorOrderingRecovery {
     private StructuredCreatorOrderingRecovery() {
     }
 
-    static void restoreCreatorDependencyOrder(Op04StructuredStatement root) {
+    public static void restoreCreatorDependencyOrder(Op04StructuredStatement root) {
         root.transform(new CreatorDependencyOrderRestorer(), new StructuredScope());
     }
 
-    static void restoreCreatorsBeforeFirstUse(Op04StructuredStatement root) {
+    public static void restoreCreatorsBeforeFirstUse(Op04StructuredStatement root) {
         root.transform(new CreatorFirstUseRestorer(), new StructuredScope());
     }
 

@@ -298,7 +298,8 @@ public class VariableNameTidier implements StructuredStatementTransformer {
                 postfixedVarName = getNext(name);
             } while (alreadyDefined(mkLcMojo(postfixedVarName)));
             scope.getFirst().defineHere(mkLcMojo(postfixedVarName));
-            // TODO : This is bad - passes will interfere with each other!
+            // TODO[algorithm]: Local-class renaming is still pass-order-sensitive here; move this onto a
+            // stable post-rename reconciliation path instead of mutating shared naming state in place.
             method.markUsedLocalClassType(type, postfixedVarName);
             classRenamed = true;
         }

@@ -353,7 +353,7 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
      */
     @Override
     public void collectUsedLValues(LValueUsageCollector lValueUsageCollector) {
-        // Fugly.  TODO: Fix interface.
+        // Lambda bodies only participate in scope discovery when the collector explicitly opts in.
         if (lValueUsageCollector instanceof LValueScopeDiscoverer) {
             if (((LValueScopeDiscoverer) lValueUsageCollector).descendLambdas()) {
                 LValueScopeDiscoverer discover = (LValueScopeDiscoverer) lValueUsageCollector;

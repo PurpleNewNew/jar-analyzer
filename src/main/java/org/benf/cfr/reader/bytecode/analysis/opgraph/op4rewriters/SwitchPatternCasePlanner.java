@@ -18,8 +18,9 @@ final class SwitchPatternCasePlanner {
     private final SwitchPatternCaseDetector detector = new SwitchPatternCaseDetector();
     private final SwitchPatternCaseBuilder builder = new SwitchPatternCaseBuilder();
 
-    // TODO: Split the remaining switch-specialized planning work into reusable pattern detector/builder/emitter
-    // components so guarded, record and conditional-binding cases stop living behind a switch-only planner.
+    // TODO[algorithm]: Split the remaining switch-specialized planning work into reusable pattern
+    // detector/builder/emitter components so guarded, record and conditional-binding cases stop
+    // living behind a switch-only planner.
 
     List<CaseRewritePlan> planCases(Block switchBlock,
                                     SwitchPatternBootstrapMatch bootstrapMatch,
