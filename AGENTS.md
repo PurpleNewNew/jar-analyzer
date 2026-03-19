@@ -125,6 +125,8 @@
 - 读路径必须在一致性边界内，禁止读写竞态导致“部分可见”。
 - 队列满、写失败、规则加载失败、缓存失效失败必须显式处理（日志 + 行为确定），禁止静默吞错。
 - 快照缓存必须具备明确失效策略（版本号/指纹/显式 reload）。
+- 同一工作区下，禁止并发执行 `mvn ... compile` 与 `mvn ... test`；两者都会写 `target/classes` 与前端复制产物（尤其 `cypher-workbench/assets/*`），在 Windows 上会频繁触发文件锁并制造假失败。
+- 需要同时验证编译和测试时，必须串行执行：先 `compile`，再按改动范围执行最小充分测试；禁止为了“提速”并发起两个 Maven 进程共享同一工作区输出目录。
 
 ## 8. 配置与开关治理
 - 不新增无业务价值开关，尤其是调试后遗留开关。
@@ -257,6 +259,10 @@
 - 编译：
   - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 编译/测试串行约束：
+  - 同一工作区内，`compile` 与 `test` 必须串行执行，禁止并发。
+  - 原因：两者会同时改写 `target/classes` 和 `cypher-workbench/assets/*`，Windows 下极易出现 `FileSystemException`/文件占用假失败。
+  - 默认顺序：先 `compile`，再执行目标测试。
 - 打包：
   - 禁止在正式打包命令中携带 `-Dskip.npm=true`
   - 原因：会跳过 `frontend/cypher-workbench` 构建，导致产物缺少 `cypher-workbench/index.html` 等前端资源
@@ -307,6 +313,10 @@
 - 编译：
   - `mvn -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
   - PowerShell 下优先使用：`mvn --% -q -DskipTests -Dskip.npm=true -Dskip.installnodenpm=true compile`
+- 串行执行约束：
+  - 同一工作区内，禁止并发执行 `compile` 与 `test`
+  - 推荐顺序：先 `mvn ... compile`，再 `mvn ... -Dtest=<TestClass> test`
+  - 原因：两者会竞争写入 `target/classes` 和 `cypher-workbench/assets/*`，Windows 文件锁会导致假失败
 - 打包：`mvn -q -DskipTests package`
 - 打包约束：除非明确只验证后端且不需要可运行 GUI 产物，否则不要为 `package` 增加 `-Dskip.npm=true`
 - 目标测试：`mvn -q -Dskip.npm=true -Dskip.installnodenpm=true -Dtest=<TestClass> test`
