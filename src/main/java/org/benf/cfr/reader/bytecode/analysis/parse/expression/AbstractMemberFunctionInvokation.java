@@ -151,6 +151,9 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             expectedObjectType = genericTypeBinder.getBindingFor(expectedObjectType);
         }
         object = cleanExplicitCast(object, expectedObjectType, genericTypeBinder);
+        if (applyConflictingObjectTypeFallback(expectedObjectType)) {
+            return;
+        }
         ExpressionTypeHintHelper.improveExpressionType(object, expectedObjectType);
     }
 
@@ -193,10 +196,20 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
                 selectedSource = "expected-bound-return";
             }
         }
+        JavaTypeInstance declaredReturnType = methodPrototype.getReturnType();
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, declaredReturnType)) {
+            resolvedReturnType = declaredReturnType;
+            selectedSource = "declared-return";
+        }
         JavaTypeInstance inferredReturnType = getInferredJavaType().getJavaTypeInstance();
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, inferredReturnType)) {
             resolvedReturnType = inferredReturnType;
             selectedSource = "inferred-return";
+        }
+        JavaTypeInstance rawReceiverAdjustedReturnType = adjustObjectOnlyReturnTypeForRawReceiver(objectType, resolvedReturnType);
+        if (rawReceiverAdjustedReturnType != resolvedReturnType) {
+            resolvedReturnType = rawReceiverAdjustedReturnType;
+            selectedSource = "raw-receiver-return";
         }
         boolean requiresExplicitCast = resolvedReturnType != null
                 && expectedType != null
@@ -212,6 +225,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
                         + ", objectResolvedReturn=" + ExpressionTypeHintHelper.describeType(objectResolvedReturnType)
                         + ", objectBoundReturn=" + ExpressionTypeHintHelper.describeType(objectBoundReturnType)
                         + ", expectedBoundReturn=" + ExpressionTypeHintHelper.describeType(expectedBoundReturnType)
+                        + ", declaredReturn=" + ExpressionTypeHintHelper.describeType(declaredReturnType)
                         + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
                         + ", explicitCast=" + requiresExplicitCast
                         + ", selectedSource=" + selectedSource
@@ -312,9 +326,11 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             LValue lValue = ((LValueExpression) expression).getLValue();
             if (lValue instanceof LocalVariable) {
                 JavaTypeInstance creatorType = ((LocalVariable) lValue).getCustomCreationJavaType();
+                JavaTypeInstance inferredType = lValue.getInferredJavaType().getJavaTypeInstance();
                 if (creatorType != null) {
-                    return creatorType;
+                    return ExpressionTypeHintHelper.preferResolvedType(creatorType, inferredType);
                 }
+                return inferredType;
             }
             if (lValue instanceof AbstractFieldVariable) {
                 return ((AbstractFieldVariable) lValue).getResolvedJavaTypeInstance();
@@ -325,23 +341,95 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             LValue updatedLValue = ((AssignmentExpression) expression).getUpdatedLValue();
             if (updatedLValue instanceof LocalVariable) {
                 JavaTypeInstance creatorType = ((LocalVariable) updatedLValue).getCustomCreationJavaType();
+                JavaTypeInstance inferredType = updatedLValue.getInferredJavaType().getJavaTypeInstance();
                 if (creatorType != null) {
-                    return creatorType;
+                    return ExpressionTypeHintHelper.preferResolvedType(creatorType, inferredType);
                 }
+                return inferredType;
             }
         }
         if (expression instanceof MemberFunctionInvokation) {
             MemberFunctionInvokation invokation = (MemberFunctionInvokation) expression;
-            JavaTypeInstance objectType = resolveDisplayType(invokation.getObject());
-            if (objectType != null) {
-                return invokation.getMethodPrototype().getReturnType(objectType, invokation.getArgs());
+            JavaTypeInstance displayReturnType = invokation.resolveDisplayReturnType(null).getResolvedType();
+            if (displayReturnType != null) {
+                return displayReturnType;
             }
         }
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation invokation = (StaticFunctionInvokation) expression;
-            return invokation.getMethodPrototype().getReturnType(invokation.getClazz(), invokation.getArgs());
+            JavaTypeInstance displayReturnType = invokation.resolveDisplayReturnType(null).getResolvedType();
+            if (displayReturnType != null) {
+                return displayReturnType;
+            }
         }
         return expression.getInferredJavaType().getJavaTypeInstance();
+    }
+
+    private boolean applyConflictingObjectTypeFallback(JavaTypeInstance expectedObjectType) {
+        if (!(object instanceof LValueExpression) || !(expectedObjectType instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) object).getLValue();
+        if (!(lValue instanceof LocalVariable)) {
+            return false;
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        JavaTypeInstance currentObjectType = localVariable.getCustomCreationJavaType();
+        if (currentObjectType == null) {
+            currentObjectType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        }
+        if (currentObjectType != null
+                && ExpressionTypeHintHelper.canDisplayTypeArguments(currentObjectType)
+                && !ExpressionTypeHintHelper.isObjectOnlyGenericType(currentObjectType)) {
+            return false;
+        }
+        JavaTypeInstance conflictingBaseType = getConflictingGenericBaseType(currentObjectType, expectedObjectType);
+        if (conflictingBaseType == null) {
+            return false;
+        }
+        localVariable.markConflictingGenericDeclaration();
+        localVariable.getInferredJavaType().forceType(conflictingBaseType, true);
+        if (localVariable.getCustomCreationJavaType() != null) {
+            localVariable.setCustomCreationJavaType(conflictingBaseType);
+            if (localVariable.getAnnotatedCreationType() != null) {
+                localVariable.setCustomCreationType(conflictingBaseType.getAnnotatedInstance());
+            }
+        }
+        return true;
+    }
+
+    private JavaTypeInstance getConflictingGenericBaseType(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        if (currentType == null || candidateType == null || currentType.equals(candidateType)) {
+            return null;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
+        if (currentBaseType == null || !currentBaseType.equals(candidateBaseType)) {
+            return null;
+        }
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, candidateType)
+                || ExpressionTypeHintHelper.shouldPreferResolvedType(candidateType, currentType)) {
+            return null;
+        }
+        if (!(currentType instanceof JavaGenericBaseInstance) && !(candidateType instanceof JavaGenericBaseInstance)) {
+            return null;
+        }
+        return currentBaseType;
+    }
+
+    private JavaTypeInstance adjustObjectOnlyReturnTypeForRawReceiver(JavaTypeInstance objectType,
+                                                                      JavaTypeInstance resolvedReturnType) {
+        if (objectType == null || resolvedReturnType == null) {
+            return resolvedReturnType;
+        }
+        if (ExpressionTypeHintHelper.canDisplayTypeArguments(objectType)) {
+            return resolvedReturnType;
+        }
+        if (!ExpressionTypeHintHelper.isObjectOnlyGenericType(resolvedReturnType)) {
+            return resolvedReturnType;
+        }
+        JavaTypeInstance rawReturnType = resolvedReturnType.getDeGenerifiedType();
+        return rawReturnType == null ? resolvedReturnType : rawReturnType;
     }
 
     @Override

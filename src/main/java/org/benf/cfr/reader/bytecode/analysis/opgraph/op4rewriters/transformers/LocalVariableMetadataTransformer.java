@@ -7,6 +7,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpressionCommon;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
@@ -17,6 +18,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredCatch;
+import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeAnnotationHelper;
@@ -48,6 +50,7 @@ import static org.benf.cfr.reader.entities.attributes.TypeAnnotationEntryValue.t
 import static org.benf.cfr.reader.entities.attributes.TypeAnnotationEntryValue.type_resourcevar;
 
 public class LocalVariableMetadataTransformer implements StructuredStatementTransformer, ExpressionRewriter {
+    private static final int NEARBY_SCOPE_TOLERANCE = 8;
 
     private final List<AnnotationTableTypeEntry> variableAnnotations;
     private final SortedMap<Integer, Integer> instrsByOffset;
@@ -122,7 +125,18 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     @Override
     public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
         if (lValue instanceof LocalVariable) {
-            applyResolvedVariableType((LocalVariable) lValue, false);
+            LocalVariable localVariable = (LocalVariable) lValue;
+            if (statementContainer != null) {
+                Object rawStatement = statementContainer.getStatement();
+                if (rawStatement instanceof StructuredAssignment) {
+                    StructuredAssignment structuredAssignment = (StructuredAssignment) rawStatement;
+                    if (structuredAssignment.isCreator(localVariable)) {
+                        applyCreatorType(localVariable, structuredAssignment);
+                        return lValue;
+                    }
+                }
+            }
+            applyResolvedVariableType(localVariable, false);
         }
         return lValue;
     }
@@ -160,13 +174,23 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     private ResolvedLocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
         int rawOffset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
-        if (rawOffset < 0 || slot < 0) return null;
+        if (slot < 0) return null;
         TreeSet<LocalVariableTypeEntry> entries = localVariableTypeEntries.get(slot);
         if (entries == null || entries.isEmpty()) return null;
+        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
+        if (rawOffset < 0) {
+            LocalVariableTypeEntry uniqueNamed = findUniqueNamedTypeEntry(entries, localName);
+            if (uniqueNamed != null) {
+                return new ResolvedLocalVariableTypeEntry(uniqueNamed, MatchQuality.UNIQUE_NAMED);
+            }
+            if (entries.size() == 1) {
+                return new ResolvedLocalVariableTypeEntry(entries.first(), MatchQuality.UNIQUE_SLOT);
+            }
+            return null;
+        }
 
         boolean currentMethodOffset = isCurrentMethodOffset(rawOffset);
         int offset = rawOffset > 0 ? rawOffset + 2 : 0;
-        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
 
         LocalVariableTypeEntry bestCovered = null;
         LocalVariableTypeEntry bestCoveredNamed = null;
@@ -190,7 +214,7 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 }
                 continue;
             }
-            if (distance > 4) {
+            if (distance > NEARBY_SCOPE_TOLERANCE) {
                 continue;
             }
             if (nameMatches && distance < bestNearbyNamedDistance) {
@@ -202,19 +226,33 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) {
             return new ResolvedLocalVariableTypeEntry(bestCovered, MatchQuality.COVERED_SLOT);
         }
-        return bestNearbyNamed == null ? null : new ResolvedLocalVariableTypeEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
+        if (bestNearbyNamed != null) {
+            return new ResolvedLocalVariableTypeEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
+        }
+        LocalVariableTypeEntry uniqueNamed = findUniqueNamedTypeEntry(entries, localName);
+        return uniqueNamed == null ? null : new ResolvedLocalVariableTypeEntry(uniqueNamed, MatchQuality.UNIQUE_NAMED);
     }
 
     private ResolvedLocalVariableEntry getLocalVariableEntry(LocalVariable localVariable) {
         int rawOffset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
-        if (rawOffset < 0 || slot < 0) return null;
+        if (slot < 0) return null;
         TreeSet<LocalVariableEntry> entries = localVariableEntries.get(slot);
         if (entries == null || entries.isEmpty()) return null;
+        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
+        if (rawOffset < 0) {
+            LocalVariableEntry uniqueNamed = findUniqueNamedEntry(entries, localName);
+            if (uniqueNamed != null) {
+                return new ResolvedLocalVariableEntry(uniqueNamed, MatchQuality.UNIQUE_NAMED);
+            }
+            if (entries.size() == 1) {
+                return new ResolvedLocalVariableEntry(entries.first(), MatchQuality.UNIQUE_SLOT);
+            }
+            return null;
+        }
 
         boolean currentMethodOffset = isCurrentMethodOffset(rawOffset);
         int offset = rawOffset > 0 ? rawOffset + 2 : 0;
-        String localName = localVariable.getName() == null ? null : localVariable.getName().getStringName();
 
         LocalVariableEntry bestCovered = null;
         LocalVariableEntry bestCoveredNamed = null;
@@ -238,7 +276,7 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 }
                 continue;
             }
-            if (distance > 4) {
+            if (distance > NEARBY_SCOPE_TOLERANCE) {
                 continue;
             }
             if (nameMatches && distance < bestNearbyNamedDistance) {
@@ -250,7 +288,11 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) {
             return new ResolvedLocalVariableEntry(bestCovered, MatchQuality.COVERED_SLOT);
         }
-        return bestNearbyNamed == null ? null : new ResolvedLocalVariableEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
+        if (bestNearbyNamed != null) {
+            return new ResolvedLocalVariableEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
+        }
+        LocalVariableEntry uniqueNamed = findUniqueNamedEntry(entries, localName);
+        return uniqueNamed == null ? null : new ResolvedLocalVariableEntry(uniqueNamed, MatchQuality.UNIQUE_NAMED);
     }
 
     private boolean isCurrentMethodOffset(int rawOffset) {
@@ -263,18 +305,18 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
 
     private boolean isOffsetCovered(LocalVariableTypeEntry entry, int offset) {
         if (entry == null) return false;
-        if (offset >= entry.getStartPc() && offset <= entry.getEndPc()) {
+        if (offset >= entry.getStartPc() && offset < entry.getEndPc()) {
             return true;
         }
-        return offset + 2 >= entry.getStartPc() && offset <= entry.getEndPc();
+        return offset > entry.getEndPc() && offset <= entry.getEndPc() + 2;
     }
 
     private boolean isOffsetCovered(LocalVariableEntry entry, int offset) {
         if (entry == null) return false;
-        if (offset >= entry.getStartPc() && offset <= entry.getEndPc()) {
+        if (offset >= entry.getStartPc() && offset < entry.getEndPc()) {
             return true;
         }
-        return offset + 2 >= entry.getStartPc() && offset <= entry.getEndPc();
+        return offset > entry.getEndPc() && offset <= entry.getEndPc() + 2;
     }
 
     private int distanceFromScope(LocalVariableTypeEntry entry, int offset) {
@@ -304,7 +346,14 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (resolvedCreatorType == null || resolvedCreatorType.type == null) return null;
         JavaTypeInstance creatorType = resolvedCreatorType.type;
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
-        if (resolvedCreatorType.matchQuality == MatchQuality.NEARBY_NAMED && !isObjectLike(currentType)) {
+        if (resolvedCreatorType.matchQuality == MatchQuality.NEARBY_NAMED
+                && shouldKeepNearbyNamedCurrentType(currentType, creatorType)) {
+            return currentType;
+        }
+        if (shouldPreserveSpecificCurrentType(currentType, creatorType)) {
+            return currentType;
+        }
+        if (shouldPreserveIncompatibleCurrentType(currentType, creatorType)) {
             return currentType;
         }
         if (shouldPreserveExistingDeclarationType(localVariable, creatorType, resolvedCreatorType.matchQuality)) {
@@ -312,11 +361,86 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         }
 
         localVariable.getInferredJavaType().forceType(creatorType, true);
+        localVariable.clearConflictingGenericDeclaration();
+        JavaTypeInstance previousCreationType = localVariable.getCustomCreationJavaType();
         localVariable.setCustomCreationJavaType(creatorType);
-        if (refreshCreationType) {
+        if (refreshCreationType || shouldRefreshAnnotatedCreationType(previousCreationType, creatorType)) {
             localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
         }
         return creatorType;
+    }
+
+    private boolean shouldRefreshAnnotatedCreationType(JavaTypeInstance previousCreationType, JavaTypeInstance creatorType) {
+        if (creatorType == null) {
+            return false;
+        }
+        if (previousCreationType == null) {
+            return true;
+        }
+        return !creatorType.equals(previousCreationType);
+    }
+
+    private boolean shouldKeepNearbyNamedCurrentType(JavaTypeInstance currentType, JavaTypeInstance creatorType) {
+        if (isObjectLike(currentType)) {
+            return false;
+        }
+        if (currentType == null || creatorType == null || currentType.equals(creatorType)) {
+            return true;
+        }
+        if (currentType.implicitlyCastsTo(creatorType, null)
+                && !creatorType.implicitlyCastsTo(currentType, null)) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean shouldPreserveIncompatibleCurrentType(JavaTypeInstance currentType, JavaTypeInstance creatorType) {
+        if (currentType == null || creatorType == null) {
+            return false;
+        }
+        if (currentType.equals(creatorType)) {
+            return false;
+        }
+        if (isObjectLike(currentType) || isObjectLike(creatorType)) {
+            return false;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance creatorBaseType = creatorType.getDeGenerifiedType();
+        if (currentBaseType != null && currentBaseType.equals(creatorBaseType)) {
+            return false;
+        }
+        if (sharesAssignableHierarchy(currentBaseType, creatorType)
+                || sharesAssignableHierarchy(creatorBaseType, currentType)) {
+            return false;
+        }
+        return !currentType.implicitlyCastsTo(creatorType, null)
+                && !creatorType.implicitlyCastsTo(currentType, null);
+    }
+
+    private boolean shouldPreserveSpecificCurrentType(JavaTypeInstance currentType, JavaTypeInstance creatorType) {
+        if (currentType == null || creatorType == null || currentType.equals(creatorType)) {
+            return false;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance creatorBaseType = creatorType.getDeGenerifiedType();
+        if (currentBaseType == null || creatorBaseType == null || !currentBaseType.equals(creatorBaseType)) {
+            return false;
+        }
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(currentType)) {
+            return false;
+        }
+        if (ExpressionTypeHintHelper.canDisplayTypeArguments(creatorType)) {
+            return false;
+        }
+        return ExpressionTypeHintHelper.shouldPreferResolvedType(creatorType, currentType);
+    }
+
+    private boolean sharesAssignableHierarchy(JavaTypeInstance baseType, JavaTypeInstance candidateType) {
+        if (baseType == null || candidateType == null) {
+            return false;
+        }
+        BindingSuperContainer bindingSupers = candidateType.getBindingSupers();
+        return bindingSupers != null && bindingSupers.containsBase(baseType);
     }
 
     private boolean isObjectLike(JavaTypeInstance type) {
@@ -329,7 +453,8 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     private boolean shouldPreserveExistingDeclarationType(LocalVariable localVariable,
                                                           JavaTypeInstance creatorType,
                                                           MatchQuality matchQuality) {
-        if (matchQuality != MatchQuality.NEARBY_NAMED || !hasGoodName(localVariable)) {
+        if ((matchQuality != MatchQuality.NEARBY_NAMED && matchQuality != MatchQuality.UNIQUE_NAMED)
+                || !hasGoodName(localVariable)) {
             return false;
         }
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
@@ -426,7 +551,51 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     private enum MatchQuality {
         COVERED_NAMED,
         COVERED_SLOT,
-        NEARBY_NAMED
+        NEARBY_NAMED,
+        UNIQUE_NAMED,
+        UNIQUE_SLOT
+    }
+
+    private LocalVariableTypeEntry findUniqueNamedTypeEntry(TreeSet<LocalVariableTypeEntry> entries, String localName) {
+        if (entries == null || entries.isEmpty() || localName == null) {
+            return null;
+        }
+        LocalVariableTypeEntry match = null;
+        for (LocalVariableTypeEntry entry : entries) {
+            if (entry.getNameIndex() < 0) {
+                continue;
+            }
+            String entryName = cp.getUTF8Entry(entry.getNameIndex()).getValue();
+            if (!localName.equals(entryName)) {
+                continue;
+            }
+            if (match != null) {
+                return null;
+            }
+            match = entry;
+        }
+        return match;
+    }
+
+    private LocalVariableEntry findUniqueNamedEntry(TreeSet<LocalVariableEntry> entries, String localName) {
+        if (entries == null || entries.isEmpty() || localName == null) {
+            return null;
+        }
+        LocalVariableEntry match = null;
+        for (LocalVariableEntry entry : entries) {
+            if (entry.getNameIndex() < 0) {
+                continue;
+            }
+            String entryName = cp.getUTF8Entry(entry.getNameIndex()).getValue();
+            if (!localName.equals(entryName)) {
+                continue;
+            }
+            if (match != null) {
+                return null;
+            }
+            match = entry;
+        }
+        return match;
     }
 
     private static final class ResolvedCreatorType {

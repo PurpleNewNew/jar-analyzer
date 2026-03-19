@@ -1,9 +1,12 @@
 package org.benf.cfr.reader.bytecode.analysis.parse;
 
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.DeepCloneable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
@@ -49,6 +52,32 @@ public interface LValue extends DumpableWithPrecedence, DeepCloneable<LValue>, T
 
     class Creation {
         public static Dumper dump(Dumper d, LValue lValue) {
+            return dump(d, lValue, null);
+        }
+
+        public static Dumper dump(Dumper d, LValue lValue, JavaTypeInstance overrideType) {
+            if (overrideType != null) {
+                d.dump(overrideType).separator(" ");
+                lValue.dump(d, true);
+                return d;
+            }
+            if (lValue instanceof LocalVariable) {
+                LocalVariable localVariable = (LocalVariable) lValue;
+                JavaTypeInstance customCreationJavaType = localVariable.getCustomCreationJavaType();
+                if (customCreationJavaType != null) {
+                    JavaTypeInstance inferredType = lValue.getInferredJavaType().getJavaTypeInstance();
+                    if (localVariable.hasConflictingGenericDeclaration()) {
+                        JavaTypeInstance rawDeclarationType = resolveConflictingGenericDeclarationType(inferredType, customCreationJavaType);
+                        d.dump(rawDeclarationType).separator(" ");
+                        lValue.dump(d, true);
+                        return d;
+                    }
+                    JavaTypeInstance declaredType = preferDeclarationType(inferredType, customCreationJavaType);
+                    d.dump(declaredType).separator(" ");
+                    lValue.dump(d, true);
+                    return d;
+                }
+            }
             JavaAnnotatedTypeInstance annotatedCreationType = lValue.getAnnotatedCreationType();
             if (annotatedCreationType != null) {
                 annotatedCreationType.dump(d);
@@ -64,6 +93,63 @@ public interface LValue extends DumpableWithPrecedence, DeepCloneable<LValue>, T
             d.separator(" ");
             lValue.dump(d, true);
             return d;
+        }
+
+        private static JavaTypeInstance preferDeclarationType(JavaTypeInstance inferredType, JavaTypeInstance creationType) {
+            if (inferredType == null || creationType == null || inferredType.equals(creationType)) {
+                return creationType;
+            }
+            JavaTypeInstance reboundCreationType = rebindCreationTypeToInferredBase(inferredType, creationType);
+            if (reboundCreationType != null) {
+                return reboundCreationType;
+            }
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(creationType, inferredType)) {
+                return inferredType;
+            }
+            if (creationType.implicitlyCastsTo(inferredType, null)
+                    && !inferredType.implicitlyCastsTo(creationType, null)) {
+                return inferredType;
+            }
+            return creationType;
+        }
+
+        private static JavaTypeInstance rebindCreationTypeToInferredBase(JavaTypeInstance inferredType,
+                                                                         JavaTypeInstance creationType) {
+            if (inferredType == null || creationType == null) {
+                return null;
+            }
+            if (!ExpressionTypeHintHelper.canDisplayTypeArguments(creationType)) {
+                return null;
+            }
+            JavaTypeInstance inferredBaseType = inferredType.getDeGenerifiedType();
+            if (inferredBaseType == null) {
+                return null;
+            }
+            if (creationType.getDeGenerifiedType().equals(inferredBaseType)) {
+                return creationType;
+            }
+            BindingSuperContainer bindingSupers = creationType.getBindingSupers();
+            if (bindingSupers == null) {
+                return null;
+            }
+            JavaTypeInstance reboundType = bindingSupers.getBoundSuperForBase(inferredBaseType);
+            if (reboundType == null || !ExpressionTypeHintHelper.canDisplayTypeArguments(reboundType)) {
+                return null;
+            }
+            return reboundType;
+        }
+
+        private static JavaTypeInstance resolveConflictingGenericDeclarationType(JavaTypeInstance inferredType,
+                                                                                 JavaTypeInstance creationType) {
+            JavaTypeInstance creationBaseType = creationType == null ? null : creationType.getDeGenerifiedType();
+            JavaTypeInstance inferredBaseType = inferredType == null ? null : inferredType.getDeGenerifiedType();
+            if (creationBaseType != null && creationBaseType.equals(inferredBaseType)) {
+                return creationBaseType;
+            }
+            if (creationBaseType != null) {
+                return creationBaseType;
+            }
+            return creationType;
         }
     }
 }

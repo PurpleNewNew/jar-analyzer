@@ -99,7 +99,13 @@ public final class ExpressionTypeHintHelper {
             return getDisplayType(((AssignmentExpression) expression).getrValue(), normalizedExpectedType);
         }
         if (expression instanceof CastExpression) {
-            return expression.getInferredJavaType().getJavaTypeInstance();
+            CastExpression castExpression = (CastExpression) expression;
+            JavaTypeInstance castType = castExpression.getInferredJavaType().getJavaTypeInstance();
+            JavaTypeInstance childType = getDisplayType(castExpression.getChild(), null);
+            if (shouldPreferChildCastDisplayType(castType, childType)) {
+                return childType;
+            }
+            return castType;
         }
         return expression.getInferredJavaType().getJavaTypeInstance();
     }
@@ -203,6 +209,12 @@ public final class ExpressionTypeHintHelper {
         JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
         JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
         if (currentBaseType.equals(candidateBaseType)) {
+            if (isRawToObjectOnlyUpgrade(currentType, candidateType)) {
+                return false;
+            }
+            if (isObjectOnlyGenericToRawFallback(currentType, candidateType)) {
+                return true;
+            }
             if (!(currentType instanceof JavaGenericBaseInstance)
                     && candidateType instanceof JavaGenericBaseInstance
                     && canDisplayTypeArguments(candidateType)) {
@@ -292,7 +304,89 @@ public final class ExpressionTypeHintHelper {
                 );
             }
         }
+        if (expression instanceof StaticFunctionInvokation) {
+            StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
+            DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            if (resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType)) {
+                return new CastExpression(
+                        BytecodeLoc.NONE,
+                        new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),
+                        expression,
+                        true
+                );
+            }
+        }
         return expression;
+    }
+
+    public static boolean needsExpectedCast(Expression expression, JavaTypeInstance expectedType) {
+        JavaTypeInstance normalizedExpectedType = normalizeExpectedType(expectedType);
+        if (expression == null || normalizedExpectedType == null) {
+            return false;
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            return ((MemberFunctionInvokation) expression)
+                    .resolveDisplayReturnType(normalizedExpectedType)
+                    .requiresExplicitCast();
+        }
+        if (expression instanceof StaticFunctionInvokation) {
+            StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
+            return staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType).requiresExplicitCast()
+                    || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType);
+        }
+        return false;
+    }
+
+    private static boolean isRawToObjectOnlyUpgrade(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        if (currentType instanceof JavaGenericBaseInstance) {
+            return false;
+        }
+        if (!(candidateType instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        return isObjectOnlyGeneric((JavaGenericBaseInstance) candidateType);
+    }
+
+    public static boolean isObjectOnlyGenericType(JavaTypeInstance type) {
+        return type instanceof JavaGenericBaseInstance && isObjectOnlyGeneric((JavaGenericBaseInstance) type);
+    }
+
+    private static boolean isObjectOnlyGeneric(JavaGenericBaseInstance genericType) {
+        if (genericType == null || genericType.hasUnbound() || genericType.hasL01Wildcard()) {
+            return false;
+        }
+        List<JavaTypeInstance> genericTypes = genericType.getGenericTypes();
+        if (genericTypes == null || genericTypes.isEmpty()) {
+            return false;
+        }
+        for (JavaTypeInstance genericParameter : genericTypes) {
+            if (genericParameter == null || genericParameter != TypeConstants.OBJECT) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isObjectOnlyGenericToRawFallback(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        if (!(currentType instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        if (candidateType instanceof JavaGenericBaseInstance) {
+            return false;
+        }
+        return isObjectOnlyGeneric((JavaGenericBaseInstance) currentType);
+    }
+
+    private static boolean shouldPreferChildCastDisplayType(JavaTypeInstance castType, JavaTypeInstance childType) {
+        if (castType == null || childType == null) {
+            return false;
+        }
+        JavaTypeInstance castBaseType = castType.getDeGenerifiedType();
+        JavaTypeInstance childBaseType = childType.getDeGenerifiedType();
+        if (castBaseType == null || !castBaseType.equals(childBaseType)) {
+            return false;
+        }
+        return shouldPreferResolvedType(castType, childType);
     }
 
     private static void doImproveExpressionType(Expression expression, JavaTypeInstance normalizedExpectedType) {

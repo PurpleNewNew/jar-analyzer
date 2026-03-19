@@ -278,8 +278,35 @@ public abstract class AbstractLValueScopeDiscoverer implements LValueScopeDiscov
                     hint = getNonInit(creationContainer);
                 }
             }
-            creationContainer.getStatement().markCreator(scopedEntity, hint);
+            try {
+                creationContainer.getStatement().markCreator(scopedEntity, hint);
+            } catch (IllegalArgumentException ex) {
+                StatementContainer<StructuredStatement> fallbackContainer =
+                        resolveFallbackCreationContainer(commonScope, creationContainer);
+                if (fallbackContainer == null || fallbackContainer == creationContainer) {
+                    throw ex;
+                }
+                fallbackContainer.getStatement().markCreator(scopedEntity, creationContainer);
+            }
         }
+    }
+
+    private StatementContainer<StructuredStatement> resolveFallbackCreationContainer(
+            List<StatementContainer<StructuredStatement>> commonScope,
+            StatementContainer<StructuredStatement> creationContainer) {
+        if (creationContainer != null && creationContainer.getStatement() instanceof Block) {
+            return creationContainer;
+        }
+        if (commonScope == null || commonScope.isEmpty()) {
+            return null;
+        }
+        for (int i = commonScope.size() - 1; i >= 0; --i) {
+            StatementContainer<StructuredStatement> candidate = commonScope.get(i);
+            if (candidate != null && candidate.getStatement() instanceof Block) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private StatementContainer<StructuredStatement> getNonInit(StatementContainer<StructuredStatement> creationContainer) {

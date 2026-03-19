@@ -48,10 +48,14 @@ public class VariableNamerHinted implements VariableNamer {
         LocalVariableEntry tmp = new LocalVariableEntry(originalRawOffset, (short) 1, (short) -1, (short) -1, (short) stackPosition);
         TreeSet<LocalVariableEntry> lveSet = localVariableEntryTreeSet.get(sstackPos);
         LocalVariableEntry lve = lveSet.floor(tmp);
+        LocalVariableEntry next = lveSet.ceiling(tmp);
 
         // We'd expect that we could just do a range test, not check start and falling off end.
         // See ScopeTest18 for counterexample.
-        if (lve == null || originalRawOffset > lve.getEndPc() && null == lveSet.ceiling(tmp)) {
+        if (lve == null) {
+            return missingNamer.getName(originalRawOffset, ident, sstackPos, clashed);
+        }
+        if (originalRawOffset > lve.getEndPc() && !canBridgeGap(lve, next)) {
             return missingNamer.getName(originalRawOffset, ident, sstackPos, clashed);
         }
 
@@ -73,6 +77,14 @@ public class VariableNamerHinted implements VariableNamer {
             cache.put(lve, namedVariable);
         }
         return namedVariable;
+    }
+
+    private boolean canBridgeGap(LocalVariableEntry current, LocalVariableEntry next) {
+        if (current == null || next == null) {
+            return false;
+        }
+        return current.getNameIndex() == next.getNameIndex()
+                && current.getDescriptorIndex() == next.getDescriptorIndex();
     }
 
     private static class OrderLocalVariables implements Comparator<LocalVariableEntry> {

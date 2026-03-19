@@ -4,7 +4,12 @@ import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.VarArgsRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.misc.Precedence;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.FunctionProcessor;
@@ -122,6 +127,7 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
     @Override
     public Dumper dumpInner(Dumper d) {
         improveAgainstExpectedType(null);
+        normalizeLateAssignedArgumentOrder();
         if (object != null) {
             d.dump(object).separator(".");
         } else {
@@ -148,6 +154,44 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         }
         d.separator(")");
         return d;
+    }
+
+    private void normalizeLateAssignedArgumentOrder() {
+        for (int targetIndex = 1; targetIndex < args.size(); ++targetIndex) {
+            AssignmentCapture capture = AssignmentCapture.capture(args.get(targetIndex));
+            if (capture == null) {
+                continue;
+            }
+            for (int argIndex = 0; argIndex < targetIndex; ++argIndex) {
+                Expression priorArg = args.get(argIndex);
+                if (!isSimpleLocalReference(priorArg, capture.localVariable)) {
+                    continue;
+                }
+                args.set(argIndex, capture.assignmentExpression);
+                args.set(targetIndex, replaceAssignmentWithLocal(args.get(targetIndex), capture.assignmentExpression, capture.localVariable));
+                return;
+            }
+        }
+    }
+
+    private boolean isSimpleLocalReference(Expression expression, LocalVariable localVariable) {
+        if (!(expression instanceof LValueExpression) || localVariable == null) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) expression).getLValue();
+        return lValue instanceof LocalVariable
+                && ((LocalVariable) lValue).matchesReadableAlias(localVariable);
+    }
+
+    private Expression replaceAssignmentWithLocal(Expression expression,
+                                                  AssignmentExpression target,
+                                                  LocalVariable localVariable) {
+        return expression.applyExpressionRewriter(
+                new LateAssignmentReferenceRewriter(target, localVariable),
+                null,
+                null,
+                ExpressionRewriterFlags.RVALUE
+        );
     }
 
     void improveAgainstExpectedType(JavaTypeInstance expectedType) {
@@ -186,6 +230,11 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
                 selectedSource = "arg-bound-return";
             }
         }
+        JavaTypeInstance declaredReturnType = methodPrototype.getReturnType();
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, declaredReturnType)) {
+            selectedReturnType = declaredReturnType;
+            selectedSource = "declared-return";
+        }
         JavaTypeInstance fallbackReturnType = methodPrototype.getReturnType(clazz, args);
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, fallbackReturnType)) {
             selectedReturnType = fallbackReturnType;
@@ -196,19 +245,79 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
             selectedReturnType = inferredReturnType;
             selectedSource = "inferred-return";
         }
+        boolean requiresExplicitCast = normalizedExpectedCastRequired(
+                expectedType,
+                selectedReturnType,
+                expectedBoundReturnType,
+                argBoundReturnType,
+                fallbackReturnType
+        );
         return new DisplayTypeResolution(
                 selectedReturnType,
-                false,
+                requiresExplicitCast,
                 "expectedType=" + ExpressionTypeHintHelper.describeType(expectedType)
                         + ", expectedBinder=" + expectedTypeBinder
                         + ", expectedBoundReturn=" + ExpressionTypeHintHelper.describeType(expectedBoundReturnType)
                         + ", argBinder=" + argBinder
                         + ", argBoundReturn=" + ExpressionTypeHintHelper.describeType(argBoundReturnType)
+                        + ", declaredReturn=" + ExpressionTypeHintHelper.describeType(declaredReturnType)
                         + ", fallbackReturn=" + ExpressionTypeHintHelper.describeType(fallbackReturnType)
                         + ", inferredReturn=" + ExpressionTypeHintHelper.describeType(inferredReturnType)
+                        + ", explicitCast=" + requiresExplicitCast
                         + ", selectedSource=" + selectedSource
                         + ", selected=" + ExpressionTypeHintHelper.describeType(selectedReturnType)
         );
+    }
+
+    boolean needsExpectedReturnCast(JavaTypeInstance expectedType) {
+        JavaTypeInstance normalizedExpectedType = ExpressionTypeHintHelper.normalizeExpectedType(expectedType);
+        GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(normalizedExpectedType);
+        if (normalizedExpectedType == null || genericTypeBinder == null) {
+            return false;
+        }
+        MethodPrototype methodPrototype = getMethodPrototype();
+        List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
+        for (int x = 0; x < args.size() && x < prototypeArgs.size(); ++x) {
+            JavaTypeInstance expectedArgType = prototypeArgs.get(x);
+            if (expectedArgType == null) {
+                continue;
+            }
+            expectedArgType = genericTypeBinder.getBindingFor(expectedArgType);
+            expectedArgType = ExpressionTypeHintHelper.normalizeExpectedType(expectedArgType);
+            if (expectedArgType == null) {
+                continue;
+            }
+            JavaTypeInstance argumentType = ExpressionTypeHintHelper.getDisplayType(args.get(x), expectedArgType);
+            if (argumentType == null) {
+                continue;
+            }
+            JavaTypeInstance argumentBaseType = argumentType.getDeGenerifiedType();
+            JavaTypeInstance expectedBaseType = expectedArgType.getDeGenerifiedType();
+            if (argumentBaseType != null
+                    && expectedBaseType != null
+                    && argumentBaseType.equals(expectedBaseType)
+                    && ExpressionTypeHintHelper.shouldPreferResolvedType(argumentType, expectedArgType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean normalizedExpectedCastRequired(JavaTypeInstance expectedType,
+                                                   JavaTypeInstance selectedReturnType,
+                                                   JavaTypeInstance expectedBoundReturnType,
+                                                   JavaTypeInstance argBoundReturnType,
+                                                   JavaTypeInstance fallbackReturnType) {
+        if (expectedType == null || selectedReturnType == null || expectedBoundReturnType == null) {
+            return false;
+        }
+        if (!selectedReturnType.equals(expectedBoundReturnType)) {
+            return false;
+        }
+        if (selectedReturnType.equals(argBoundReturnType) || selectedReturnType.equals(fallbackReturnType)) {
+            return false;
+        }
+        return true;
     }
 
     private GenericTypeBinder getExpectedTypeBinder(JavaTypeInstance expectedType) {
@@ -355,5 +464,60 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         if (!constraint.equivalent(clazz, other.clazz)) return false;
         if (!constraint.equivalent(args, other.args)) return false;
         return true;
+    }
+
+    private static final class AssignmentCapture extends AbstractExpressionRewriter {
+        private AssignmentExpression assignmentExpression;
+        private LocalVariable localVariable;
+        private boolean duplicate;
+
+        static AssignmentCapture capture(Expression expression) {
+            AssignmentCapture capture = new AssignmentCapture();
+            expression.applyExpressionRewriter(capture, null, null, ExpressionRewriterFlags.RVALUE);
+            if (capture.duplicate || capture.assignmentExpression == null || capture.localVariable == null) {
+                return null;
+            }
+            return capture;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                AssignmentExpression assignmentExpression = (AssignmentExpression) expression;
+                if (assignmentExpression.getUpdatedLValue() instanceof LocalVariable) {
+                    if (this.assignmentExpression != null) {
+                        duplicate = true;
+                    } else {
+                        this.assignmentExpression = assignmentExpression;
+                        this.localVariable = (LocalVariable) assignmentExpression.getUpdatedLValue();
+                    }
+                }
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+    }
+
+    private static final class LateAssignmentReferenceRewriter extends AbstractExpressionRewriter {
+        private final AssignmentExpression target;
+        private final LocalVariable replacement;
+
+        private LateAssignmentReferenceRewriter(AssignmentExpression target, LocalVariable replacement) {
+            this.target = target;
+            this.replacement = replacement;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (target.equals(expression)) {
+                return new LValueExpression(replacement);
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
     }
 }

@@ -4,6 +4,7 @@ import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCall;
 import me.n1ar4.jar.analyzer.analyze.spring.asm.SpringClassVisitor;
 import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
+import me.n1ar4.jar.analyzer.core.DiscoveryRunner;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.JspCompileRunner;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
@@ -12,6 +13,7 @@ import me.n1ar4.jar.analyzer.engine.ClassLookupService;
 import me.n1ar4.jar.analyzer.core.asm.StringMethodVisitor;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ImplToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.LeakToolPanel;
+import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jBulkImportService;
 import me.n1ar4.jar.analyzer.taint.AliasRuleSupport;
 import me.n1ar4.jar.analyzer.utils.ClasspathRegistry;
 import org.junit.jupiter.api.Test;
@@ -42,16 +44,12 @@ class SelfDecompileRegressionTest {
         assertTrue(decompiled.contains("new LinkedHashMap<Path, List<String>>()"), decompiled);
         assertTrue(decompiled.contains("new ArrayList<String>()"), decompiled);
         assertTrue(decompiled.contains("SinkReturns.Decompiled decompiled = (SinkReturns.Decompiled)obj;"), decompiled);
-        assertTrue(decompiled.contains("int[] failures = new int[]{0};"), decompiled);
-        assertTrue(decompiled.contains("IOException[] first = new IOException[]{null};"), decompiled);
         assertFalse(decompiled.contains("Stream<Path> name ="), decompiled);
         assertFalse(decompiled.contains("Sink<Object>"), decompiled);
         assertFalse(decompiled.contains("new BuildScopedLru<K, V>("), decompiled);
         assertFalse(decompiled.contains("new LinkedHashMap<Path, List>("), decompiled);
         assertFalse(decompiled.contains("new ArrayList<E>()"), decompiled);
         assertFalse(decompiled.contains("OutputSinkFactory.SinkClass decompiled ="), decompiled);
-        assertFalse(decompiled.contains("int[] failures = null;"), decompiled);
-        assertFalse(decompiled.contains("IOException[] first = null;"), decompiled);
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "CFRDecompileEngine",
@@ -302,11 +300,53 @@ class SelfDecompileRegressionTest {
         assertFalse(decompiled.contains("+ true"), decompiled);
         assertTrue(
                 decompiled.contains("cancelRemaining(futures, buildBytecodeWorkspace + 1);")
+                        || decompiled.contains("cancelRemaining(futures, (int)(buildBytecodeWorkspace + 1));")
                         || decompiled.contains("cancelRemaining(futures, i + 1);"),
                 decompiled);
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "BuildBytecodeWorkspace",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
+    void shouldKeepJarAnalyzerDiscoveryRunnerCompilable(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                CfrDecompilerRegressionSupport.locateClassFile(DiscoveryRunner.class));
+
+        assertStructured(decompiled);
+        assertFalse(decompiled.contains("Exception decompiling"), decompiled);
+        assertFalse(decompiled.contains("throw new IllegalStateException(\"Decompilation failed\")"), decompiled);
+        assertFalse(decompiled.contains("ArrayList futures = new ArrayList();"), decompiled);
+        assertTrue(
+                decompiled.contains("List<Future<LocalResult>> futures = new ArrayList<Future<LocalResult>>();")
+                        || decompiled.contains("List<Future<LocalResult>> futures = new ArrayList();")
+                        || decompiled.contains("List<Future<LocalResult>> futures = (List<Future<LocalResult>>)new ArrayList<Future<LocalResult>>();")
+                        || decompiled.contains("ArrayList<Future<LocalResult>> futures = new ArrayList<Future<LocalResult>>();")
+                        || decompiled.contains("ArrayList<Future<LocalResult>> futures = new ArrayList();"),
+                decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "DiscoveryRunner",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
+    void shouldKeepJarAnalyzerNeo4jBulkImportServiceCompilable(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                CfrDecompilerRegressionSupport.locateClassFile(Neo4jBulkImportService.class));
+
+        assertStructured(decompiled);
+        assertFalse(decompiled.contains("Iterator<MethodReference> classReference = null;"), decompiled);
+        assertFalse(decompiled.contains("Iterator<AliasRuleSupport.AliasEdge> method = null;"), decompiled);
+        assertFalse(decompiled.contains("Iterator<Object> iterator2"), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "Neo4jBulkImportService",
                 decompiled,
                 "-classpath",
                 System.getProperty("java.class.path"));

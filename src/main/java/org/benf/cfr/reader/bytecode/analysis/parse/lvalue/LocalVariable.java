@@ -31,6 +31,7 @@ public class LocalVariable extends AbstractLValue {
     private boolean ignored;
     private boolean capturedByLambda;
     private boolean suppressDefaultInitializer;
+    private boolean conflictingGenericDeclaration;
     private final int originalRawOffset;
     private JavaAnnotatedTypeInstance customCreationType;
     private JavaTypeInstance customCreationJavaType;
@@ -44,6 +45,7 @@ public class LocalVariable extends AbstractLValue {
         this.guessedVar = false;
         this.capturedByLambda = false;
         this.suppressDefaultInitializer = false;
+        this.conflictingGenericDeclaration = false;
         this.originalRawOffset = originalRawOffset;
     }
 
@@ -56,6 +58,7 @@ public class LocalVariable extends AbstractLValue {
         this.guessedVar = false;
         this.capturedByLambda = false;
         this.suppressDefaultInitializer = false;
+        this.conflictingGenericDeclaration = false;
         this.originalRawOffset = -1;
     }
 
@@ -101,6 +104,18 @@ public class LocalVariable extends AbstractLValue {
         return suppressDefaultInitializer;
     }
 
+    public void markConflictingGenericDeclaration() {
+        this.conflictingGenericDeclaration = true;
+    }
+
+    public void clearConflictingGenericDeclaration() {
+        this.conflictingGenericDeclaration = false;
+    }
+
+    public boolean hasConflictingGenericDeclaration() {
+        return conflictingGenericDeclaration;
+    }
+
     public boolean matchesReadableAlias(LocalVariable other) {
         if (other == null) {
             return false;
@@ -114,7 +129,19 @@ public class LocalVariable extends AbstractLValue {
             return false;
         }
         if (idx >= 0 && other.idx >= 0) {
-            return idx == other.idx;
+            if (idx != other.idx) {
+                return false;
+            }
+            if (ident != null && other.ident != null) {
+                return ident.equals(other.ident);
+            }
+            if (originalRawOffset >= 0 && other.originalRawOffset >= 0) {
+                return originalRawOffset == other.originalRawOffset;
+            }
+            return !hasStableLocalIdentity(this)
+                    || !hasStableLocalIdentity(other)
+                    ? Objects.equals(name.getStringName(), other.name.getStringName())
+                    : false;
         }
         if (idx == other.idx && Objects.equals(name.getStringName(), other.name.getStringName())) {
             return true;
@@ -124,6 +151,12 @@ public class LocalVariable extends AbstractLValue {
                 && ident == null
                 && other.ident == null
                 && Objects.equals(name.getStringName(), other.name.getStringName());
+    }
+
+    private static boolean hasStableLocalIdentity(LocalVariable localVariable) {
+        return localVariable != null
+                && localVariable.idx >= 0
+                && (localVariable.ident != null || localVariable.originalRawOffset >= 0);
     }
 
     @Override

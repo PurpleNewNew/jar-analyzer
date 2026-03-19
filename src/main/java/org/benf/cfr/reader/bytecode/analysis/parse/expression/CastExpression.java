@@ -104,6 +104,7 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         while (castType instanceof JavaWildcardTypeInstance) {
             castType = ((JavaWildcardTypeInstance) castType).getUnderlyingType();
         }
+        JavaTypeInstance originalChildType = child.getInferredJavaType().getJavaTypeInstance();
         ExpressionTypeHintHelper.improveExpressionType(child, castType, TypeRecoveryPasses.CAST_CHILD_HINT);
         JavaTypeInstance childType = child.getInferredJavaType().getJavaTypeInstance();
         boolean requiresExplicitFunctionCast = false;
@@ -119,6 +120,10 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         } else if (child instanceof StaticFunctionInvokation) {
             ((StaticFunctionInvokation) child).improveAgainstExpectedType(castType);
             childType = child.getInferredJavaType().getJavaTypeInstance();
+        }
+        if (shouldPreferOriginalChildType(castType, originalChildType)) {
+            d.dump(child);
+            return d;
         }
         if (childType != null
                 && childType.getDeGenerifiedType().equals(castType.getDeGenerifiedType())
@@ -144,6 +149,18 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
             child.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
         }
         return d;
+    }
+
+    private boolean shouldPreferOriginalChildType(JavaTypeInstance castType, JavaTypeInstance originalChildType) {
+        if (castType == null || originalChildType == null) {
+            return false;
+        }
+        JavaTypeInstance castBaseType = castType.getDeGenerifiedType();
+        JavaTypeInstance childBaseType = originalChildType.getDeGenerifiedType();
+        if (castBaseType == null || !castBaseType.equals(childBaseType)) {
+            return false;
+        }
+        return ExpressionTypeHintHelper.shouldPreferResolvedType(castType, originalChildType);
     }
 
 
