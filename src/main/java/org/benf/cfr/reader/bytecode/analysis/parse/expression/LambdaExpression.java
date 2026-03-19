@@ -106,7 +106,7 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
     @Override
     public Dumper dumpInner(Dumper d) {
         if (explicitArgTypes == null) {
-            improveResultType(null);
+            applyTargetTypeConstraint(null);
         }
         boolean multi = args.size() != 1;
         boolean first = true;
@@ -135,10 +135,6 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
         d.dump(result);
         d.removePendingCarriageReturn();
         return d;
-    }
-
-    public void improveResultType(JavaTypeInstance expectedFunctionalType) {
-        applyTargetTypeConstraint(expectedFunctionalType);
     }
 
     public void applyTargetTypeConstraint(JavaTypeInstance expectedFunctionalType) {

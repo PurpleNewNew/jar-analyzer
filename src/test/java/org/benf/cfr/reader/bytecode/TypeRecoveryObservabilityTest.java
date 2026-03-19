@@ -26,7 +26,6 @@ class TypeRecoveryObservabilityTest {
         List<StructuredPassEntry> passes = TypeRecoveryPasses.describePasses();
 
         assertFalse(passes.isEmpty());
-        assertTrue(passes.stream().anyMatch(entry -> "assignment-rhs-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-static-binder".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-static-return".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-binder".equals(entry.getDescriptor().getName())));
@@ -73,7 +72,8 @@ class TypeRecoveryObservabilityTest {
         assertTrue(record.getStages().stream()
                 .filter(stage -> "type-constraint".equals(stage.getStage()))
                 .anyMatch(stage -> stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")
-                        && stage.getArtifacts().getTypePassNames().contains("assignment-target-constraint")));
+                        && stage.getArtifacts().getTypePassNames().contains("assignment-target-constraint")
+                        && stage.getValidationSummary().contains("typeHotspots=")));
         assertTrue(trace.getPasses().stream()
                 .allMatch(pass -> pass.getExpectedType() != null && pass.getAfterType() != null));
     }
@@ -130,7 +130,8 @@ class TypeRecoveryObservabilityTest {
         assertTrue(record.getStages().stream()
                 .filter(stage -> "type-constraint".equals(stage.getStage()))
                 .anyMatch(stage -> stage.getArtifacts().getTypePassNames().contains("lambda-return-target-constraint")
-                        && stage.getArtifacts().getTypePassNames().contains("ternary-branch-target-constraint")));
+                        && stage.getArtifacts().getTypePassNames().contains("ternary-branch-target-constraint")
+                        && stage.getValidationSummary().contains("typePasses=")));
     }
 
     @Test

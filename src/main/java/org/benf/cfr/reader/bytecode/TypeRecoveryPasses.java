@@ -9,23 +9,11 @@ public final class TypeRecoveryPasses {
             "expression-available",
             "Pushes declared field type into initializer expressions before dump."
     );
-    public static final StructuredPassEntry ASSIGNMENT_RHS_HINT = entry(
-            "assignment-rhs-hint",
-            "type-recovery.structured-assignment",
-            "fully-structured",
-            "Pushes assignment target type into the right-hand expression before dump."
-    );
     public static final StructuredPassEntry INLINE_SYNTHETIC_CREATOR_HINT = entry(
             "inline-synthetic-creator-hint",
             "type-recovery.structured-assignment",
             "fully-structured",
             "Pushes creator variable type into inlined synthetic assignment expressions."
-    );
-    public static final StructuredPassEntry RETURN_VALUE_HINT = entry(
-            "return-value-hint",
-            "type-recovery.structured-return",
-            "fully-structured",
-            "Pushes method return type into returned expressions before dump."
     );
     public static final StructuredPassEntry CAST_CHILD_HINT = entry(
             "cast-child-hint",
@@ -102,9 +90,7 @@ public final class TypeRecoveryPasses {
 
     private static final List<StructuredPassEntry> PASSES = List.of(
             FIELD_INITIALIZER_HINT,
-            ASSIGNMENT_RHS_HINT,
             INLINE_SYNTHETIC_CREATOR_HINT,
-            RETURN_VALUE_HINT,
             CAST_CHILD_HINT,
             ASSIGNMENT_EXPRESSION_HINT,
             DISPLAY_TYPE_STATIC_BINDER,

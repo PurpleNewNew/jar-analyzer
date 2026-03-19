@@ -297,7 +297,7 @@ public final class ExpressionTypeHintHelper {
 
     private static void doImproveExpressionType(Expression expression, JavaTypeInstance normalizedExpectedType) {
         if (expression instanceof LambdaExpression) {
-            ((LambdaExpression) expression).improveResultType(normalizedExpectedType);
+            ((LambdaExpression) expression).applyTargetTypeConstraint(normalizedExpectedType);
             return;
         }
         if (expression instanceof ConstructorInvokationSimple) {
@@ -328,7 +328,7 @@ public final class ExpressionTypeHintHelper {
             return;
         }
         if (expression instanceof TernaryExpression) {
-            ((TernaryExpression) expression).improveBranchTypes(normalizedExpectedType);
+            ((TernaryExpression) expression).applyTargetTypeConstraint(normalizedExpectedType);
         }
     }
 }
