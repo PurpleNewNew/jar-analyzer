@@ -154,6 +154,22 @@ class SelfDecompileRegressionTest {
     }
 
     @Test
+    void shouldKeepJarAnalyzerBytecodeMainlineSemanticEdgeRunnerCompilable(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                locateJarAnalyzerClassFile("core", "BytecodeMainlineSemanticEdgeRunner.class"));
+
+        assertStructured(decompiled);
+        assertFalse(decompiled.contains("Map.Entry entry;"), decompiled);
+        assertFalse(decompiled.contains("HashSet callees ="), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "BytecodeMainlineSemanticEdgeRunner",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
     void shouldKeepJarAnalyzerInheritanceMapCompilable(@TempDir Path tempDir) throws IOException {
         String decompiled = CfrDecompilerRegressionSupport.decompileJava(
                 CfrDecompilerRegressionSupport.locateClassFile(InheritanceMap.class));
@@ -164,6 +180,22 @@ class SelfDecompileRegressionTest {
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "InheritanceMap",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
+    void shouldKeepJarAnalyzerConstraintFactAssemblerCompilable(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                locateJarAnalyzerClassFile("core", "facts", "ConstraintFactAssembler.class"));
+
+        assertStructured(decompiled);
+        assertFalse(decompiled.contains("Map.Entry entry;"), decompiled);
+        assertFalse(decompiled.contains("LinkedHashMap receiverVarByCallSiteKey ="), decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "ConstraintFactAssembler",
                 decompiled,
                 "-classpath",
                 System.getProperty("java.class.path"));
