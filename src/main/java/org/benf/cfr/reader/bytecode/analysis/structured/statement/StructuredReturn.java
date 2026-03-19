@@ -1,12 +1,15 @@
 package org.benf.cfr.reader.bytecode.analysis.structured.statement;
 
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
+import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PrimitiveBoxingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchIterator;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.MatchResultCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.TernaryExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -69,7 +72,23 @@ public class StructuredReturn extends AbstractStructuredStatement implements Box
         if (value == null) {
             return;
         }
-        ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType, TypeRecoveryPasses.RETURN_TARGET_CONSTRAINT);
+        if (value instanceof LambdaExpression) {
+            TypeRecoveryTracing.trace(
+                    TypeRecoveryPasses.RETURN_TARGET_CONSTRAINT,
+                    value,
+                    fnReturnType,
+                    () -> ((LambdaExpression) value).applyTargetTypeConstraint(fnReturnType)
+            );
+        } else if (value instanceof TernaryExpression) {
+            TypeRecoveryTracing.trace(
+                    TypeRecoveryPasses.RETURN_TARGET_CONSTRAINT,
+                    value,
+                    fnReturnType,
+                    () -> ((TernaryExpression) value).applyTargetTypeConstraint(fnReturnType)
+            );
+        } else {
+            ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType, TypeRecoveryPasses.RETURN_TARGET_CONSTRAINT);
+        }
         value = ExpressionTypeHintHelper.applyExpectedCastIfNeeded(value, fnReturnType);
     }
 

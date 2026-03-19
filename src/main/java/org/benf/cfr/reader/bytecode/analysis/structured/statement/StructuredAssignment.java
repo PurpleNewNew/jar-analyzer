@@ -9,6 +9,9 @@ import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.TernaryExpression;
+import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -87,11 +90,27 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
 
     public void applyTargetExpressionConstraints() {
         JavaTypeInstance expectedType = lvalue.getInferredJavaType().getJavaTypeInstance();
-        ExpressionTypeHintHelper.improveExpressionType(
-                rvalue,
-                expectedType,
-                TypeRecoveryPasses.ASSIGNMENT_TARGET_CONSTRAINT
-        );
+        if (rvalue instanceof LambdaExpression) {
+            TypeRecoveryTracing.trace(
+                    TypeRecoveryPasses.ASSIGNMENT_TARGET_CONSTRAINT,
+                    rvalue,
+                    expectedType,
+                    () -> ((LambdaExpression) rvalue).applyTargetTypeConstraint(expectedType)
+            );
+        } else if (rvalue instanceof TernaryExpression) {
+            TypeRecoveryTracing.trace(
+                    TypeRecoveryPasses.ASSIGNMENT_TARGET_CONSTRAINT,
+                    rvalue,
+                    expectedType,
+                    () -> ((TernaryExpression) rvalue).applyTargetTypeConstraint(expectedType)
+            );
+        } else {
+            ExpressionTypeHintHelper.improveExpressionType(
+                    rvalue,
+                    expectedType,
+                    TypeRecoveryPasses.ASSIGNMENT_TARGET_CONSTRAINT
+            );
+        }
         rvalue = ExpressionTypeHintHelper.applyExpectedCastIfNeeded(rvalue, expectedType);
     }
 

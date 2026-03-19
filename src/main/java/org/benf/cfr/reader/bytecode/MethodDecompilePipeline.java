@@ -24,6 +24,11 @@ final class MethodDecompilePipeline {
     private final VariableRecoveryStage variableRecoveryStage;
     private final TypeConstraintStage typeConstraintStage;
     private final OutputPolishStage outputPolishStage;
+    private final MethodStage variablePreparationMethodStage;
+    private final MethodStage modernSemanticsMethodStage;
+    private final MethodStage variableRecoveryMethodStage;
+    private final MethodStage typeConstraintMethodStage;
+    private final MethodStage outputMethodStage;
 
     MethodDecompilePipeline(MethodAnalysisContext context) {
         PatternSemanticsRewriter patternSemanticsRewriter = new PatternSemanticsRewriter(context.modernFeatures);
@@ -35,6 +40,36 @@ final class MethodDecompilePipeline {
         this.variableRecoveryStage = new VariableRecoveryStage();
         this.typeConstraintStage = new TypeConstraintStage();
         this.outputPolishStage = new OutputPolishStage(structureRecoveryPipeline);
+        this.variablePreparationMethodStage = new MethodStage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT) {
+            @Override
+            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+                variablePreparationStage.apply(block, context);
+            }
+        };
+        this.modernSemanticsMethodStage = new MethodStage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT) {
+            @Override
+            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+                modernSemanticsStage.apply(block, context);
+            }
+        };
+        this.variableRecoveryMethodStage = new MethodStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement()) {
+            @Override
+            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+                variableRecoveryStage.apply(block, context);
+            }
+        };
+        this.typeConstraintMethodStage = new MethodStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement()) {
+            @Override
+            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+                typeConstraintStage.apply(block, context);
+            }
+        };
+        this.outputMethodStage = new MethodStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT) {
+            @Override
+            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+                outputPolishStage.apply(block, context);
+            }
+        };
     }
 
     Op04StructuredStatement analyse(List<Op03SimpleStatement> op03SimpleParseNodes, MethodAnalysisContext context) {
@@ -42,31 +77,56 @@ final class MethodDecompilePipeline {
         runStage(INITIAL_STAGE, INITIAL_INPUT, block, context, () -> initialStructuringStage.apply(block, context));
         runStage(CONTROL_FLOW_STAGE, CONTROL_FLOW_INPUT, block, context, () -> controlFlowRecoveryStage.apply(block, context));
         if (!block.isFullyStructured()) {
-            skipStage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
-            skipStage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
-            skipStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement(), block, context, "input-requirement-not-met");
-            skipStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, "input-requirement-not-met");
-            skipStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
-            context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
-            return block;
+            return abortRemaining(block, context,
+                    variablePreparationMethodStage,
+                    modernSemanticsMethodStage,
+                    variableRecoveryMethodStage,
+                    typeConstraintMethodStage,
+                    outputMethodStage);
         }
-        runStage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT, block, context, () -> variablePreparationStage.apply(block, context));
-        runStage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT, block, context, () -> modernSemanticsStage.apply(block, context));
+        if (!runStageRequiringStructure(variablePreparationMethodStage, block, context)) {
+            return abortRemaining(block, context,
+                    modernSemanticsMethodStage,
+                    variableRecoveryMethodStage,
+                    typeConstraintMethodStage,
+                    outputMethodStage);
+        }
+        if (!runStageRequiringStructure(modernSemanticsMethodStage, block, context)) {
+            return abortRemaining(block, context,
+                    variableRecoveryMethodStage,
+                    typeConstraintMethodStage,
+                    outputMethodStage);
+        }
+        if (!runStageRequiringStructure(variableRecoveryMethodStage, block, context)) {
+            return abortRemaining(block, context,
+                    typeConstraintMethodStage,
+                    outputMethodStage);
+        }
+        if (!runStageRequiringStructure(typeConstraintMethodStage, block, context)) {
+            return abortRemaining(block, context, outputMethodStage);
+        }
+        runStageRequiringStructure(outputMethodStage, block, context);
+        return block;
+    }
+
+    private boolean runStageRequiringStructure(MethodStage methodStage,
+                                               Op04StructuredStatement block,
+                                               MethodAnalysisContext context) {
         if (!block.isFullyStructured()) {
-            skipStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement(), block, context, "input-requirement-not-met");
-            skipStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
-            context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
-            return block;
+            skipStage(methodStage.stage(), methodStage.inputRequirement(), block, context, "input-requirement-not-met");
+            return false;
         }
-        runStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement(), block, context, () -> variableRecoveryStage.apply(block, context));
-        if (!block.isFullyStructured()) {
-            skipStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, "input-requirement-not-met");
-            skipStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
-            context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
-            return block;
+        runStage(methodStage.stage(), methodStage.inputRequirement(), block, context, () -> methodStage.apply(block, context));
+        return block.isFullyStructured();
+    }
+
+    private Op04StructuredStatement abortRemaining(Op04StructuredStatement block,
+                                                   MethodAnalysisContext context,
+                                                   MethodStage... remainingStages) {
+        for (MethodStage remainingStage : remainingStages) {
+            skipStage(remainingStage.stage(), remainingStage.inputRequirement(), block, context, "input-requirement-not-met");
         }
-        runStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, () -> typeConstraintStage.apply(block, context));
-        runStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, () -> outputPolishStage.apply(block, context));
+        context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
         return block;
     }
 
@@ -111,5 +171,25 @@ final class MethodDecompilePipeline {
                 context.typeRecoveryTrace.getPasses().size(),
                 reason
         );
+    }
+
+    private abstract static class MethodStage {
+        private final String stage;
+        private final String inputRequirement;
+
+        private MethodStage(String stage, String inputRequirement) {
+            this.stage = stage;
+            this.inputRequirement = inputRequirement;
+        }
+
+        private String stage() {
+            return stage;
+        }
+
+        private String inputRequirement() {
+            return inputRequirement;
+        }
+
+        abstract void apply(Op04StructuredStatement block, MethodAnalysisContext context);
     }
 }

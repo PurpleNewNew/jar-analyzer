@@ -138,6 +138,10 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
     }
 
     public void improveResultType(JavaTypeInstance expectedFunctionalType) {
+        applyTargetTypeConstraint(expectedFunctionalType);
+    }
+
+    public void applyTargetTypeConstraint(JavaTypeInstance expectedFunctionalType) {
         harmonizeFunctionalType(expectedFunctionalType);
         List<JavaTypeInstance> expectedArgTypes = getExpectedArgTypes(expectedFunctionalType);
         if (expectedArgTypes != null) {
@@ -156,14 +160,14 @@ public class LambdaExpression extends AbstractExpression implements LambdaExpres
                 : null;
         if (constructor != null) {
             TypeRecoveryTracing.trace(
-                    TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT,
+                    TypeRecoveryPasses.LAMBDA_RETURN_TARGET_CONSTRAINT,
                     constructor,
                     expectedReturnType,
                     () -> constructor.improveConstructionType(expectedReturnType)
             );
             return;
         }
-        ExpressionTypeHintHelper.improveExpressionType(resultExpression, expectedReturnType, TypeRecoveryPasses.LAMBDA_RETURN_TARGET_HINT);
+        ExpressionTypeHintHelper.improveExpressionType(resultExpression, expectedReturnType, TypeRecoveryPasses.LAMBDA_RETURN_TARGET_CONSTRAINT);
     }
 
     private void harmonizeFunctionalType(JavaTypeInstance expectedFunctionalType) {

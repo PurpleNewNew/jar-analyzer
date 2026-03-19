@@ -77,11 +77,15 @@ public class TernaryExpression extends AbstractExpression implements BoxingProce
     }
 
     public void improveBranchTypes(org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance targetType) {
+        applyTargetTypeConstraint(targetType);
+    }
+
+    public void applyTargetTypeConstraint(org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance targetType) {
         if (targetType == null) {
             return;
         }
-        ExpressionTypeHintHelper.improveExpressionType(lhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
-        ExpressionTypeHintHelper.improveExpressionType(rhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_HINT);
+        ExpressionTypeHintHelper.improveExpressionType(lhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_CONSTRAINT);
+        ExpressionTypeHintHelper.improveExpressionType(rhs, targetType, TypeRecoveryPasses.TERNARY_BRANCH_TARGET_CONSTRAINT);
         JavaTypeInstance currentType = getInferredJavaType().getJavaTypeInstance();
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, targetType)) {
             getInferredJavaType().forceType(targetType, true);

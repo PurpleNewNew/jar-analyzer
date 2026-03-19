@@ -87,17 +87,17 @@ public final class TypeRecoveryPasses {
             "expression-available",
             "Recursively propagates type hints into nested expressions."
     );
-    public static final StructuredPassEntry LAMBDA_RETURN_TARGET_HINT = entry(
-            "lambda-return-target-hint",
-            "type-recovery.lambda",
+    public static final StructuredPassEntry LAMBDA_RETURN_TARGET_CONSTRAINT = entry(
+            "lambda-return-target-constraint",
+            "type-constraint",
             "expression-available",
-            "Pushes functional-interface return type into lambda result constructors."
+            "Pushes functional-interface return type into lambda result expressions before output."
     );
-    public static final StructuredPassEntry TERNARY_BRANCH_TARGET_HINT = entry(
-            "ternary-branch-target-hint",
-            "type-recovery.ternary",
+    public static final StructuredPassEntry TERNARY_BRANCH_TARGET_CONSTRAINT = entry(
+            "ternary-branch-target-constraint",
+            "type-constraint",
             "expression-available",
-            "Pushes ternary target type into both branch expressions."
+            "Pushes ternary target type into both branch expressions before output."
     );
 
     private static final List<StructuredPassEntry> PASSES = List.of(
@@ -115,8 +115,8 @@ public final class TypeRecoveryPasses {
             VARIABLE_ASSIGNMENT_CONSTRAINT,
             RETURN_TARGET_CONSTRAINT,
             NESTED_EXPRESSION_HINT,
-            LAMBDA_RETURN_TARGET_HINT,
-            TERNARY_BRANCH_TARGET_HINT
+            LAMBDA_RETURN_TARGET_CONSTRAINT,
+            TERNARY_BRANCH_TARGET_CONSTRAINT
     );
 
     private TypeRecoveryPasses() {
