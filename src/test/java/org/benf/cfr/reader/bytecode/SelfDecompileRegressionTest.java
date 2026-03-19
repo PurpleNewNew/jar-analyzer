@@ -6,6 +6,7 @@ import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.core.CoreRunner;
 import me.n1ar4.jar.analyzer.core.InheritanceMap;
 import me.n1ar4.jar.analyzer.core.JspCompileRunner;
+import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
 import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.ClassLookupService;
 import me.n1ar4.jar.analyzer.core.asm.StringMethodVisitor;
@@ -287,6 +288,25 @@ class SelfDecompileRegressionTest {
         CfrDecompilerRegressionSupport.compileJava(
                 tempDir,
                 "CoreRunner",
+                decompiled,
+                "-classpath",
+                System.getProperty("java.class.path"));
+    }
+
+    @Test
+    void shouldKeepJarAnalyzerBuildBytecodeWorkspaceIncrementCompilable(@TempDir Path tempDir) throws IOException {
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(
+                CfrDecompilerRegressionSupport.locateClassFile(BuildBytecodeWorkspace.class));
+
+        assertStructured(decompiled);
+        assertFalse(decompiled.contains("+ true"), decompiled);
+        assertTrue(
+                decompiled.contains("cancelRemaining(futures, buildBytecodeWorkspace + 1);")
+                        || decompiled.contains("cancelRemaining(futures, i + 1);"),
+                decompiled);
+        CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "BuildBytecodeWorkspace",
                 decompiled,
                 "-classpath",
                 System.getProperty("java.class.path"));

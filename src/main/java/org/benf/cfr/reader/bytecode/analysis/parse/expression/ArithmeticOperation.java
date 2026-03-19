@@ -90,10 +90,22 @@ public class ArithmeticOperation extends AbstractExpression implements BoxingPro
 
     @Override
     public Dumper dumpInner(Dumper d) {
-        lhs.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.TRUE);
+        dumpOperandForArithmetic(d, lhs, Troolean.TRUE);
         d.operator(" " + op.getShowAs() + " ");
-        rhs.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.FALSE);
+        dumpOperandForArithmetic(d, rhs, Troolean.FALSE);
         return d;
+    }
+
+    private void dumpOperandForArithmetic(Dumper d, Expression expression, Troolean lhs) {
+        if (!op.isBoolSafe() && expression instanceof Literal) {
+            Literal literal = (Literal) expression;
+            Boolean boolValue = literal.getValue().getMaybeBoolValue();
+            if (boolValue != null) {
+                (boolValue ? Literal.INT_ONE : Literal.INT_ZERO).dumpWithOuterPrecedence(d, getPrecedence(), lhs);
+                return;
+            }
+        }
+        expression.dumpWithOuterPrecedence(d, getPrecedence(), lhs);
     }
 
     @Override
