@@ -59,11 +59,18 @@ public class StructuredReturn extends AbstractStructuredStatement implements Box
         if (value == null) {
             dumper.keyword("return").print(";");
         } else {
-            ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType, TypeRecoveryPasses.RETURN_VALUE_HINT);
             dumper.keyword("return ").dump(value).print(";");
         }
         dumper.newln();
         return dumper;
+    }
+
+    public void applyTypeConstraints() {
+        if (value == null) {
+            return;
+        }
+        ExpressionTypeHintHelper.improveExpressionType(value, fnReturnType, TypeRecoveryPasses.RETURN_TARGET_CONSTRAINT);
+        value = ExpressionTypeHintHelper.applyExpectedCastIfNeeded(value, fnReturnType);
     }
 
     public Expression getValue() {

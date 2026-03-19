@@ -31,7 +31,9 @@ class TypeRecoveryObservabilityTest {
         assertTrue(passes.stream().anyMatch(entry -> "display-type-static-return".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-binder".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-return".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "assignment-target-constraint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "variable-assignment-constraint".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "return-target-constraint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "lambda-return-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "ternary-branch-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().allMatch(entry -> !entry.getDescriptor().allowsStructuralChange()));
@@ -62,7 +64,7 @@ class TypeRecoveryObservabilityTest {
                         && pass.getDetail() != null
                         && pass.getDetail().contains("local=")));
         assertTrue(trace.getPasses().stream()
-                .anyMatch(pass -> "assignment-rhs-hint".equals(pass.getPass().getDescriptor().getName())
+                .anyMatch(pass -> "assignment-target-constraint".equals(pass.getPass().getDescriptor().getName())
                         && "ConstructorInvokationSimple".equals(pass.getExpressionKind())));
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "lambda-return-target-hint".equals(pass.getPass().getDescriptor().getName())
@@ -70,7 +72,8 @@ class TypeRecoveryObservabilityTest {
                         && pass.isChanged()));
         assertTrue(record.getStages().stream()
                 .filter(stage -> "type-constraint".equals(stage.getStage()))
-                .anyMatch(stage -> stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")));
+                .anyMatch(stage -> stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")
+                        && stage.getArtifacts().getTypePassNames().contains("assignment-target-constraint")));
         assertTrue(trace.getPasses().stream()
                 .allMatch(pass -> pass.getExpectedType() != null && pass.getAfterType() != null));
     }
@@ -92,6 +95,37 @@ class TypeRecoveryObservabilityTest {
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "ternary-branch-target-hint".equals(pass.getPass().getDescriptor().getName())
                         && "ConstructorInvokationSimple".equals(pass.getExpressionKind())));
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "return-target-constraint".equals(pass.getPass().getDescriptor().getName())
+                        && "TernaryExpression".equals(pass.getExpressionKind())
+                        && pass.getExpectedType() != null
+                        && pass.getExpectedType().contains("java.util.Collection")));
+    }
+
+    @Test
+    void shouldCaptureReturnTargetConstraintsForLambdaTernary(@TempDir Path tempDir) throws Exception {
+        Path classFile = CfrDecompilerRegressionSupport.compileFixture(
+                tempDir,
+                "type-recovery",
+                "LambdaTernaryTypingSample",
+                "--release", "21");
+
+        ClassFile loadedClass = loadClass(classFile);
+        loadedClass.dump(new ToStringDumper());
+
+        Method method = loadedClass.getMethodByName("choose").get(0);
+        TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
+
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "return-target-constraint".equals(pass.getPass().getDescriptor().getName())
+                        && "LambdaExpression".equals(pass.getExpressionKind())
+                        && pass.getExpectedType() != null
+                        && pass.getExpectedType().contains("java.util.function.Supplier")));
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "ternary-branch-target-hint".equals(pass.getPass().getDescriptor().getName())
+                        && "ConstructorInvokationSimple".equals(pass.getExpressionKind())
+                        && pass.getExpectedType() != null
+                        && pass.getExpectedType().contains("java.util.List")));
     }
 
     @Test

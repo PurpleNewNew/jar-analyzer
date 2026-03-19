@@ -81,15 +81,18 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         } else {
             dumper.dump(lvalue);
         }
+        dumper.operator(" = ").dump(rvalue).endCodeln();
+        return dumper;
+    }
+
+    public void applyTargetExpressionConstraints() {
         JavaTypeInstance expectedType = lvalue.getInferredJavaType().getJavaTypeInstance();
         ExpressionTypeHintHelper.improveExpressionType(
                 rvalue,
                 expectedType,
-                TypeRecoveryPasses.ASSIGNMENT_RHS_HINT
+                TypeRecoveryPasses.ASSIGNMENT_TARGET_CONSTRAINT
         );
         rvalue = ExpressionTypeHintHelper.applyExpectedCastIfNeeded(rvalue, expectedType);
-        dumper.operator(" = ").dump(rvalue).endCodeln();
-        return dumper;
     }
 
     public TypeConstraintEffect applyTypeConstraints() {

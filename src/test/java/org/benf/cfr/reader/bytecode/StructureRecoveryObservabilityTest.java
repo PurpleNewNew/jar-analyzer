@@ -117,7 +117,8 @@ class StructureRecoveryObservabilityTest {
         assertTrue(record.getStages().stream()
                 .filter(stage -> "type-constraint".equals(stage.getStage()))
                 .anyMatch(stage -> stage.getAfterTypePassCount() > stage.getBeforeTypePassCount()
-                        && stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")));
+                        && stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")
+                        && stage.getArtifacts().getTypePassNames().contains("return-target-constraint")));
         assertTrue(record.getStages().stream()
                 .allMatch(stage -> stage.getArtifacts().getFailedStructureInvariants().isEmpty()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "initial-cleanup".equals(phase.getPhase()) && !phase.isSkipped()));

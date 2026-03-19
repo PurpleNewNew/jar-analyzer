@@ -4,6 +4,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredReturn;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.util.collections.ListFactory;
@@ -22,9 +23,14 @@ final class TypeConstraintStage {
         block.linearizeStatementsInto(statements);
         for (StructuredStatement statement : statements) {
             if (!(statement instanceof StructuredAssignment)) {
+                if (statement instanceof StructuredReturn) {
+                    ((StructuredReturn) statement).applyTypeConstraints();
+                }
                 continue;
             }
-            propagateAssignmentConstraint((StructuredAssignment) statement, context);
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            assignment.applyTargetExpressionConstraints();
+            propagateAssignmentConstraint(assignment, context);
         }
     }
 
