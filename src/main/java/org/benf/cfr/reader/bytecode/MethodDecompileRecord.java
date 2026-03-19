@@ -173,6 +173,14 @@ public final class MethodDecompileRecord {
             return before != null && after != null && before.hasStructuralDelta(after);
         }
 
+        public boolean hasValidationFailures() {
+            return artifacts.hasFailedStructureInvariants();
+        }
+
+        public String getValidationSummary() {
+            return artifacts.describe(stage, inputRequirement, skipped, skipReason);
+        }
+
         public StageArtifacts getArtifacts() {
             return artifacts;
         }
@@ -284,6 +292,36 @@ public final class MethodDecompileRecord {
 
         public int getChangedTypePassCount() {
             return changedTypePassCount;
+        }
+
+        public boolean hasFailedStructureInvariants() {
+            return !failedStructureInvariants.isEmpty();
+        }
+
+        public boolean hasVariableHotspots() {
+            return variablePassesWithStructuralDelta > 0;
+        }
+
+        public boolean hasTypeHotspots() {
+            return changedTypePassCount > 0;
+        }
+
+        public String describe(String stage,
+                               String inputRequirement,
+                               boolean skipped,
+                               String skipReason) {
+            StringBuilder builder = new StringBuilder();
+            builder.append(stage).append('[').append(inputRequirement).append(']');
+            if (skipped) {
+                builder.append(" skipped=").append(skipReason);
+            }
+            builder.append(" structurePhases=").append(structurePhaseNames.size());
+            builder.append(" failedStructureInvariants=").append(failedStructureInvariants.size());
+            builder.append(" variablePasses=").append(variablePassNames.size());
+            builder.append(" variableHotspots=").append(variablePassesWithStructuralDelta);
+            builder.append(" typePasses=").append(typePassNames.size());
+            builder.append(" typeHotspots=").append(changedTypePassCount);
+            return builder.toString();
         }
     }
 }

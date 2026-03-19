@@ -303,8 +303,12 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         ResolvedCreatorType resolvedCreatorType = resolveLocalVariableCreatorType(localVariable);
         if (resolvedCreatorType == null || resolvedCreatorType.type == null) return null;
         JavaTypeInstance creatorType = resolvedCreatorType.type;
+        JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (resolvedCreatorType.matchQuality == MatchQuality.NEARBY_NAMED && !isObjectLike(currentType)) {
+            return currentType;
+        }
         if (shouldPreserveExistingDeclarationType(localVariable, creatorType, resolvedCreatorType.matchQuality)) {
-            return localVariable.getInferredJavaType().getJavaTypeInstance();
+            return currentType;
         }
 
         localVariable.getInferredJavaType().forceType(creatorType, true);
@@ -313,6 +317,13 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
         }
         return creatorType;
+    }
+
+    private boolean isObjectLike(JavaTypeInstance type) {
+        if (type == null) return true;
+        if (TypeConstants.OBJECT.equals(type)) return true;
+        JavaTypeInstance deGenerifiedType = type.getDeGenerifiedType();
+        return deGenerifiedType != null && TypeConstants.OBJECT.equals(deGenerifiedType);
     }
 
     private boolean shouldPreserveExistingDeclarationType(LocalVariable localVariable,
