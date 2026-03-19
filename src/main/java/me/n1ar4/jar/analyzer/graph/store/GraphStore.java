@@ -35,9 +35,14 @@ public final class GraphStore {
             return neo4jSnapshot;
         } catch (Exception ex) {
             logger.warn("load neo4j graph snapshot fail: key={} err={}", resolvedProjectKey, ex.toString());
-            throw ex instanceof IllegalStateException
-                    ? (IllegalStateException) ex
-                    : new IllegalStateException("graph_snapshot_load_failed", ex);
+            if (ex instanceof IllegalStateException state) {
+                String message = state.getMessage();
+                if ("graph_snapshot_missing_rebuild".equals(message)) {
+                    throw state;
+                }
+                throw state;
+            }
+            throw new IllegalStateException("graph_snapshot_load_failed", ex);
         }
     }
 
@@ -56,9 +61,14 @@ public final class GraphStore {
             return flowSnapshot;
         } catch (Exception ex) {
             logger.warn("load neo4j flow snapshot fail: key={} err={}", resolvedProjectKey, ex.toString());
-            throw ex instanceof IllegalStateException
-                    ? (IllegalStateException) ex
-                    : new IllegalStateException("graph_flow_snapshot_load_failed", ex);
+            if (ex instanceof IllegalStateException state) {
+                String message = state.getMessage();
+                if ("graph_snapshot_missing_rebuild".equals(message)) {
+                    throw new IllegalStateException("graph_flow_snapshot_missing_rebuild", state);
+                }
+                throw state;
+            }
+            throw new IllegalStateException("graph_flow_snapshot_load_failed", ex);
         }
     }
 
@@ -77,9 +87,14 @@ public final class GraphStore {
             return querySnapshot;
         } catch (Exception ex) {
             logger.warn("load neo4j query snapshot fail: key={} err={}", resolvedProjectKey, ex.toString());
-            throw ex instanceof IllegalStateException
-                    ? (IllegalStateException) ex
-                    : new IllegalStateException("graph_query_snapshot_load_failed", ex);
+            if (ex instanceof IllegalStateException state) {
+                String message = state.getMessage();
+                if ("graph_snapshot_missing_rebuild".equals(message)) {
+                    throw new IllegalStateException("graph_query_snapshot_missing_rebuild", state);
+                }
+                throw state;
+            }
+            throw new IllegalStateException("graph_query_snapshot_load_failed", ex);
         }
     }
 

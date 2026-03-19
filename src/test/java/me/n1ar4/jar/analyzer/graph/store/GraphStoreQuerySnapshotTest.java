@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -115,6 +116,30 @@ class GraphStoreQuerySnapshotTest {
             assertTrue(snapshot.getOutgoingView(3L).isEmpty());
             assertNull(snapshot.getNode(10L));
             assertEquals(1L, snapshot.findMethodNodeId("demo/QueryLite", "entry", "()V", 1));
+        } finally {
+            FACADE.deleteProjectStore(projectKey);
+            Neo4jGraphSnapshotLoader.invalidate(projectKey);
+        }
+    }
+
+    @Test
+    void querySnapshotShouldRequireRebuildWhenBuildSeqMismatches() {
+        String projectKey = "query-mismatch-" + Long.toHexString(System.nanoTime());
+        try {
+            prepareReadyProject(projectKey, 99L);
+            FACADE.write(projectKey, 30_000L, tx -> {
+                tx.execute("MATCH (n) DETACH DELETE n");
+                var meta = tx.createNode(Label.label("JAMeta"));
+                meta.setProperty("key", "build_meta");
+                meta.setProperty("build_seq", 98L);
+                methodNode(tx, 1L, "demo/QueryMismatch", "entry", "()V");
+                return null;
+            });
+            Neo4jGraphSnapshotLoader.invalidate(projectKey);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> new GraphStore().loadQuerySnapshot(projectKey));
+            assertEquals("graph_query_snapshot_missing_rebuild", ex.getMessage());
         } finally {
             FACADE.deleteProjectStore(projectKey);
             Neo4jGraphSnapshotLoader.invalidate(projectKey);

@@ -44,6 +44,7 @@ public final class Neo4jGraphSnapshotLoader {
     private static final ProjectGraphStoreFacade PROJECT_STORE = ProjectGraphStoreFacade.getInstance();
     private static final long BUILD_SEQ_TIMEOUT_MS = 30_000L;
     private static final long SNAPSHOT_LOAD_TIMEOUT_MS = 120_000L;
+    private static final int SNAPSHOT_RETRY_LIMIT = 3;
 
     private static final Map<String, CachedSnapshot> CACHE = new ConcurrentHashMap<>();
     private static final Map<String, CachedSnapshot> FLOW_CACHE = new ConcurrentHashMap<>();
@@ -102,33 +103,16 @@ public final class Neo4jGraphSnapshotLoader {
         if (isUsable(cached, expectedBuildSeq)) {
             return cached.snapshot;
         }
-        while (true) {
+        for (int attempt = 1; attempt <= SNAPSHOT_RETRY_LIMIT; attempt++) {
             FutureTask<CachedSnapshot> task = new FutureTask<>(() -> {
                 LoadedSnapshot loaded = PROJECT_STORE.read(key, SNAPSHOT_LOAD_TIMEOUT_MS, loader);
                 return new CachedSnapshot(loaded.buildSeq, loaded.snapshot);
             });
             FutureTask<CachedSnapshot> active = loads.putIfAbsent(key, task);
-            if (active == null) {
-                try {
-                    task.run();
-                    CachedSnapshot loaded = task.get();
-                    long currentBuildSeq = resolveExpectedBuildSeq(key);
-                    if (isUsable(loaded, currentBuildSeq)) {
-                        cache.put(key, loaded);
-                        return loaded.snapshot;
-                    }
-                    CachedSnapshot refreshed = cache.get(key);
-                    if (isUsable(refreshed, currentBuildSeq)) {
-                        return refreshed.snapshot;
-                    }
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("graph_snapshot_load_interrupted", ex);
-                } catch (ExecutionException ex) {
-                    throw rethrow(ex.getCause());
-                } finally {
-                    loads.remove(key, task);
-                }
+            boolean owner = active == null;
+            if (owner) {
+                active = task;
+                task.run();
             }
             try {
                 CachedSnapshot loaded = active.get();
@@ -141,13 +125,22 @@ public final class Neo4jGraphSnapshotLoader {
                 if (isUsable(refreshed, currentBuildSeq)) {
                     return refreshed.snapshot;
                 }
+                if (currentBuildSeq != expectedBuildSeq) {
+                    expectedBuildSeq = currentBuildSeq;
+                    continue;
+                }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("graph_snapshot_load_interrupted", ex);
             } catch (ExecutionException ex) {
                 throw rethrow(ex.getCause());
+            } finally {
+                if (owner) {
+                    loads.remove(key, task);
+                }
             }
         }
+        throw new IllegalStateException("graph_snapshot_missing_rebuild");
     }
 
     private static long resolveExpectedBuildSeq(String projectKey) {

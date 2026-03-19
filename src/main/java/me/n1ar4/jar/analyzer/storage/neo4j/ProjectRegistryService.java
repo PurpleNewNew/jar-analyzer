@@ -55,6 +55,8 @@ public final class ProjectRegistryService {
     private static final String REGISTRY_STATE_OK = "ok";
     private static final String REGISTRY_STATE_MISSING = "missing";
     private static final String REGISTRY_STATE_UNAVAILABLE = "unavailable";
+    private static final int REGISTRY_REPLACE_RETRY_COUNT = 5;
+    private static final long REGISTRY_REPLACE_RETRY_DELAY_MS = 100L;
 
     private final Object lock = new Object();
 
@@ -835,6 +837,7 @@ public final class ProjectRegistryService {
     }
 
     private void persistLocked() {
+        Path temp = null;
         try {
             JSONObject root = new JSONObject();
             root.put("activeProjectKey", activeProjectKey);
@@ -860,24 +863,58 @@ public final class ProjectRegistryService {
             root.put("projects", arr);
             String json = JSON.toJSONString(root);
             Path target = REGISTRY_FILE.toAbsolutePath().normalize();
-            Path temp = target.resolveSibling(target.getFileName() + ".tmp");
             Path parent = target.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
+            temp = Files.createTempFile(parent, target.getFileName() + ".tmp-", ".json");
             Files.writeString(temp, json, StandardCharsets.UTF_8);
-            try {
-                Files.move(temp, target,
-                        StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (Exception ex) {
-                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
-            }
+            replaceRegistryFile(temp, target);
             setRegistryStatusLocked(REGISTRY_STATE_OK, "");
         } catch (Exception ex) {
             logger.error("save project registry fail: {}", ex.toString(), ex);
             throw new IllegalStateException("project_registry_persist_failed", ex);
+        } finally {
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (Exception ex) {
+                    logger.debug("cleanup project registry temp file fail: {}", ex.toString());
+                }
+            }
         }
+    }
+
+    static void replaceRegistryFile(Path temp, Path target) throws Exception {
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= REGISTRY_REPLACE_RETRY_COUNT; attempt++) {
+            try {
+                try {
+                    Files.move(temp, target,
+                            StandardCopyOption.REPLACE_EXISTING,
+                            StandardCopyOption.ATOMIC_MOVE);
+                } catch (Exception ex) {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (Exception ex) {
+                lastFailure = ex;
+                if (attempt >= REGISTRY_REPLACE_RETRY_COUNT) {
+                    break;
+                }
+                try {
+                    Thread.sleep(REGISTRY_REPLACE_RETRY_DELAY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    IllegalStateException failure = new IllegalStateException("project_registry_persist_failed", interrupted);
+                    if (lastFailure != null) {
+                        failure.addSuppressed(lastFailure);
+                    }
+                    throw failure;
+                }
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("project_registry_persist_failed") : lastFailure;
     }
 
     private void setRegistryStatusLocked(String state, String message) {
