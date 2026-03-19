@@ -43,7 +43,6 @@ public class HeadlessSmokeTest {
     public void testHeadlessPipelineDoesNotThrow() {
         try {
             System.setProperty("java.awt.headless", "true");
-            System.setProperty("jar.analyzer.taint.summary.enable", "false");
 
             Path file = FixtureJars.springbootTestJar();
             ProjectRuntimeContext.updateResolveInnerJars(false);

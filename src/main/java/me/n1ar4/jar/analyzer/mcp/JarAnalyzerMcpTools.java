@@ -79,6 +79,9 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(register, "alias", false, "Display alias (optional).");
         McpToolSchemas.addString(register, "runtimePath", false, "Runtime path (optional).");
         McpToolSchemas.addString(register, "resolveNestedJars", false, "true|false (optional).");
+        McpToolSchemas.addString(register, "jdkModules", false, "JDK modules policy core|web|all|csv (optional).");
+        McpToolSchemas.addString(register, "callGraphProfile", false, "Call graph profile fast|balanced|precision (optional).");
+        McpToolSchemas.addString(register, "taintPropagationMode", false, "Taint propagation mode strict|balanced (optional).");
         reg.add(new McpTool("project_register", register, (ctx, args) -> {
             try {
                 JSONObject body = new JSONObject();
@@ -86,6 +89,9 @@ public final class JarAnalyzerMcpTools {
                 addBodyIf(body, "alias", args.getString("alias"));
                 addBodyIf(body, "runtimePath", args.getString("runtimePath"));
                 addBodyIf(body, "resolveNestedJars", args.getString("resolveNestedJars"));
+                addBodyIf(body, "jdkModules", args.getString("jdkModules"));
+                addBodyIf(body, "callGraphProfile", args.getString("callGraphProfile"));
+                addBodyIf(body, "taintPropagationMode", args.getString("taintPropagationMode"));
                 return callPost(api, "/api/projects/register", body);
             } catch (Exception ex) {
                 return McpToolResult.error(ex.getMessage());

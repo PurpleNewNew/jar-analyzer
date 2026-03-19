@@ -57,7 +57,7 @@ class CallGraphPlanTest {
                 IllegalArgumentException.class,
                 () -> CallGraphPlan.resolve("unsupported-profile")
         );
-        assertTrue(ex.getMessage().contains("jar.analyzer.callgraph.profile"));
+        assertTrue(ex.getMessage().contains("invalid callgraph profile"));
         assertTrue(ex.getMessage().contains("fast|balanced|precision"));
     }
 }

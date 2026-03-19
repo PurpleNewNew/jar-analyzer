@@ -4,6 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
@@ -24,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CoreRunnerCallGraphProfileTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
         GraphStore.invalidateCache();
         EngineContext.setEngine(null);
         DatabaseManager.clearAllData();
@@ -55,8 +55,8 @@ class CoreRunnerCallGraphProfileTest {
 
     @Test
     void fastProfileShouldRouteToBytecodeMainline() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_FAST);
         Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_FAST));
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
@@ -76,8 +76,8 @@ class CoreRunnerCallGraphProfileTest {
 
     @Test
     void precisionProfileShouldUsePrecisionBudgetProfile() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_PRECISION);
         Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_PRECISION));
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
@@ -129,8 +129,8 @@ class CoreRunnerCallGraphProfileTest {
 
     @Test
     void precisionProfileShouldEscalateSemanticConcreteReceiverSite() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_PRECISION);
         Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_PRECISION));
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
@@ -166,12 +166,11 @@ class CoreRunnerCallGraphProfileTest {
 
     @Test
     void invalidProfileShouldFailFast() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, "unsupported-profile");
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> CoreRunner.run(FixtureJars.callbackTestJar(), null, false, null)
+                () -> profileModel("unsupported-profile")
         );
-        assertTrue(ex.getMessage().contains("jar.analyzer.callgraph.profile"));
+        assertTrue(ex.getMessage().contains("invalid callgraph profile"));
         assertTrue(ex.getMessage().contains("fast|balanced|precision"));
     }
 
@@ -179,5 +178,11 @@ class CoreRunnerCallGraphProfileTest {
         ConfigFile config = new ConfigFile();
         config.setDbPath("test-db");
         return config;
+    }
+
+    private static ProjectModel profileModel(String profile) {
+        return ProjectModel.builder()
+                .callGraphProfile(profile)
+                .build();
     }
 }

@@ -12,6 +12,10 @@ package me.n1ar4.jar.analyzer.cli;
 
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
+import me.n1ar4.jar.analyzer.core.CallGraphPlan;
+import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
+
+import java.util.Locale;
 
 @Parameters(commandDescription = "build database")
 public class BuildCmd {
@@ -24,6 +28,10 @@ public class BuildCmd {
     private boolean innerJars;
     @Parameter(names = {"--jdk-modules"}, description = "jdk modules policy: core|web|all|csv")
     private String jdkModules = "core";
+    @Parameter(names = {"--callgraph-profile"}, description = "call graph profile: fast|balanced|precision")
+    private String callGraphProfile = CallGraphPlan.PROFILE_BALANCED;
+    @Parameter(names = {"--taint-propagation"}, description = "taint propagation mode: strict|balanced")
+    private String taintPropagationMode = TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT);
 
     public BuildCmd() {
 
@@ -43,5 +51,13 @@ public class BuildCmd {
 
     public String getJdkModules() {
         return jdkModules;
+    }
+
+    public String getCallGraphProfile() {
+        return callGraphProfile;
+    }
+
+    public String getTaintPropagationMode() {
+        return taintPropagationMode;
     }
 }

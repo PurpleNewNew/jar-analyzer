@@ -16,13 +16,16 @@ public record CallGraphPlan(String analysisProfile,
                             String callGraphEngine,
                             String callGraphModeMeta,
                             boolean selectivePta) {
-    public static final String CALL_GRAPH_PROFILE_PROP = "jar.analyzer.callgraph.profile";
     public static final String ENGINE_BYTECODE = BytecodeMainlineCallGraphRunner.ENGINE;
     public static final String ENGINE_BYTECODE_PTA = "bytecode-mainline+pta-refine";
 
     public static final String PROFILE_FAST = "fast";
     public static final String PROFILE_BALANCED = "balanced";
     public static final String PROFILE_PRECISION = "precision";
+
+    public static String normalizeProfile(String profileSetting) {
+        return resolve(profileSetting).analysisProfile();
+    }
 
     public static CallGraphPlan resolve(String profileSetting) {
         String profile = normalize(profileSetting);
@@ -61,7 +64,7 @@ public record CallGraphPlan(String analysisProfile,
                     true
             );
             default -> throw new IllegalArgumentException(
-                    "invalid " + CALL_GRAPH_PROFILE_PROP + "=" + profile
+                    "invalid callgraph profile=" + profile
                             + ", supported: fast|balanced|precision"
             );
         };

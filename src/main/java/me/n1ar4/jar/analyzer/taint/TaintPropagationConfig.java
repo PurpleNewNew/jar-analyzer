@@ -10,7 +10,10 @@
 
 package me.n1ar4.jar.analyzer.taint;
 
+import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.rules.ModelRegistry;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -33,17 +36,23 @@ public final class TaintPropagationConfig {
         this.barrierRule = barrierRule == null ? new SanitizerRule() : barrierRule;
         this.guardRules = guardRules == null ? Collections.emptyList() : guardRules;
         this.profile = profile == null ? TaintAnalysisProfile.current() : profile;
-        this.propagationMode = propagationMode == null ? TaintPropagationMode.current() : propagationMode;
+        this.propagationMode = propagationMode == null ? TaintPropagationMode.BALANCED : propagationMode;
     }
 
     public static TaintPropagationConfig resolve() {
+        ProjectModel model = ProjectRuntimeContext.getProjectModel();
+        String rawMode = model == null ? "" : model.taintPropagationMode();
+        return resolve(TaintPropagationMode.parse(rawMode));
+    }
+
+    public static TaintPropagationConfig resolve(TaintPropagationMode propagationMode) {
         return new TaintPropagationConfig(
                 ModelRegistry.getSummaryModelRule(),
                 ModelRegistry.getAdditionalModelRule(),
                 ModelRegistry.getBarrierRule(),
                 ModelRegistry.getGuardRules(),
                 TaintAnalysisProfile.current(),
-                TaintPropagationMode.current()
+                propagationMode
         );
     }
 

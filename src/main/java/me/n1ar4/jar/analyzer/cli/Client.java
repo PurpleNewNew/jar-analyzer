@@ -51,14 +51,18 @@ public class Client {
                     jarPathPath.toAbsolutePath().normalize().toString(),
                     "",
                     buildCmd.enableInnerJars(),
-                    buildCmd.getJdkModules()
+                    buildCmd.getJdkModules(),
+                    buildCmd.getCallGraphProfile(),
+                    buildCmd.getTaintPropagationMode()
             );
             service.publishActiveProjectModel(ProjectModel.artifact(
                     jarPathPath,
                     null,
                     java.util.List.of(jarPathPath.toAbsolutePath().normalize()),
                     buildCmd.enableInnerJars(),
-                    buildCmd.getJdkModules()
+                    buildCmd.getJdkModules(),
+                    buildCmd.getCallGraphProfile(),
+                    buildCmd.getTaintPropagationMode()
             ));
         } catch (Throwable t) {
             me.n1ar4.jar.analyzer.utils.InterruptUtil.restoreInterruptIfNeeded(t);

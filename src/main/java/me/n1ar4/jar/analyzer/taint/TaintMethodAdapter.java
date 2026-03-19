@@ -190,7 +190,7 @@ public class TaintMethodAdapter extends JVMRuntimeAdapter<String> {
         this.summaryRule = summaryRule;
         this.additionalRule = additionalRule;
         this.profile = profile == null ? TaintAnalysisProfile.current() : profile;
-        this.propagationMode = propagationMode == null ? TaintPropagationMode.current() : propagationMode;
+        this.propagationMode = propagationMode == null ? TaintPropagationMode.BALANCED : propagationMode;
         this.text = text;
         this.allowWeakDescMatch = allowWeakDescMatch;
         this.fieldAsSource = fieldAsSource;

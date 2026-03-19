@@ -34,6 +34,10 @@ public final class SummaryBuilder {
     private static final Logger logger = LogManager.getLogger();
 
     public MethodSummary build(MethodReference.Handle handle) {
+        return build(handle, null);
+    }
+
+    public MethodSummary build(MethodReference.Handle handle, TaintPropagationConfig config) {
         MethodSummary summary = new MethodSummary();
         if (handle == null) {
             summary.setUnknown(true);
@@ -46,7 +50,7 @@ public final class SummaryBuilder {
                 summary.setUnknown(true);
                 return summary;
             }
-            buildFromBytes(bytes, handle, summary);
+            buildFromBytes(bytes, handle, summary, config);
         } catch (Exception ex) {
             logger.warn("summary build failed: {}", ex.toString());
             summary.setUnknown(true);
@@ -56,20 +60,21 @@ public final class SummaryBuilder {
 
     private void buildFromBytes(byte[] bytes,
                                 MethodReference.Handle target,
-                                MethodSummary summary) throws Exception {
+                                MethodSummary summary,
+                                TaintPropagationConfig config) throws Exception {
         ClassReader cr = new ClassReader(bytes);
         MethodMeta meta = MethodMeta.resolve(cr, target);
         if (meta == null) {
             summary.setUnknown(true);
             return;
         }
-        TaintPropagationConfig config = TaintPropagationConfig.resolve();
+        TaintPropagationConfig effectiveConfig = config == null ? TaintPropagationConfig.resolve() : config;
         SummaryCollector collector = new SummaryCollectorImpl(summary, meta.isStatic, meta.paramCount);
         if (!meta.isStatic) {
-            runSeed(cr, target, meta, Sanitizer.THIS_PARAM, collector, config);
+            runSeed(cr, target, meta, Sanitizer.THIS_PARAM, collector, effectiveConfig);
         }
         for (int i = 0; i < meta.paramCount; i++) {
-            runSeed(cr, target, meta, i, collector, config);
+            runSeed(cr, target, meta, i, collector, effectiveConfig);
         }
     }
 

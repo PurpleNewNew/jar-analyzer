@@ -11,6 +11,8 @@
 package me.n1ar4.jar.analyzer.engine.project;
 
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
+import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
+import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
 
 import java.nio.file.Path;
@@ -31,7 +33,9 @@ public record ProjectModel(
         List<ProjectRoot> roots,
         List<Path> analyzedArchives,
         boolean resolveInnerJars,
-        String jdkModules
+        String jdkModules,
+        String callGraphProfile,
+        String taintPropagationMode
 ) {
     public ProjectModel {
         buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
@@ -40,6 +44,8 @@ public record ProjectModel(
         roots = immutableRoots(roots);
         analyzedArchives = immutablePaths(analyzedArchives);
         jdkModules = normalizeJdkModules(jdkModules);
+        callGraphProfile = normalizeCallGraphProfile(callGraphProfile);
+        taintPropagationMode = normalizeTaintPropagationMode(taintPropagationMode);
     }
 
     public ProjectModel(ProjectBuildMode buildMode,
@@ -49,7 +55,7 @@ public record ProjectModel(
                         List<Path> analyzedArchives,
                         boolean resolveInnerJars) {
         this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY, "", "");
     }
 
     public static ProjectModel empty() {
@@ -60,7 +66,9 @@ public record ProjectModel(
                 List.of(),
                 List.of(),
                 false,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                "",
+                ""
         );
     }
 
@@ -69,7 +77,7 @@ public record ProjectModel(
                                         List<Path> analyzedArchives,
                                         boolean resolveInnerJars) {
         return artifact(inputPath, runtimePath, analyzedArchives, resolveInnerJars,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY, "");
     }
 
     public static ProjectModel artifact(Path inputPath,
@@ -77,12 +85,33 @@ public record ProjectModel(
                                         List<Path> analyzedArchives,
                                         boolean resolveInnerJars,
                                         String jdkModules) {
+        return artifact(inputPath, runtimePath, analyzedArchives, resolveInnerJars, jdkModules, "", "");
+    }
+
+    public static ProjectModel artifact(Path inputPath,
+                                        Path runtimePath,
+                                        List<Path> analyzedArchives,
+                                        boolean resolveInnerJars,
+                                        String jdkModules,
+                                        String callGraphProfile) {
+        return artifact(inputPath, runtimePath, analyzedArchives, resolveInnerJars, jdkModules, callGraphProfile, "");
+    }
+
+    public static ProjectModel artifact(Path inputPath,
+                                        Path runtimePath,
+                                        List<Path> analyzedArchives,
+                                        boolean resolveInnerJars,
+                                        String jdkModules,
+                                        String callGraphProfile,
+                                        String taintPropagationMode) {
         Builder builder = builder()
                 .buildMode(ProjectBuildMode.ARTIFACT)
                 .primaryInputPath(inputPath)
                 .runtimePath(runtimePath)
                 .resolveInnerJars(resolveInnerJars)
                 .jdkModules(jdkModules)
+                .callGraphProfile(callGraphProfile)
+                .taintPropagationMode(taintPropagationMode)
                 .analyzedArchives(analyzedArchives);
         if (inputPath != null) {
             builder.addRoot(new ProjectRoot(
@@ -200,6 +229,14 @@ public record ProjectModel(
         return JdkArchiveResolver.normalizePolicy(value);
     }
 
+    private static String normalizeCallGraphProfile(String value) {
+        return CallGraphPlan.normalizeProfile(value);
+    }
+
+    private static String normalizeTaintPropagationMode(String value) {
+        return TaintPropagationMode.parse(value).name().toLowerCase(Locale.ROOT);
+    }
+
     public static final class Builder {
         private ProjectBuildMode buildMode = ProjectBuildMode.ARTIFACT;
         private Path primaryInputPath;
@@ -208,6 +245,8 @@ public record ProjectModel(
         private final List<Path> analyzedArchives = new ArrayList<>();
         private boolean resolveInnerJars;
         private String jdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
+        private String callGraphProfile = CallGraphPlan.PROFILE_BALANCED;
+        private String taintPropagationMode = TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT);
 
         public Builder buildMode(ProjectBuildMode buildMode) {
             this.buildMode = buildMode == null ? ProjectBuildMode.ARTIFACT : buildMode;
@@ -268,6 +307,16 @@ public record ProjectModel(
             return this;
         }
 
+        public Builder callGraphProfile(String callGraphProfile) {
+            this.callGraphProfile = normalizeCallGraphProfile(callGraphProfile);
+            return this;
+        }
+
+        public Builder taintPropagationMode(String taintPropagationMode) {
+            this.taintPropagationMode = normalizeTaintPropagationMode(taintPropagationMode);
+            return this;
+        }
+
         public ProjectModel build() {
             return new ProjectModel(
                     Objects.requireNonNullElse(buildMode, ProjectBuildMode.ARTIFACT),
@@ -276,7 +325,9 @@ public record ProjectModel(
                     roots,
                     analyzedArchives,
                     resolveInnerJars,
-                    jdkModules
+                    jdkModules,
+                    callGraphProfile,
+                    taintPropagationMode
             );
         }
     }

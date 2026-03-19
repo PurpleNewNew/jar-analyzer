@@ -46,10 +46,14 @@ public final class SummaryEngine {
     }
 
     public MethodSummary getSummary(MethodReference.Handle handle) {
+        return getSummary(handle, null);
+    }
+
+    public MethodSummary getSummary(MethodReference.Handle handle, TaintPropagationConfig propagationConfig) {
         if (handle == null) {
             return null;
         }
-        ensureRuleContext();
+        ensureRuleContext(propagationConfig);
         MethodSummary cached = cache.get(handle);
         if (cached != null) {
             return cached;
@@ -61,7 +65,7 @@ public final class SummaryEngine {
                 return fromDb;
             }
         }
-        MethodSummary summary = builder.build(handle);
+        MethodSummary summary = builder.build(handle, propagationConfig);
         if (summary != null) {
             cache.put(handle, summary);
             if (dbCacheEnabled && !summary.isUnknown()) {
@@ -71,25 +75,35 @@ public final class SummaryEngine {
         return summary;
     }
 
-    private void ensureRuleContext() {
+    private void ensureRuleContext(TaintPropagationConfig propagationConfig) {
+        TaintPropagationConfig effectiveConfig = propagationConfig == null
+                ? TaintPropagationConfig.resolve()
+                : propagationConfig;
         long currentVersion = ModelRegistry.getVersion();
         String currentFingerprint = ModelRegistry.getRulesFingerprint();
         String currentRuntimeKey = ProjectStateUtil.runtimeCacheKey();
+        String currentCombinedFingerprint = buildFingerprint(currentFingerprint, effectiveConfig);
         String existing = fingerprint;
         if (currentVersion == ruleVersion
                 && currentFingerprint.equals(ruleFingerprint)
                 && currentRuntimeKey.equals(projectRuntimeKey)
+                && currentCombinedFingerprint.equals(existing)
                 && existing != null
                 && !existing.isEmpty()) {
             return;
         }
         synchronized (ruleContextLock) {
+            TaintPropagationConfig latestConfig = propagationConfig == null
+                    ? TaintPropagationConfig.resolve()
+                    : propagationConfig;
             long latestVersion = ModelRegistry.getVersion();
             String latestRuleFingerprint = ModelRegistry.getRulesFingerprint();
             String latestRuntimeKey = ProjectStateUtil.runtimeCacheKey();
+            String latestCombinedFingerprint = buildFingerprint(latestRuleFingerprint, latestConfig);
             boolean ruleChanged = latestVersion != ruleVersion || !latestRuleFingerprint.equals(ruleFingerprint);
             boolean runtimeChanged = !latestRuntimeKey.equals(projectRuntimeKey);
-            if (ruleChanged || runtimeChanged) {
+            boolean analysisChanged = !latestCombinedFingerprint.equals(fingerprint);
+            if (ruleChanged || runtimeChanged || analysisChanged) {
                 cache.clear();
                 if (dbCacheEnabled && ruleChanged) {
                     DatabaseManager.clearSemanticCacheType(CACHE_TYPE);
@@ -98,12 +112,12 @@ public final class SummaryEngine {
             if (ruleChanged) {
                 ruleVersion = latestVersion;
                 ruleFingerprint = latestRuleFingerprint;
-                fingerprint = buildFingerprint(latestRuleFingerprint);
             }
-            if (ruleChanged || runtimeChanged) {
+            if (ruleChanged || runtimeChanged || analysisChanged) {
                 projectRuntimeKey = latestRuntimeKey;
+                fingerprint = latestCombinedFingerprint;
             }
-            if (ruleChanged || runtimeChanged) {
+            if (ruleChanged || runtimeChanged || analysisChanged) {
                 ProjectRuntimeState runtimeState = ProjectStateUtil.runtimeState();
                 logger.info("summary engine context refreshed: projectKey={} buildSeq={} version={} fingerprint={}",
                         runtimeState.projectKey(), runtimeState.buildSeq(), latestVersion, fingerprint);
@@ -142,7 +156,7 @@ public final class SummaryEngine {
         String runtimeKey = ProjectStateUtil.runtimeCacheKey();
         String fp = fingerprint;
         if (fp == null || fp.isBlank()) {
-            fp = buildFingerprint(ModelRegistry.getRulesFingerprint());
+            fp = buildFingerprint(ModelRegistry.getRulesFingerprint(), TaintPropagationConfig.resolve());
             fingerprint = fp;
         }
         int jarId = normalizeJarId(handle.getJarId());
@@ -160,8 +174,7 @@ public final class SummaryEngine {
         return jarId;
     }
 
-    private static String buildFingerprint(String rulesFingerprint) {
-        TaintPropagationConfig config = TaintPropagationConfig.resolve();
+    private static String buildFingerprint(String rulesFingerprint, TaintPropagationConfig config) {
         TaintPropagationMode mode = config == null ? null : config.getPropagationMode();
         TaintAnalysisProfile profile = config == null ? null : config.getProfile();
         String level = profile == null || profile.getLevel() == null ? "unknown" : profile.getLevel().name().toLowerCase();

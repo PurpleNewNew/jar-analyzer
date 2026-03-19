@@ -117,6 +117,16 @@ public final class ProjectRuntimeContext {
         return model == null ? "" : model.jdkModules();
     }
 
+    public static String callGraphProfile() {
+        ProjectModel model = getProjectModel();
+        return model == null ? "" : model.callGraphProfile();
+    }
+
+    public static String taintPropagationMode() {
+        ProjectModel model = getProjectModel();
+        return model == null ? "" : model.taintPropagationMode();
+    }
+
     public static void clear() {
         setState(ProjectRuntimeState.empty());
     }

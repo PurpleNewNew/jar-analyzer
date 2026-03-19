@@ -474,7 +474,9 @@ public final class WelcomeFrame extends JFrame {
                 nextRuntime,
                 resolveNested,
                 current.fixClassPath(),
-                safe(entry.jdkModules()).isBlank() ? current.jdkModules() : entry.jdkModules()
+                safe(entry.jdkModules()).isBlank() ? current.jdkModules() : entry.jdkModules(),
+                safe(entry.callGraphProfile()).isBlank() ? current.callGraphProfile() : entry.callGraphProfile(),
+                safe(entry.taintPropagationMode()).isBlank() ? current.taintPropagationMode() : entry.taintPropagationMode()
         ));
     }
 

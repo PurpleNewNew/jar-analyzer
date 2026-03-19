@@ -38,7 +38,7 @@ public record ProjectRuntimeSnapshot(
         Set<String> filters,
         Set<String> listeners
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 3;
+    public static final int CURRENT_SCHEMA_VERSION = 4;
 
     public ProjectRuntimeSnapshot {
         schemaVersion = schemaVersion <= 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
@@ -66,7 +66,9 @@ public record ProjectRuntimeSnapshot(
             List<ProjectRootData> roots,
             List<String> analyzedArchives,
             boolean resolveInnerJars,
-            String jdkModules
+            String jdkModules,
+            String callGraphProfile,
+            String taintPropagationMode
     ) {
         public ProjectModelData {
             roots = immutableList(roots);
@@ -79,7 +81,28 @@ public record ProjectRuntimeSnapshot(
                                 List<ProjectRootData> roots,
                                 List<String> analyzedArchives,
                                 boolean resolveInnerJars) {
-            this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars, "core");
+            this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars, "core", "", "");
+        }
+
+        public ProjectModelData(String buildMode,
+                                String primaryInputPath,
+                                String runtimePath,
+                                List<ProjectRootData> roots,
+                                List<String> analyzedArchives,
+                                boolean resolveInnerJars,
+                                String jdkModules) {
+            this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars, jdkModules, "", "");
+        }
+
+        public ProjectModelData(String buildMode,
+                                String primaryInputPath,
+                                String runtimePath,
+                                List<ProjectRootData> roots,
+                                List<String> analyzedArchives,
+                                boolean resolveInnerJars,
+                                String jdkModules,
+                                String callGraphProfile) {
+            this(buildMode, primaryInputPath, runtimePath, roots, analyzedArchives, resolveInnerJars, jdkModules, callGraphProfile, "");
         }
     }
 

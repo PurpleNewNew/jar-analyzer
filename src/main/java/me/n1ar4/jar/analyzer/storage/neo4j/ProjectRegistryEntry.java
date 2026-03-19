@@ -10,7 +10,11 @@
 
 package me.n1ar4.jar.analyzer.storage.neo4j;
 
+import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
+import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
+
+import java.util.Locale;
 
 public record ProjectRegistryEntry(
         String projectKey,
@@ -20,6 +24,8 @@ public record ProjectRegistryEntry(
         String runtimePath,
         boolean resolveNestedJars,
         String jdkModules,
+        String callGraphProfile,
+        String taintPropagationMode,
         long createdAt,
         long updatedAt
 ) {
@@ -30,6 +36,8 @@ public record ProjectRegistryEntry(
         inputPath = safe(inputPath);
         runtimePath = safe(runtimePath);
         jdkModules = normalizeJdkModules(jdkModules);
+        callGraphProfile = normalizeCallGraphProfile(callGraphProfile);
+        taintPropagationMode = normalizeTaintPropagationMode(taintPropagationMode);
     }
 
     public ProjectRegistryEntry(String projectKey,
@@ -40,7 +48,32 @@ public record ProjectRegistryEntry(
                                 long createdAt,
                                 long updatedAt) {
         this(projectKey, ProjectType.PERSISTENT, alias, inputPath, runtimePath, resolveNestedJars,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY, createdAt, updatedAt);
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY, "", "", createdAt, updatedAt);
+    }
+
+    public ProjectRegistryEntry(String projectKey,
+                                String alias,
+                                String inputPath,
+                                String runtimePath,
+                                boolean resolveNestedJars,
+                                String jdkModules,
+                                long createdAt,
+                                long updatedAt) {
+        this(projectKey, ProjectType.PERSISTENT, alias, inputPath, runtimePath, resolveNestedJars,
+                jdkModules, "", "", createdAt, updatedAt);
+    }
+
+    public ProjectRegistryEntry(String projectKey,
+                                String alias,
+                                String inputPath,
+                                String runtimePath,
+                                boolean resolveNestedJars,
+                                String jdkModules,
+                                String callGraphProfile,
+                                long createdAt,
+                                long updatedAt) {
+        this(projectKey, ProjectType.PERSISTENT, alias, inputPath, runtimePath, resolveNestedJars,
+                jdkModules, callGraphProfile, "", createdAt, updatedAt);
     }
 
     private static String safe(String value) {
@@ -49,5 +82,13 @@ public record ProjectRegistryEntry(
 
     private static String normalizeJdkModules(String value) {
         return JdkArchiveResolver.normalizePolicy(value);
+    }
+
+    private static String normalizeCallGraphProfile(String value) {
+        return CallGraphPlan.normalizeProfile(value);
+    }
+
+    private static String normalizeTaintPropagationMode(String value) {
+        return TaintPropagationMode.parse(value).name().toLowerCase(Locale.ROOT);
     }
 }

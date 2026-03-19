@@ -16,13 +16,7 @@ public enum TaintPropagationMode {
     STRICT,
     BALANCED;
 
-    public static final String PROP_KEY = "jar.analyzer.taint.propagation";
-
-    public static TaintPropagationMode current() {
-        return resolve(System.getProperty(PROP_KEY));
-    }
-
-    static TaintPropagationMode resolve(String value) {
+    public static TaintPropagationMode parse(String value) {
         if (value == null || value.trim().isEmpty()) {
             return BALANCED;
         }
@@ -34,6 +28,6 @@ public enum TaintPropagationMode {
             return BALANCED;
         }
         throw new IllegalArgumentException(
-                "invalid " + PROP_KEY + "=" + value + ", supported: strict|balanced");
+                "invalid taint propagation mode=" + value + ", supported: strict|balanced");
     }
 }

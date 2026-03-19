@@ -14,6 +14,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import me.n1ar4.jar.analyzer.config.ConfigFile;
+import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
@@ -23,6 +24,7 @@ import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.starter.Const;
+import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
@@ -40,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -64,6 +67,8 @@ public final class ProjectRegistryService {
     private String tempRuntimePath = "";
     private boolean tempResolveNestedJars = false;
     private String tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
+    private String tempCallGraphProfile = CallGraphPlan.PROFILE_BALANCED;
+    private String tempTaintPropagationMode = TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT);
     private long tempUpdatedAt = 0L;
 
     private ProjectRegistryService() {
@@ -104,7 +109,15 @@ public final class ProjectRegistryService {
                                          String inputPath,
                                          String runtimePath,
                                          boolean resolveNestedJars) {
-        return register(alias, inputPath, runtimePath, resolveNestedJars, JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+        return register(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                CallGraphPlan.PROFILE_BALANCED,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
+        );
     }
 
     public ProjectRegistryEntry register(String alias,
@@ -112,16 +125,59 @@ public final class ProjectRegistryService {
                                          String runtimePath,
                                          boolean resolveNestedJars,
                                          String jdkModules) {
+        return register(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                jdkModules,
+                CallGraphPlan.PROFILE_BALANCED,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    public ProjectRegistryEntry register(String alias,
+                                         String inputPath,
+                                         String runtimePath,
+                                         boolean resolveNestedJars,
+                                         String jdkModules,
+                                         String callGraphProfile) {
+        return register(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                jdkModules,
+                callGraphProfile,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    public ProjectRegistryEntry register(String alias,
+                                         String inputPath,
+                                         String runtimePath,
+                                         boolean resolveNestedJars,
+                                         String jdkModules,
+                                         String callGraphProfile,
+                                         String taintPropagationMode) {
         ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
             String normalizedRuntime = normalizePath(runtimePath);
             String normalizedJdkModules = normalizeJdkModules(jdkModules);
+            String normalizedCallGraphProfile = normalizeCallGraphProfile(callGraphProfile);
+            String normalizedTaintPropagationMode = normalizeTaintPropagationMode(taintPropagationMode);
             if (normalizedInput.isBlank()) {
                 throw new IllegalArgumentException("project_input_required");
             }
-            String projectKey = buildProjectKey(normalizedInput, normalizedRuntime, resolveNestedJars, normalizedJdkModules);
+            String projectKey = buildProjectKey(
+                    normalizedInput,
+                    normalizedRuntime,
+                    resolveNestedJars,
+                    normalizedJdkModules,
+                    normalizedCallGraphProfile
+            );
             String effectiveAlias = normalizeAlias(alias, normalizedInput);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
@@ -135,6 +191,8 @@ public final class ProjectRegistryService {
                         normalizedRuntime,
                         resolveNestedJars,
                         normalizedJdkModules,
+                        normalizedCallGraphProfile,
+                        normalizedTaintPropagationMode,
                         current == null || current.createdAt() <= 0L ? now : current.createdAt(),
                         now
                 );
@@ -214,6 +272,8 @@ public final class ProjectRegistryService {
                 tempRuntimePath = "";
                 tempResolveNestedJars = false;
                 tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
+                tempCallGraphProfile = CallGraphPlan.PROFILE_BALANCED;
+                tempTaintPropagationMode = TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT);
                 tempUpdatedAt = 0L;
                 if (Objects.equals(activeProjectKey, temporaryKey)) {
                     setActiveStateLocked(temporaryKey, ActiveProjectContext.temporaryProjectAlias());
@@ -257,6 +317,8 @@ public final class ProjectRegistryService {
                         "",
                         false,
                         JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                        CallGraphPlan.PROFILE_BALANCED,
+                        TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT),
                         now,
                         now
                 );
@@ -311,7 +373,9 @@ public final class ProjectRegistryService {
                 inputPath,
                 runtimePath,
                 resolveNestedJars,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                CallGraphPlan.PROFILE_BALANCED,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
         );
     }
 
@@ -320,12 +384,49 @@ public final class ProjectRegistryService {
                                                                  String runtimePath,
                                                                  boolean resolveNestedJars,
                                                                  String jdkModules) {
+        return upsertActiveProjectBuildSettings(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                jdkModules,
+                CallGraphPlan.PROFILE_BALANCED,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    public ProjectRegistryEntry upsertActiveProjectBuildSettings(String alias,
+                                                                 String inputPath,
+                                                                 String runtimePath,
+                                                                 boolean resolveNestedJars,
+                                                                 String jdkModules,
+                                                                 String callGraphProfile) {
+        return upsertActiveProjectBuildSettings(
+                alias,
+                inputPath,
+                runtimePath,
+                resolveNestedJars,
+                jdkModules,
+                callGraphProfile,
+                TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    public ProjectRegistryEntry upsertActiveProjectBuildSettings(String alias,
+                                                                 String inputPath,
+                                                                 String runtimePath,
+                                                                 boolean resolveNestedJars,
+                                                                 String jdkModules,
+                                                                 String callGraphProfile,
+                                                                 String taintPropagationMode) {
         ensureNoBuildInProgress();
         synchronized (ActiveProjectContext.mutationLock()) {
             ensureNoBuildInProgress();
             String normalizedInput = normalizePath(inputPath);
             String normalizedRuntime = normalizePath(runtimePath);
             String normalizedJdkModules = normalizeJdkModules(jdkModules);
+            String normalizedCallGraphProfile = normalizeCallGraphProfile(callGraphProfile);
+            String normalizedTaintPropagationMode = normalizeTaintPropagationMode(taintPropagationMode);
             long now = System.currentTimeMillis();
             ProjectRegistryEntry next;
             String currentProjectKey;
@@ -339,11 +440,15 @@ public final class ProjectRegistryService {
                     String previousRuntimePath = tempRuntimePath;
                     boolean previousResolveNested = tempResolveNestedJars;
                     String previousJdkModules = tempJdkModules;
+                    String previousCallGraphProfile = tempCallGraphProfile;
+                    String previousTaintPropagationMode = tempTaintPropagationMode;
                     long previousUpdatedAt = tempUpdatedAt;
                     tempInputPath = normalizedInput;
                     tempRuntimePath = normalizedRuntime;
                     tempResolveNestedJars = resolveNestedJars;
                     tempJdkModules = normalizedJdkModules;
+                    tempCallGraphProfile = normalizedCallGraphProfile;
+                    tempTaintPropagationMode = normalizedTaintPropagationMode;
                     tempUpdatedAt = now;
                     try {
                         persistLocked();
@@ -352,6 +457,8 @@ public final class ProjectRegistryService {
                         tempRuntimePath = previousRuntimePath;
                         tempResolveNestedJars = previousResolveNested;
                         tempJdkModules = previousJdkModules;
+                        tempCallGraphProfile = previousCallGraphProfile;
+                        tempTaintPropagationMode = previousTaintPropagationMode;
                         tempUpdatedAt = previousUpdatedAt;
                         throw ex;
                     }
@@ -378,6 +485,8 @@ public final class ProjectRegistryService {
                             normalizedRuntime,
                             resolveNestedJars,
                             normalizedJdkModules,
+                            normalizedCallGraphProfile,
+                            normalizedTaintPropagationMode,
                             current == null ? now : (current.createdAt() <= 0L ? now : current.createdAt()),
                             now
                     );
@@ -566,7 +675,13 @@ public final class ProjectRegistryService {
     }
 
     public static String buildProjectKey(String normalizedInputPath) {
-        return buildProjectKey(normalizedInputPath, "", false, JdkArchiveResolver.DEFAULT_MODULE_POLICY);
+        return buildProjectKey(
+                normalizedInputPath,
+                "",
+                false,
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                CallGraphPlan.PROFILE_BALANCED
+        );
     }
 
     public static String buildProjectKey(String normalizedInputPath,
@@ -576,7 +691,8 @@ public final class ProjectRegistryService {
                 normalizedInputPath,
                 normalizedRuntimePath,
                 resolveNestedJars,
-                JdkArchiveResolver.DEFAULT_MODULE_POLICY
+                JdkArchiveResolver.DEFAULT_MODULE_POLICY,
+                CallGraphPlan.PROFILE_BALANCED
         );
     }
 
@@ -584,17 +700,34 @@ public final class ProjectRegistryService {
                                          String normalizedRuntimePath,
                                          boolean resolveNestedJars,
                                          String jdkModules) {
+        return buildProjectKey(
+                normalizedInputPath,
+                normalizedRuntimePath,
+                resolveNestedJars,
+                jdkModules,
+                CallGraphPlan.PROFILE_BALANCED
+        );
+    }
+
+    public static String buildProjectKey(String normalizedInputPath,
+                                         String normalizedRuntimePath,
+                                         boolean resolveNestedJars,
+                                         String jdkModules,
+                                         String callGraphProfile) {
         String safeInput = normalizedInputPath == null ? "" : normalizedInputPath.trim();
         if (safeInput.isBlank()) {
             return "";
         }
         String safeRuntime = normalizedRuntimePath == null ? "" : normalizedRuntimePath.trim();
         String safeModules = normalizeJdkModules(jdkModules);
+        String safeCallGraphProfile = normalizeCallGraphProfile(callGraphProfile);
         String signature = (safeRuntime.isBlank()
                 && !resolveNestedJars
-                && JdkArchiveResolver.DEFAULT_MODULE_POLICY.equals(safeModules))
+                && JdkArchiveResolver.DEFAULT_MODULE_POLICY.equals(safeModules)
+                && CallGraphPlan.PROFILE_BALANCED.equals(safeCallGraphProfile))
                 ? safeInput
-                : safeInput + "\n" + safeRuntime + "\n" + resolveNestedJars + "\n" + safeModules;
+                : safeInput + "\n" + safeRuntime + "\n" + resolveNestedJars + "\n"
+                + safeModules + "\n" + safeCallGraphProfile;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(signature.getBytes(StandardCharsets.UTF_8));
@@ -643,6 +776,8 @@ public final class ProjectRegistryService {
                                 safe(item.getString("runtimePath")),
                                 item.getBooleanValue("resolveNestedJars"),
                                 normalizeJdkModules(item.getString("jdkModules")),
+                                safe(item.getString("callGraphProfile")),
+                                safe(item.getString("taintPropagationMode")),
                                 item.getLongValue("createdAt"),
                                 item.getLongValue("updatedAt")
                         ));
@@ -674,6 +809,8 @@ public final class ProjectRegistryService {
                 tempRuntimePath = "";
                 tempResolveNestedJars = false;
                 tempJdkModules = JdkArchiveResolver.DEFAULT_MODULE_POLICY;
+                tempCallGraphProfile = CallGraphPlan.PROFILE_BALANCED;
+                tempTaintPropagationMode = TaintPropagationMode.BALANCED.name().toLowerCase(Locale.ROOT);
                 tempUpdatedAt = 0L;
                 restoreProjectKey = activeProjectKey;
                 restoreAlias = resolveAlias(activeProjectKey);
@@ -714,6 +851,8 @@ public final class ProjectRegistryService {
                 row.put("runtimePath", entry.runtimePath());
                 row.put("resolveNestedJars", entry.resolveNestedJars());
                 row.put("jdkModules", entry.jdkModules());
+                row.put("callGraphProfile", entry.callGraphProfile());
+                row.put("taintPropagationMode", entry.taintPropagationMode());
                 row.put("createdAt", entry.createdAt());
                 row.put("updatedAt", entry.updatedAt());
                 arr.add(row);
@@ -1103,7 +1242,15 @@ public final class ProjectRegistryService {
         if (modules.isBlank()) {
             modules = normalizeJdkModules(fallback);
         }
-        return ProjectModel.artifact(inputPath, runtimePath, analyzedArchives, entry.resolveNestedJars(), modules);
+        return ProjectModel.artifact(
+                inputPath,
+                runtimePath,
+                analyzedArchives,
+                entry.resolveNestedJars(),
+                modules,
+                entry.callGraphProfile(),
+                entry.taintPropagationMode()
+        );
     }
 
     private static ProjectRuntimeSnapshot.ProjectModelData toProjectModelData(ProjectModel model) {
@@ -1117,7 +1264,9 @@ public final class ProjectRegistryService {
                 List.of(),
                 stringifyPaths(model.analyzedArchives()),
                 model.resolveInnerJars(),
-                model.jdkModules()
+                model.jdkModules(),
+                model.callGraphProfile(),
+                model.taintPropagationMode()
         );
     }
 
@@ -1178,6 +1327,8 @@ public final class ProjectRegistryService {
                 tempRuntimePath,
                 tempResolveNestedJars,
                 tempJdkModules,
+                tempCallGraphProfile,
+                tempTaintPropagationMode,
                 ts,
                 ts
         );
@@ -1197,6 +1348,14 @@ public final class ProjectRegistryService {
         } catch (Exception ex) {
             return value;
         }
+    }
+
+    private static String normalizeCallGraphProfile(String profile) {
+        return CallGraphPlan.normalizeProfile(profile);
+    }
+
+    private static String normalizeTaintPropagationMode(String value) {
+        return TaintPropagationMode.parse(value).name().toLowerCase(Locale.ROOT);
     }
 
     private static String normalizePosixAbsolutePath(String path) {

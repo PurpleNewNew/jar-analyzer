@@ -68,7 +68,9 @@ public record ProjectRuntimeState(
                 current.roots(),
                 toImmutablePathList(archives),
                 current.resolveInnerJars(),
-                current.jdkModules()
+                current.jdkModules(),
+                current.callGraphProfile(),
+                current.taintPropagationMode()
         ));
     }
 
@@ -81,7 +83,9 @@ public record ProjectRuntimeState(
                 current.roots(),
                 toImmutablePathList(current.analyzedArchives()),
                 enabled,
-                current.jdkModules()
+                current.jdkModules(),
+                current.callGraphProfile(),
+                current.taintPropagationMode()
         ));
     }
 
@@ -95,7 +99,9 @@ public record ProjectRuntimeState(
                 normalizePath(rtJarPath),
                 current.analyzedArchives(),
                 resolveInnerJars,
-                jdkModules
+                jdkModules,
+                current.callGraphProfile(),
+                current.taintPropagationMode()
         );
         return new ProjectRuntimeState(projectKey, buildSeq, artifact);
     }
@@ -111,7 +117,9 @@ public record ProjectRuntimeState(
                 model.roots(),
                 toImmutablePathList(model.analyzedArchives()),
                 model.resolveInnerJars(),
-                model.jdkModules()
+                model.jdkModules(),
+                model.callGraphProfile(),
+                model.taintPropagationMode()
         );
     }
 

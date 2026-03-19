@@ -2135,7 +2135,9 @@ public class DatabaseManager {
                 roots.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(roots),
                 archives.isEmpty() ? List.of() : ProjectRuntimeSnapshot.ownedList(archives),
                 model.resolveInnerJars(),
-                model.jdkModules()
+                model.jdkModules(),
+                model.callGraphProfile(),
+                model.taintPropagationMode()
         );
     }
 
@@ -2180,7 +2182,9 @@ public class DatabaseManager {
                 roots,
                 archives,
                 data.resolveInnerJars(),
-                data.jdkModules()
+                data.jdkModules(),
+                data.callGraphProfile(),
+                data.taintPropagationMode()
         );
     }
 

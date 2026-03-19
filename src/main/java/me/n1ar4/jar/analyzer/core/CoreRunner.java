@@ -530,7 +530,7 @@ public class CoreRunner {
         markBuildStage("callgraph");
         progress.accept(55);
         long stageStartNs = System.nanoTime();
-        CallGraphPlan callGraphPlan = CallGraphPlan.resolve(System.getProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP));
+        CallGraphPlan callGraphPlan = CallGraphPlan.resolve(ProjectRuntimeContext.callGraphProfile());
         List<Path> appArchives = ArchiveScopeClassifier.pickAppArchives(scopeSummary);
 
         String callGraphEngine = callGraphPlan.callGraphEngine();

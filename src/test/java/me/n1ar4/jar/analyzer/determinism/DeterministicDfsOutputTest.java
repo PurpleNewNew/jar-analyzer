@@ -38,8 +38,6 @@ public class DeterministicDfsOutputTest {
     @SuppressWarnings("all")
     public void testDfsOutputIsDeterministic() {
         try {
-            System.setProperty("jar.analyzer.taint.summary.enable", "false");
-
             Path file = FixtureJars.springbootTestJar();
             ProjectRuntimeContext.updateResolveInnerJars(false);
             CoreRunner.run(file, null, false, null);

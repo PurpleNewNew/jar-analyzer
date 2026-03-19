@@ -1,39 +1,34 @@
 package me.n1ar4.jar.analyzer.taint;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TaintPropagationModeTest {
-    @AfterEach
-    void cleanup() {
-        System.clearProperty(TaintPropagationMode.PROP_KEY);
+    @Test
+    void parseShouldHandleExplicitValues() {
+        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.parse(null));
+        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.parse(""));
+        assertEquals(TaintPropagationMode.STRICT, TaintPropagationMode.parse("strict"));
+        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.parse("balanced"));
+        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.parse("default"));
     }
 
     @Test
-    void currentShouldResolvePropertyDynamically() {
-        System.clearProperty(TaintPropagationMode.PROP_KEY);
-        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.current());
-
-        System.setProperty(TaintPropagationMode.PROP_KEY, "strict");
-        assertEquals(TaintPropagationMode.STRICT, TaintPropagationMode.current());
-
-        System.setProperty(TaintPropagationMode.PROP_KEY, "balanced");
-        assertEquals(TaintPropagationMode.BALANCED, TaintPropagationMode.current());
+    void resolveShouldUseExplicitPropagationMode() {
         assertEquals(TaintPropagationMode.BALANCED, TaintPropagationConfig.resolve().getPropagationMode());
+        assertEquals(TaintPropagationMode.STRICT, TaintPropagationConfig.resolve(TaintPropagationMode.STRICT).getPropagationMode());
     }
 
     @Test
-    void invalidPropertyShouldBeRejected() {
-        System.setProperty(TaintPropagationMode.PROP_KEY, "unsupported");
+    void invalidParseShouldBeRejected() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                TaintPropagationMode::current
+                () -> TaintPropagationMode.parse("unsupported")
         );
         assertEquals(
-                "invalid jar.analyzer.taint.propagation=unsupported, supported: strict|balanced",
+                "invalid taint propagation mode=unsupported, supported: strict|balanced",
                 ex.getMessage()
         );
     }

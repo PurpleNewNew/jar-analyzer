@@ -4,6 +4,7 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.engine.model.CallEdgeView;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.storage.neo4j.ProjectRegistryService;
@@ -24,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CoreRunnerBytecodeMainlineTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP);
         GraphStore.invalidateCache();
         EngineContext.setEngine(null);
         DatabaseManager.clearAllData();
@@ -35,8 +35,8 @@ class CoreRunnerBytecodeMainlineTest {
 
     @Test
     void callbackFixtureShouldBuildWithBalancedBytecodeMainlineProfile() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.callbackTestJar();
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_BALANCED));
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
@@ -331,8 +331,8 @@ class CoreRunnerBytecodeMainlineTest {
 
     @Test
     void frameworkFixtureShouldMergeFrameworkSemanticEvidenceIntoBalancedBytecodeEdges() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
         Path jar = FixtureJars.frameworkStackTestJar();
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_BALANCED));
         ProjectRuntimeContext.updateResolveInnerJars(false);
 
         CoreRunner.BuildResult result = CoreRunner.run(jar, null, false, null);
@@ -368,6 +368,12 @@ class CoreRunnerBytecodeMainlineTest {
         ConfigFile config = new ConfigFile();
         config.setDbPath("test-db");
         return config;
+    }
+
+    private static ProjectModel profileModel(String profile) {
+        return ProjectModel.builder()
+                .callGraphProfile(profile)
+                .build();
     }
 
     private static void assertEdge(List<CallEdgeView> edges,

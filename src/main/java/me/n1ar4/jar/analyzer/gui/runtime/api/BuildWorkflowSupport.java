@@ -119,8 +119,18 @@ final class BuildWorkflowSupport {
         String runtime = workspaceSdkPath == null ? "" : workspaceSdkPath.toString();
         boolean nested = settings != null && settings.resolveNestedJars();
         String jdkModules = settings == null ? "" : settings.jdkModules();
+        String callGraphProfile = settings == null ? "" : settings.callGraphProfile();
+        String taintPropagationMode = settings == null ? "" : settings.taintPropagationMode();
         ProjectRegistryService service = services.projectRegistryService();
-        service.upsertActiveProjectBuildSettings("", inputPath, runtime, nested, jdkModules);
+        service.upsertActiveProjectBuildSettings(
+                "",
+                inputPath,
+                runtime,
+                nested,
+                jdkModules,
+                callGraphProfile,
+                taintPropagationMode
+        );
         if (inputResolution == null) {
             return;
         }
@@ -150,7 +160,9 @@ final class BuildWorkflowSupport {
                     workspaceSdkPath,
                     List.of(normalized),
                     nested,
-                    jdkModules
+                    jdkModules,
+                    callGraphProfile,
+                    taintPropagationMode
             ));
         }
     }
@@ -388,7 +400,9 @@ final class BuildWorkflowSupport {
                 .primaryInputPath(normalizedAnalysisInput)
                 .runtimePath(workspaceSdkPath)
                 .resolveInnerJars(settings != null && settings.resolveNestedJars())
-                .jdkModules(settings == null ? "" : settings.jdkModules());
+                .jdkModules(settings == null ? "" : settings.jdkModules())
+                .callGraphProfile(settings == null ? "" : settings.callGraphProfile())
+                .taintPropagationMode(settings == null ? "" : settings.taintPropagationMode());
         if (normalizedProjectRoot != null) {
             builder.addRoot(new ProjectRoot(
                     ProjectRootKind.CONTENT_ROOT,

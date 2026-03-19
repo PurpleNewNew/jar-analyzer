@@ -5,6 +5,7 @@
 package me.n1ar4.jar.analyzer.core;
 
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
+import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
 import me.n1ar4.jar.analyzer.graph.store.GraphEdge;
 import me.n1ar4.jar.analyzer.graph.store.GraphNode;
 import me.n1ar4.jar.analyzer.graph.store.GraphSnapshot;
@@ -21,7 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BytecodeMainlineGadgetParityTest {
     @AfterEach
     void cleanup() {
-        System.clearProperty("jar.analyzer.callgraph.profile");
         GraphStore.invalidateCache();
         DatabaseManager.clearAllData();
         ProjectRuntimeContext.clear();
@@ -88,7 +88,7 @@ class BytecodeMainlineGadgetParityTest {
     }
 
     private static GraphSnapshot buildBalancedSnapshot() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_BALANCED));
         Path jar = FixtureJars.gadgetFamilyTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, null);
@@ -96,7 +96,7 @@ class BytecodeMainlineGadgetParityTest {
     }
 
     private static GraphSnapshot buildBalancedYsoserialSnapshot() {
-        System.setProperty(CallGraphPlan.CALL_GRAPH_PROFILE_PROP, CallGraphPlan.PROFILE_BALANCED);
+        ProjectRuntimeContext.replaceProjectModel(profileModel(CallGraphPlan.PROFILE_BALANCED));
         Path jar = FixtureJars.ysoserialPayloadTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);
         CoreRunner.run(jar, null, false, null);
@@ -125,5 +125,11 @@ class BytecodeMainlineGadgetParityTest {
             }
         }
         assertTrue(false, "missing edge " + relType + " -> " + className + "#" + methodName + methodDesc);
+    }
+
+    private static ProjectModel profileModel(String profile) {
+        return ProjectModel.builder()
+                .callGraphProfile(profile)
+                .build();
     }
 }

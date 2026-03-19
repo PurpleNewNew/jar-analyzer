@@ -3386,7 +3386,9 @@ public final class RuntimeFacades {
                     s.sdkPath(),
                     s.resolveNestedJars(),
                     !s.fixClassPath(),
-                    s.jdkModules()
+                    s.jdkModules(),
+                    s.callGraphProfile(),
+                    s.taintPropagationMode()
             ));
             emitTextWindow("Config", "fix class path: " + STATE.buildSettings.fixClassPath());
         }

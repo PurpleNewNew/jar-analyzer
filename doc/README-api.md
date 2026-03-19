@@ -18,13 +18,15 @@
 ## 建库前提（当前实现）
 - 输入仅支持字节码：`jar/war/class/目录(含字节码)`，不再支持源码索引链路；目录输入会递归收集其中的 `.class/.jar/.war`。
 - CLI 建库不再提供 `--del-exist`；项目库替换固定走 staging + atomic swap，失败不会先删旧库。
-- 若未设置 `jar.analyzer.callgraph.profile`，调用图默认走 `balanced` 字节码主链，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。推荐使用 `jar.analyzer.callgraph.profile=fast|balanced|precision` 切换。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 和 lambda 的 static/constructor reference 都走这条主链；`precision` 会把 semantic/reflection/trigger/high-fanout 调用点纳入选择性高精度 PTA，并在 `callgraph` stage metrics 中暴露 `pta_precision_*` 计数，不再引入第二条隐藏调用图路径。语义边与静态 transfer 建模已经统一收敛到声明式注册器，新增规则优先在注册器扩展而不是继续散落硬编码分支。
-- 若配置了非法 `jar.analyzer.callgraph.profile`，建库会直接失败并返回显式错误，不再静默回退到 `balanced`。
-- 调用图能力统一由字节码主链提供；对外只保留 `profile` 这一条配置面。输入全部命中 common library 时，固定 `continue-no-callgraph`。
+- 调用图主链通过显式配置面 `callGraphProfile=fast|balanced|precision` 选择，默认 `balanced`，即 `bytecode-mainline+pta-refine / bytecode:balanced-v1`。当前字节码主线覆盖 `direct + declared-dispatch + typed-dispatch + reflection/method-handle + callback/framework semantic edge + selective PTA`，会对字段/数组/`System.arraycopy` 热点调用点补 `CALLS_PTA`；reflection / method-handle hints 会显式分层为 `const|log|cast|unknown`，并把超阈值多目标点记录为 `imprecise-threshold` 诊断而不是直接扩成大量边；`MethodHandles.Lookup.findVirtual/findStatic/findConstructor/findSpecial`、`MethodHandle.bindTo` 和 lambda 的 static/constructor reference 都走这条主链；`precision` 会把 semantic/reflection/trigger/high-fanout 调用点纳入选择性高精度 PTA，并在 `callgraph` stage metrics 中暴露 `pta_precision_*` 计数，不再引入第二条隐藏调用图路径。语义边与静态 transfer 建模已经统一收敛到声明式注册器，新增规则优先在注册器扩展而不是继续散落硬编码分支。
+- 若 `callGraphProfile` 非法，建库会直接失败并返回显式错误，不再静默回退到 `balanced`。
+- 调用图能力统一由字节码主链提供；对外保留显式配置面 `callGraphProfile`。输入全部命中 common library 时，固定 `continue-no-callgraph`。
+- 污点传播模式通过显式配置面 `taintPropagationMode=strict|balanced` 选择，默认 `balanced`；规则热刷新后即时生效，不要求重启后才生效。
 - JDK 依赖策略：
   - JDK8: 使用 `rt.jar/jce.jar`
   - JDK9+: 使用 `jmods`（默认 `core` 模块集合，经转换后入分析 classpath）
   - 项目级 `jdkModules` 通过正式配置面传入：GUI `jdk modules`、`POST /api/projects/register` 的 `jdkModules`、CLI `build --jdk-modules`
+  - `callGraphProfile` 与 `taintPropagationMode` 也属于正式配置面，可由 GUI 构建设置、`POST /api/projects/register` 请求体、CLI `build` 参数以及 MCP `project_register` 的可选字段传入；默认值分别为 `balanced` 和 `balanced`
 
 ## 统一响应格式
 成功:
@@ -294,11 +296,16 @@
     "inputPath": "/abs/path/app.jar",
     "runtimePath": "/abs/path/jdk",
     "resolveNestedJars": true,
-    "jdkModules": "core"
+    "jdkModules": "core",
+    "callGraphProfile": "balanced",
+    "taintPropagationMode": "balanced"
   }
   ```
   说明：
   - `jdkModules` 为可选字段，默认 `core`
+  - `callGraphProfile` 为可选字段，默认 `balanced`
+  - `taintPropagationMode` 为可选字段，默认 `balanced`
+  - MCP `project_register` 复用同一组可选字段
   - 运行时快照损坏时，切换/注册会返回显式的 `project_runtime_snapshot_corrupt`，区别于普通恢复失败
 - `POST /api/projects/switch`
   Body:

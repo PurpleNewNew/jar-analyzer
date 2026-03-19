@@ -90,6 +90,8 @@ public final class StartToolPanel extends JPanel {
     private final JTextField inputPathText = new JTextField();
     private final JTextField runtimePathText = new JTextField();
     private final JTextField jdkModulesText = new JTextField();
+    private final JTextField callGraphProfileText = new JTextField();
+    private final JTextField taintPropagationModeText = new JTextField();
     private final JButton inputBrowseButton = new JButton();
     private final JButton runtimeBrowseButton = new JButton();
     private final JCheckBox resolveNestedJarsBox = new JCheckBox("resolve nested jars");
@@ -120,10 +122,12 @@ public final class StartToolPanel extends JPanel {
         JPanel settingsPanel = new JPanel(new BorderLayout(6, 6));
         settingsPanel.setBorder(BorderFactory.createTitledBorder("Build Settings"));
 
-        JPanel pathPanel = new JPanel(new GridLayout(3, 1, 6, 6));
+        JPanel pathPanel = new JPanel(new GridLayout(5, 1, 6, 6));
         pathPanel.add(createPathRow("input", inputPathText, inputBrowseButton, this::chooseInputPath));
         pathPanel.add(createPathRow("sdk", runtimePathText, runtimeBrowseButton, this::chooseRuntimePath));
         pathPanel.add(createTextRow("jdk modules", jdkModulesText));
+        pathPanel.add(createTextRow("call graph profile", callGraphProfileText));
+        pathPanel.add(createTextRow("taint propagation", taintPropagationModeText));
         settingsPanel.add(pathPanel, BorderLayout.NORTH);
 
         JPanel optionsPanel = new JPanel(new GridLayout(1, 2, 4, 4));
@@ -316,6 +320,8 @@ public final class StartToolPanel extends JPanel {
             setTextIfIdle(inputPathText, settings.activeInputPath());
             setTextIfIdle(runtimePathText, settings.sdkPath());
             setTextIfIdle(jdkModulesText, settings.jdkModules());
+            setTextIfIdle(callGraphProfileText, settings.callGraphProfile());
+            setTextIfIdle(taintPropagationModeText, settings.taintPropagationMode());
             resolveNestedJarsBox.setSelected(settings.resolveNestedJars());
             fixClassPathBox.setSelected(settings.fixClassPath());
         }
@@ -382,7 +388,9 @@ public final class StartToolPanel extends JPanel {
                     safe(runtimePathText.getText()),
                     resolveNestedJarsBox.isSelected(),
                     fixClassPathBox.isSelected(),
-                    safe(jdkModulesText.getText())
+                    safe(jdkModulesText.getText()),
+                    safe(callGraphProfileText.getText()),
+                    safe(taintPropagationModeText.getText())
             );
             RuntimeFacades.build().apply(next);
         } catch (Throwable ex) {

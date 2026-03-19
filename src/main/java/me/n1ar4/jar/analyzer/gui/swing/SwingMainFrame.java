@@ -1168,7 +1168,9 @@ public final class SwingMainFrame extends JFrame {
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.fixClassPath(),
-                old.jdkModules()
+                old.jdkModules(),
+                old.callGraphProfile(),
+                old.taintPropagationMode()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
@@ -3664,7 +3666,9 @@ public final class SwingMainFrame extends JFrame {
                 old.sdkPath(),
                 old.resolveNestedJars(),
                 old.fixClassPath(),
-                old.jdkModules()
+                old.jdkModules(),
+                old.callGraphProfile(),
+                old.taintPropagationMode()
         ));
         focusToolTab(ToolTab.START);
         selectCodeTab();
