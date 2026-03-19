@@ -95,7 +95,7 @@ class StructureRecoveryObservabilityTest {
         assertNotNull(record);
         assertFalse(trace.getPhases().isEmpty());
         assertEquals(
-                List.of("initial-structuring", "control-flow-recovery", "variable-preparation", "modern-semantics", "variable-recovery", "output-stage"),
+                List.of("initial-structuring", "control-flow-recovery", "variable-preparation", "modern-semantics", "variable-recovery", "type-constraint", "output-stage"),
                 record.getStages().stream().map(MethodDecompileRecord.StageRecord::getStage).toList()
         );
         assertTrue(record.getStages().stream()
@@ -114,6 +114,10 @@ class StructureRecoveryObservabilityTest {
                 .filter(stage -> "variable-recovery".equals(stage.getStage()))
                 .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()
                         && stage.getArtifacts().getVariablePassNames().contains("restore-liftable-definition-assignments")));
+        assertTrue(record.getStages().stream()
+                .filter(stage -> "type-constraint".equals(stage.getStage()))
+                .anyMatch(stage -> stage.getAfterTypePassCount() > stage.getBeforeTypePassCount()
+                        && stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")));
         assertTrue(record.getStages().stream()
                 .allMatch(stage -> stage.getArtifacts().getFailedStructureInvariants().isEmpty()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "initial-cleanup".equals(phase.getPhase()) && !phase.isSkipped()));

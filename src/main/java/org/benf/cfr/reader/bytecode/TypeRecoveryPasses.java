@@ -63,6 +63,12 @@ public final class TypeRecoveryPasses {
             "expression-available",
             "Resolves member invocation display return type before assigned-local type harmonization."
     );
+    public static final StructuredPassEntry VARIABLE_ASSIGNMENT_CONSTRAINT = entry(
+            "variable-assignment-constraint",
+            "type-constraint",
+            "fully-structured",
+            "Propagates assignment display types into local variable declarations before output."
+    );
     public static final StructuredPassEntry NESTED_EXPRESSION_HINT = entry(
             "nested-expression-hint",
             "type-recovery.expression-hints",
@@ -93,6 +99,7 @@ public final class TypeRecoveryPasses {
             DISPLAY_TYPE_STATIC_RETURN,
             DISPLAY_TYPE_MEMBER_BINDER,
             DISPLAY_TYPE_MEMBER_RETURN,
+            VARIABLE_ASSIGNMENT_CONSTRAINT,
             NESTED_EXPRESSION_HINT,
             LAMBDA_RETURN_TARGET_HINT,
             TERNARY_BRANCH_TARGET_HINT

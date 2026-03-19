@@ -65,9 +65,6 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
 
     @Override
     public Dumper dump(Dumper dumper) {
-        harmonizeAssignedLocalTypeFromRvalue();
-        harmonizeCreatorTypeFromRvalue();
-        harmonizeCreatorTypeFromAssignmentTarget();
         if (shouldInlineSyntheticCreator()) {
             AssignmentExpression assignmentExpression = (AssignmentExpression) rvalue;
             ExpressionTypeHintHelper.improveExpressionType(
@@ -95,20 +92,32 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         return dumper;
     }
 
-    private void harmonizeCreatorTypeFromRvalue() {
-        if (!isEffectiveCreator()) {
-            return;
+    public TypeConstraintEffect applyTypeConstraints() {
+        if (!(lvalue instanceof LocalVariable)) {
+            return TypeConstraintEffect.none();
         }
-        harmonizeAssignedLocalTypeFromRvalue();
+        LocalVariable localVariable = (LocalVariable) lvalue;
+        JavaTypeInstance beforeType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance beforeCreationType = localVariable.getCustomCreationJavaType();
+        JavaTypeInstance displayType = ExpressionTypeHintHelper.getDisplayType(rvalue, beforeType);
+        applyDisplayTypeConstraint(localVariable, displayType);
+        boolean creatorTargetApplied = harmonizeCreatorTypeFromAssignmentTarget();
+        return new TypeConstraintEffect(
+                isEffectiveCreator(),
+                creatorTargetApplied,
+                beforeType,
+                localVariable.getInferredJavaType().getJavaTypeInstance(),
+                beforeCreationType,
+                localVariable.getCustomCreationJavaType(),
+                displayType
+        );
     }
 
-    private void harmonizeAssignedLocalTypeFromRvalue() {
+    private void applyDisplayTypeConstraint(LocalVariable localVariable, JavaTypeInstance displayType) {
         if (!(lvalue instanceof LocalVariable)) {
             return;
         }
-        LocalVariable localVariable = (LocalVariable) lvalue;
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
-        JavaTypeInstance displayType = ExpressionTypeHintHelper.getDisplayType(rvalue, currentType);
         if (!ExpressionTypeHintHelper.canDefineLocalType(displayType)) {
             return;
         }
@@ -152,30 +161,33 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         return currentBaseType;
     }
 
-    private void harmonizeCreatorTypeFromAssignmentTarget() {
+    private boolean harmonizeCreatorTypeFromAssignmentTarget() {
         if (!isEffectiveCreator()) {
-            return;
+            return false;
         }
         if (!(lvalue instanceof LocalVariable)) {
-            return;
+            return false;
         }
         if (!(rvalue instanceof AssignmentExpression)) {
-            return;
+            return false;
         }
         LValue updatedLValue = ((AssignmentExpression) rvalue).getUpdatedLValue();
         if (!(updatedLValue instanceof LocalVariable)) {
-            return;
+            return false;
         }
         JavaTypeInstance updatedType = updatedLValue.getInferredJavaType().getJavaTypeInstance();
         if (updatedType == null) {
-            return;
+            return false;
         }
         LocalVariable creatorVariable = (LocalVariable) lvalue;
+        JavaTypeInstance beforeType = creatorVariable.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance beforeCreationType = creatorVariable.getCustomCreationJavaType();
         creatorVariable.getInferredJavaType().forceType(updatedType, true);
         creatorVariable.setCustomCreationJavaType(updatedType);
         if (creatorVariable.getAnnotatedCreationType() == null) {
             creatorVariable.setCustomCreationType(updatedType.getAnnotatedInstance());
         }
+        return !updatedType.equals(beforeType) || beforeCreationType == null || !updatedType.equals(beforeCreationType);
     }
 
     private boolean shouldInlineSyntheticCreator() {
@@ -319,7 +331,13 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         expressionRewriter.handleStatement(getContainer());
         lvalue = expressionRewriter.rewriteExpression(lvalue, null, this.getContainer(), null);
         rvalue = expressionRewriter.rewriteExpression(rvalue, null, this.getContainer(), null);
-        harmonizeAssignedLocalTypeFromRvalue();
+        if (lvalue instanceof LocalVariable) {
+            LocalVariable localVariable = (LocalVariable) lvalue;
+            applyDisplayTypeConstraint(
+                    localVariable,
+                    ExpressionTypeHintHelper.getDisplayType(rvalue, localVariable.getInferredJavaType().getJavaTypeInstance())
+            );
+        }
     }
 
     @Override
@@ -333,4 +351,61 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         lvalue = lvalue.applyExpressionRewriter(expressionRewriter, ssaIdentifiers, statementContainer, flags);
     }
 
+    public static final class TypeConstraintEffect {
+        private final boolean creator;
+        private final boolean creatorTargetApplied;
+        private final JavaTypeInstance beforeType;
+        private final JavaTypeInstance afterType;
+        private final JavaTypeInstance beforeCreationType;
+        private final JavaTypeInstance afterCreationType;
+        private final JavaTypeInstance displayType;
+
+        private TypeConstraintEffect(boolean creator,
+                                     boolean creatorTargetApplied,
+                                     JavaTypeInstance beforeType,
+                                     JavaTypeInstance afterType,
+                                     JavaTypeInstance beforeCreationType,
+                                     JavaTypeInstance afterCreationType,
+                                     JavaTypeInstance displayType) {
+            this.creator = creator;
+            this.creatorTargetApplied = creatorTargetApplied;
+            this.beforeType = beforeType;
+            this.afterType = afterType;
+            this.beforeCreationType = beforeCreationType;
+            this.afterCreationType = afterCreationType;
+            this.displayType = displayType;
+        }
+
+        private static TypeConstraintEffect none() {
+            return new TypeConstraintEffect(false, false, null, null, null, null, null);
+        }
+
+        public boolean isCreator() {
+            return creator;
+        }
+
+        public boolean isCreatorTargetApplied() {
+            return creatorTargetApplied;
+        }
+
+        public JavaTypeInstance getBeforeType() {
+            return beforeType;
+        }
+
+        public JavaTypeInstance getAfterType() {
+            return afterType;
+        }
+
+        public JavaTypeInstance getBeforeCreationType() {
+            return beforeCreationType;
+        }
+
+        public JavaTypeInstance getAfterCreationType() {
+            return afterCreationType;
+        }
+
+        public JavaTypeInstance getDisplayType() {
+            return displayType;
+        }
+    }
 }

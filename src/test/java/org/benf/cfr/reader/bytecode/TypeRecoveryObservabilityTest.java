@@ -31,6 +31,7 @@ class TypeRecoveryObservabilityTest {
         assertTrue(passes.stream().anyMatch(entry -> "display-type-static-return".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-binder".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "display-type-member-return".equals(entry.getDescriptor().getName())));
+        assertTrue(passes.stream().anyMatch(entry -> "variable-assignment-constraint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "lambda-return-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().anyMatch(entry -> "ternary-branch-target-hint".equals(entry.getDescriptor().getName())));
         assertTrue(passes.stream().allMatch(entry -> !entry.getDescriptor().allowsStructuralChange()));
@@ -50,9 +51,16 @@ class TypeRecoveryObservabilityTest {
         Method method = loadedClass.getMethodByName("indexByValue").get(0);
         AnalysisResult analysisResult = method.getAnalysisResult();
         TypeRecoveryTrace trace = analysisResult.getTypeRecoveryTrace();
+        MethodDecompileRecord record = analysisResult.getMethodDecompileRecord();
 
         assertNotNull(trace);
+        assertNotNull(record);
         assertFalse(trace.getPasses().isEmpty());
+        assertTrue(trace.getPasses().stream()
+                .anyMatch(pass -> "variable-assignment-constraint".equals(pass.getPass().getDescriptor().getName())
+                        && "LocalVariable".equals(pass.getExpressionKind())
+                        && pass.getDetail() != null
+                        && pass.getDetail().contains("local=")));
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "assignment-rhs-hint".equals(pass.getPass().getDescriptor().getName())
                         && "ConstructorInvokationSimple".equals(pass.getExpressionKind())));
@@ -60,6 +68,9 @@ class TypeRecoveryObservabilityTest {
                 .anyMatch(pass -> "lambda-return-target-hint".equals(pass.getPass().getDescriptor().getName())
                         && "ConstructorInvokationSimple".equals(pass.getExpressionKind())
                         && pass.isChanged()));
+        assertTrue(record.getStages().stream()
+                .filter(stage -> "type-constraint".equals(stage.getStage()))
+                .anyMatch(stage -> stage.getArtifacts().getTypePassNames().contains("variable-assignment-constraint")));
         assertTrue(trace.getPasses().stream()
                 .allMatch(pass -> pass.getExpectedType() != null && pass.getAfterType() != null));
     }

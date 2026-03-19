@@ -13,6 +13,7 @@ final class MethodDecompilePipeline {
     private static final String CONTROL_FLOW_INPUT = "any-structure-state";
     private static final String VARIABLE_PREPARATION_STAGE = "variable-preparation";
     private static final String MODERN_SEMANTICS_STAGE = "modern-semantics";
+    private static final String TYPE_CONSTRAINT_STAGE = "type-constraint";
     private static final String FULLY_STRUCTURED_INPUT = "fully-structured";
     private static final String OUTPUT_STAGE = "output-stage";
 
@@ -21,6 +22,7 @@ final class MethodDecompilePipeline {
     private final VariablePreparationStage variablePreparationStage;
     private final ModernSemanticsStage modernSemanticsStage;
     private final VariableRecoveryStage variableRecoveryStage;
+    private final TypeConstraintStage typeConstraintStage;
     private final OutputPolishStage outputPolishStage;
 
     MethodDecompilePipeline(MethodAnalysisContext context) {
@@ -31,6 +33,7 @@ final class MethodDecompilePipeline {
         this.variablePreparationStage = new VariablePreparationStage();
         this.modernSemanticsStage = new ModernSemanticsStage(structureRecoveryPipeline, patternSemanticsRewriter);
         this.variableRecoveryStage = new VariableRecoveryStage();
+        this.typeConstraintStage = new TypeConstraintStage();
         this.outputPolishStage = new OutputPolishStage(structureRecoveryPipeline);
     }
 
@@ -42,6 +45,7 @@ final class MethodDecompilePipeline {
             skipStage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
             skipStage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
             skipStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement(), block, context, "input-requirement-not-met");
+            skipStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, "input-requirement-not-met");
             skipStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
             context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
             return block;
@@ -56,10 +60,12 @@ final class MethodDecompilePipeline {
         }
         runStage(VariableRecoveryStage.phaseName(), VariableRecoveryStage.inputRequirement(), block, context, () -> variableRecoveryStage.apply(block, context));
         if (!block.isFullyStructured()) {
+            skipStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, "input-requirement-not-met");
             skipStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, "input-requirement-not-met");
             context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
             return block;
         }
+        runStage(TYPE_CONSTRAINT_STAGE, TypeConstraintStage.inputRequirement(), block, context, () -> typeConstraintStage.apply(block, context));
         runStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, block, context, () -> outputPolishStage.apply(block, context));
         return block;
     }
