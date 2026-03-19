@@ -238,6 +238,9 @@ final class StructuredConditionLocalRecovery {
                     && usesAnyCandidateAfterTarget(statements, statementIndex + 1, candidates)) {
                 return;
             }
+            if (usesAnyCandidateInsideDeferredContext(targetStatement, candidates)) {
+                return;
+            }
             ConditionAssignmentCollector collector = new ConditionAssignmentCollector(candidates);
             targetStatement.rewriteExpressions(collector);
             collector.bindUnmatchedReverseDefinitions();
@@ -304,6 +307,25 @@ final class StructuredConditionLocalRecovery {
                 }
             }
             return false;
+        }
+
+        private boolean usesAnyCandidateInsideDeferredContext(StructuredStatement statement,
+                                                              List<LiftablePrefixCandidate> candidates) {
+            for (LiftablePrefixCandidate candidate : candidates) {
+                if (usesLocalInsideDeferredContext(statement, candidate.localVariable)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean usesLocalInsideDeferredContext(StructuredStatement statement, LocalVariable localVariable) {
+            if (statement == null || localVariable == null) {
+                return false;
+            }
+            DeferredLocalUseCollector collector = new DeferredLocalUseCollector(localVariable);
+            statement.rewriteExpressions(collector);
+            return collector.hasDeferredUse();
         }
 
         private LiftablePrefixCandidate getLiftablePrefixCandidate(StructuredStatement statement, int index) {
@@ -683,6 +705,66 @@ final class StructuredConditionLocalRecovery {
                 container = new Op04StructuredStatement(content);
             }
             restoreLiftableDefinitionAssignments(container);
+        }
+    }
+
+    private static final class DeferredLocalUseCollector extends AbstractExpressionRewriter {
+        private final LocalVariable localVariable;
+        private boolean deferredUse;
+
+        private DeferredLocalUseCollector(LocalVariable localVariable) {
+            this.localVariable = localVariable;
+        }
+
+        private boolean hasDeferredUse() {
+            return deferredUse;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (deferredUse) {
+                return expression;
+            }
+            if (expression instanceof StructuredStatementExpression) {
+                deferredUse = structuredStatementUsesLocal(((StructuredStatementExpression) expression).getContent(), localVariable);
+                return expression;
+            }
+            if (expression instanceof org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression) {
+                Expression result = ((org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression) expression).getResult();
+                deferredUse = expressionUsesLocal(result, localVariable);
+                return expression;
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        private boolean structuredStatementUsesLocal(StructuredStatement content, LocalVariable localVariable) {
+            if (content == null) {
+                return false;
+            }
+            StructuredLocalVariableRecoverySupport.AssignmentUseCounter counter =
+                    new StructuredLocalVariableRecoverySupport.AssignmentUseCounter(localVariable);
+            List<StructuredStatement> linearized = ListFactory.newList();
+            content.linearizeInto(linearized);
+            for (StructuredStatement part : linearized) {
+                part.rewriteExpressions(counter);
+                if (counter.hasAnyUse()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean expressionUsesLocal(Expression expression, LocalVariable localVariable) {
+            if (expression == null) {
+                return false;
+            }
+            StructuredLocalVariableRecoverySupport.AssignmentUseCounter counter =
+                    new StructuredLocalVariableRecoverySupport.AssignmentUseCounter(localVariable);
+            expression.applyExpressionRewriter(counter, null, null, ExpressionRewriterFlags.RVALUE);
+            return counter.hasAnyUse();
         }
     }
 }

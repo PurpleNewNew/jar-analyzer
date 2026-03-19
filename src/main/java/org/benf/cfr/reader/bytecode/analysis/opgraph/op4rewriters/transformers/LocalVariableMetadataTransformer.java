@@ -18,6 +18,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredCatch;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeAnnotationHelper;
 import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
@@ -142,21 +143,21 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         });
     }
 
-    private JavaTypeInstance getLocalVariableCreatorType(LocalVariable localVariable) {
-        LocalVariableTypeEntry typeEntry = getLocalVariableTypeEntry(localVariable);
+    private ResolvedCreatorType resolveLocalVariableCreatorType(LocalVariable localVariable) {
+        ResolvedLocalVariableTypeEntry typeEntry = getLocalVariableTypeEntry(localVariable);
         if (typeEntry != null) {
-            String signature = cp.getUTF8Entry(typeEntry.getSignatureIndex()).getValue();
-            return ConstantPoolUtils.decodeTypeTok(signature, cp);
+            String signature = cp.getUTF8Entry(typeEntry.entry.getSignatureIndex()).getValue();
+            return new ResolvedCreatorType(ConstantPoolUtils.decodeTypeTok(signature, cp), typeEntry.matchQuality);
         }
 
-        LocalVariableEntry entry = getLocalVariableEntry(localVariable);
+        ResolvedLocalVariableEntry entry = getLocalVariableEntry(localVariable);
         if (entry == null) return null;
 
-        String descriptor = cp.getUTF8Entry(entry.getDescriptorIndex()).getValue();
-        return ConstantPoolUtils.decodeTypeTok(descriptor, cp);
+        String descriptor = cp.getUTF8Entry(entry.entry.getDescriptorIndex()).getValue();
+        return new ResolvedCreatorType(ConstantPoolUtils.decodeTypeTok(descriptor, cp), entry.matchQuality);
     }
 
-    private LocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
+    private ResolvedLocalVariableTypeEntry getLocalVariableTypeEntry(LocalVariable localVariable) {
         int rawOffset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
         if (rawOffset < 0 || slot < 0) return null;
@@ -197,12 +198,14 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 bestNearbyNamedDistance = distance;
             }
         }
-        if (bestCoveredNamed != null) return bestCoveredNamed;
-        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) return bestCovered;
-        return bestNearbyNamed;
+        if (bestCoveredNamed != null) return new ResolvedLocalVariableTypeEntry(bestCoveredNamed, MatchQuality.COVERED_NAMED);
+        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) {
+            return new ResolvedLocalVariableTypeEntry(bestCovered, MatchQuality.COVERED_SLOT);
+        }
+        return bestNearbyNamed == null ? null : new ResolvedLocalVariableTypeEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
     }
 
-    private LocalVariableEntry getLocalVariableEntry(LocalVariable localVariable) {
+    private ResolvedLocalVariableEntry getLocalVariableEntry(LocalVariable localVariable) {
         int rawOffset = localVariable.getOriginalRawOffset();
         int slot = localVariable.getIdx();
         if (rawOffset < 0 || slot < 0) return null;
@@ -243,9 +246,11 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 bestNearbyNamedDistance = distance;
             }
         }
-        if (bestCoveredNamed != null) return bestCoveredNamed;
-        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) return bestCovered;
-        return bestNearbyNamed;
+        if (bestCoveredNamed != null) return new ResolvedLocalVariableEntry(bestCoveredNamed, MatchQuality.COVERED_NAMED);
+        if (bestCovered != null && (!hasGoodName(localVariable) || currentMethodOffset)) {
+            return new ResolvedLocalVariableEntry(bestCovered, MatchQuality.COVERED_SLOT);
+        }
+        return bestNearbyNamed == null ? null : new ResolvedLocalVariableEntry(bestNearbyNamed, MatchQuality.NEARBY_NAMED);
     }
 
     private boolean isCurrentMethodOffset(int rawOffset) {
@@ -295,8 +300,12 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     }
 
     private JavaTypeInstance applyResolvedVariableType(LocalVariable localVariable, boolean refreshCreationType) {
-        JavaTypeInstance creatorType = getLocalVariableCreatorType(localVariable);
-        if (creatorType == null) return null;
+        ResolvedCreatorType resolvedCreatorType = resolveLocalVariableCreatorType(localVariable);
+        if (resolvedCreatorType == null || resolvedCreatorType.type == null) return null;
+        JavaTypeInstance creatorType = resolvedCreatorType.type;
+        if (shouldPreserveExistingDeclarationType(localVariable, creatorType, resolvedCreatorType.matchQuality)) {
+            return localVariable.getInferredJavaType().getJavaTypeInstance();
+        }
 
         localVariable.getInferredJavaType().forceType(creatorType, true);
         localVariable.setCustomCreationJavaType(creatorType);
@@ -304,6 +313,23 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
         }
         return creatorType;
+    }
+
+    private boolean shouldPreserveExistingDeclarationType(LocalVariable localVariable,
+                                                          JavaTypeInstance creatorType,
+                                                          MatchQuality matchQuality) {
+        if (matchQuality != MatchQuality.NEARBY_NAMED || !hasGoodName(localVariable)) {
+            return false;
+        }
+        JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (currentType == null
+                || currentType.equals(creatorType)
+                || TypeConstants.OBJECT.equals(currentType)
+                || TypeConstants.OBJECT.equals(currentType.getDeGenerifiedType())) {
+            return false;
+        }
+        return creatorType.implicitlyCastsTo(currentType, null)
+                && !currentType.implicitlyCastsTo(creatorType, null);
     }
 
     private void applyCreatorType(LocalVariable localVariable, StructuredStatement stm) {
@@ -393,6 +419,42 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             x = a.getDescriptorIndex() - b.getDescriptorIndex();
             if (x != 0) return x;
             return a.getNameIndex() - b.getNameIndex();
+        }
+    }
+
+    private enum MatchQuality {
+        COVERED_NAMED,
+        COVERED_SLOT,
+        NEARBY_NAMED
+    }
+
+    private static final class ResolvedCreatorType {
+        private final JavaTypeInstance type;
+        private final MatchQuality matchQuality;
+
+        private ResolvedCreatorType(JavaTypeInstance type, MatchQuality matchQuality) {
+            this.type = type;
+            this.matchQuality = matchQuality;
+        }
+    }
+
+    private static final class ResolvedLocalVariableTypeEntry {
+        private final LocalVariableTypeEntry entry;
+        private final MatchQuality matchQuality;
+
+        private ResolvedLocalVariableTypeEntry(LocalVariableTypeEntry entry, MatchQuality matchQuality) {
+            this.entry = entry;
+            this.matchQuality = matchQuality;
+        }
+    }
+
+    private static final class ResolvedLocalVariableEntry {
+        private final LocalVariableEntry entry;
+        private final MatchQuality matchQuality;
+
+        private ResolvedLocalVariableEntry(LocalVariableEntry entry, MatchQuality matchQuality) {
+            this.entry = entry;
+            this.matchQuality = matchQuality;
         }
     }
 }

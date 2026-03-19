@@ -84,7 +84,10 @@ final class MethodDecompilePipeline {
                 beforeVariablePassCount,
                 context.variableRecoveryTrace.getPasses().size(),
                 beforeTypePassCount,
-                context.typeRecoveryTrace.getPasses().size()
+                context.typeRecoveryTrace.getPasses().size(),
+                context.structureRecoveryTrace,
+                context.variableRecoveryTrace,
+                context.typeRecoveryTrace
         );
     }
 

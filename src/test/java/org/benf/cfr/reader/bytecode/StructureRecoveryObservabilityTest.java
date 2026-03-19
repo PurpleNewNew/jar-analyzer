@@ -99,14 +99,23 @@ class StructureRecoveryObservabilityTest {
                 record.getStages().stream().map(MethodDecompileRecord.StageRecord::getStage).toList()
         );
         assertTrue(record.getStages().stream()
+                .filter(stage -> "control-flow-recovery".equals(stage.getStage()))
+                .allMatch(stage -> stage.getArtifacts().getStructurePhaseNames().contains("control-flow-recovery")
+                        || !stage.hasStructuralDelta()));
+        assertTrue(record.getStages().stream()
                 .filter(stage -> "variable-preparation".equals(stage.getStage()))
-                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()));
+                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()
+                        && stage.getArtifacts().getVariablePassNames().contains("discover-variable-scopes")));
         assertTrue(record.getStages().stream()
                 .filter(stage -> "modern-semantics".equals(stage.getStage()))
-                .allMatch(stage -> stage.getAfterVariablePassCount() == stage.getBeforeVariablePassCount()));
+                .allMatch(stage -> stage.getAfterVariablePassCount() == stage.getBeforeVariablePassCount()
+                        && stage.getArtifacts().getVariablePassNames().isEmpty()));
         assertTrue(record.getStages().stream()
                 .filter(stage -> "variable-recovery".equals(stage.getStage()))
-                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()));
+                .anyMatch(stage -> stage.getAfterVariablePassCount() > stage.getBeforeVariablePassCount()
+                        && stage.getArtifacts().getVariablePassNames().contains("restore-liftable-definition-assignments")));
+        assertTrue(record.getStages().stream()
+                .allMatch(stage -> stage.getArtifacts().getFailedStructureInvariants().isEmpty()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "initial-cleanup".equals(phase.getPhase()) && !phase.isSkipped()));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "pattern-semantics.normalize".equals(phase.getPhase())));
         assertTrue(trace.getPhases().stream().anyMatch(phase -> "analysis-checks".equals(phase.getPhase())));

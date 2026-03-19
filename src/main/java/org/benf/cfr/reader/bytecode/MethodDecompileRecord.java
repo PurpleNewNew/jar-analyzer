@@ -15,7 +15,10 @@ public final class MethodDecompileRecord {
                      int beforeVariablePassCount,
                      int afterVariablePassCount,
                      int beforeTypePassCount,
-                     int afterTypePassCount) {
+                     int afterTypePassCount,
+                     StructureRecoveryTrace structureRecoveryTrace,
+                     VariableRecoveryTrace variableRecoveryTrace,
+                     TypeRecoveryTrace typeRecoveryTrace) {
         stages.add(new StageRecord(
                 stage,
                 inputRequirement,
@@ -27,6 +30,17 @@ public final class MethodDecompileRecord {
                 afterVariablePassCount,
                 beforeTypePassCount,
                 afterTypePassCount,
+                StageArtifacts.capture(
+                        beforeStructurePhaseCount,
+                        afterStructurePhaseCount,
+                        beforeVariablePassCount,
+                        afterVariablePassCount,
+                        beforeTypePassCount,
+                        afterTypePassCount,
+                        structureRecoveryTrace,
+                        variableRecoveryTrace,
+                        typeRecoveryTrace
+                ),
                 false,
                 null
         ));
@@ -50,6 +64,7 @@ public final class MethodDecompileRecord {
                 beforeVariablePassCount,
                 beforeTypePassCount,
                 beforeTypePassCount,
+                StageArtifacts.empty(),
                 true,
                 reason
         ));
@@ -74,6 +89,7 @@ public final class MethodDecompileRecord {
         private final int afterVariablePassCount;
         private final int beforeTypePassCount;
         private final int afterTypePassCount;
+        private final StageArtifacts artifacts;
         private final boolean skipped;
         private final String skipReason;
 
@@ -87,6 +103,7 @@ public final class MethodDecompileRecord {
                             int afterVariablePassCount,
                             int beforeTypePassCount,
                             int afterTypePassCount,
+                            StageArtifacts artifacts,
                             boolean skipped,
                             String skipReason) {
             this.stage = stage;
@@ -99,6 +116,7 @@ public final class MethodDecompileRecord {
             this.afterVariablePassCount = afterVariablePassCount;
             this.beforeTypePassCount = beforeTypePassCount;
             this.afterTypePassCount = afterTypePassCount;
+            this.artifacts = artifacts;
             this.skipped = skipped;
             this.skipReason = skipReason;
         }
@@ -153,6 +171,119 @@ public final class MethodDecompileRecord {
 
         public boolean hasStructuralDelta() {
             return before != null && after != null && before.hasStructuralDelta(after);
+        }
+
+        public StageArtifacts getArtifacts() {
+            return artifacts;
+        }
+    }
+
+    public static final class StageArtifacts {
+        private final List<String> structurePhaseNames;
+        private final List<String> failedStructureInvariants;
+        private final List<String> variablePassNames;
+        private final int variablePassesWithStructuralDelta;
+        private final List<String> typePassNames;
+        private final int changedTypePassCount;
+
+        private StageArtifacts(List<String> structurePhaseNames,
+                               List<String> failedStructureInvariants,
+                               List<String> variablePassNames,
+                               int variablePassesWithStructuralDelta,
+                               List<String> typePassNames,
+                               int changedTypePassCount) {
+            this.structurePhaseNames = List.copyOf(structurePhaseNames);
+            this.failedStructureInvariants = List.copyOf(failedStructureInvariants);
+            this.variablePassNames = List.copyOf(variablePassNames);
+            this.variablePassesWithStructuralDelta = variablePassesWithStructuralDelta;
+            this.typePassNames = List.copyOf(typePassNames);
+            this.changedTypePassCount = changedTypePassCount;
+        }
+
+        private static StageArtifacts capture(int beforeStructurePhaseCount,
+                                              int afterStructurePhaseCount,
+                                              int beforeVariablePassCount,
+                                              int afterVariablePassCount,
+                                              int beforeTypePassCount,
+                                              int afterTypePassCount,
+                                              StructureRecoveryTrace structureRecoveryTrace,
+                                              VariableRecoveryTrace variableRecoveryTrace,
+                                              TypeRecoveryTrace typeRecoveryTrace) {
+            List<String> structurePhases = new ArrayList<String>();
+            List<String> failedInvariants = new ArrayList<String>();
+            for (StructureRecoveryTrace.PhaseTrace phase : structureRecoveryTrace.getPhases()
+                    .subList(beforeStructurePhaseCount, afterStructurePhaseCount)) {
+                structurePhases.add(phase.getPhase());
+                for (StructureRecoveryTrace.InvariantTrace invariant : phase.getInvariants()) {
+                    if (!invariant.isPassed()) {
+                        failedInvariants.add(phase.getPhase() + ":" + invariant.getName());
+                    }
+                }
+                for (StructureRecoveryTrace.RoundTrace round : phase.getRounds()) {
+                    for (StructureRecoveryTrace.InvariantTrace invariant : round.getInvariants()) {
+                        if (!invariant.isPassed()) {
+                            failedInvariants.add(phase.getPhase() + ":round-" + round.getRound() + ":" + invariant.getName());
+                        }
+                    }
+                }
+            }
+
+            List<String> variablePassNames = new ArrayList<String>();
+            int variablePassesWithStructuralDelta = 0;
+            for (VariableRecoveryTrace.PassTrace pass : variableRecoveryTrace.getPasses()
+                    .subList(beforeVariablePassCount, afterVariablePassCount)) {
+                variablePassNames.add(pass.getPass().getDescriptor().getName());
+                if (pass.hasStructuralDelta()) {
+                    ++variablePassesWithStructuralDelta;
+                }
+            }
+
+            List<String> typePassNames = new ArrayList<String>();
+            int changedTypePassCount = 0;
+            for (TypeRecoveryTrace.PassTrace pass : typeRecoveryTrace.getPasses()
+                    .subList(beforeTypePassCount, afterTypePassCount)) {
+                typePassNames.add(pass.getPass().getDescriptor().getName());
+                if (pass.isChanged()) {
+                    ++changedTypePassCount;
+                }
+            }
+
+            return new StageArtifacts(
+                    structurePhases,
+                    failedInvariants,
+                    variablePassNames,
+                    variablePassesWithStructuralDelta,
+                    typePassNames,
+                    changedTypePassCount
+            );
+        }
+
+        private static StageArtifacts empty() {
+            return new StageArtifacts(List.of(), List.of(), List.of(), 0, List.of(), 0);
+        }
+
+        public List<String> getStructurePhaseNames() {
+            return structurePhaseNames;
+        }
+
+        public List<String> getFailedStructureInvariants() {
+            return failedStructureInvariants;
+        }
+
+        public List<String> getVariablePassNames() {
+            return variablePassNames;
+        }
+
+        public int getVariablePassesWithStructuralDelta() {
+            return variablePassesWithStructuralDelta;
+        }
+
+        public List<String> getTypePassNames() {
+            return typePassNames;
+        }
+
+        public int getChangedTypePassCount() {
+            return changedTypePassCount;
         }
     }
 }
