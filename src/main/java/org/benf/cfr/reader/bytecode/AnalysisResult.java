@@ -3,6 +3,8 @@ package org.benf.cfr.reader.bytecode;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.util.DecompilerComments;
 
+import java.util.SortedMap;
+
 public interface AnalysisResult {
     boolean isFailed();
     boolean isThrown();
@@ -13,4 +15,5 @@ public interface AnalysisResult {
     VariableRecoveryTrace getVariableRecoveryTrace();
     TypeRecoveryTrace getTypeRecoveryTrace();
     MethodDecompileRecord getMethodDecompileRecord();
+    SortedMap<Integer, Integer> getLutByOffset();
 }

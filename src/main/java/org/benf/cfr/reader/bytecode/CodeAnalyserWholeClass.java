@@ -87,6 +87,25 @@ public class CodeAnalyserWholeClass {
         ModernClassFeatureRewriter.rewrite(classFile, state);
     }
 
+    public static void refreshLocalVariableMetadata(ClassFile classFile) {
+        for (Method method : classFile.getMethods()) {
+            if (!method.hasCodeAttribute()) {
+                continue;
+            }
+            AnalysisResult analysisResult = method.getAnalysisResult();
+            Op04StructuredStatement code = analysisResult.getCode();
+            if (code == null || !code.isFullyStructured()) {
+                continue;
+            }
+            StructuredSemanticTransforms.applyLocalVariableMetadata(
+                    method.getCodeAttribute(),
+                    code,
+                    analysisResult.getLutByOffset(),
+                    analysisResult.getComments()
+            );
+        }
+    }
+
     private static void resugarRetroLambda(ClassFile classFile, DCCommonState state) {
         RetroLambdaRewriter.rewrite(classFile, state);
     }
@@ -566,7 +585,5 @@ public class CodeAnalyserWholeClass {
         if (options.getOption(OptionsImpl.RELINK_CONSTANT_STRINGS)) {
             relinkConstantStrings(classFile, state);
         }
-
-
     }
 }

@@ -4,6 +4,10 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.util.DecompilerComment;
 import org.benf.cfr.reader.util.DecompilerComments;
 
+import java.util.Collections;
+import java.util.SortedMap;
+import java.util.TreeMap;
+
 public class AnalysisResultSuccessful implements AnalysisResult {
     private final DecompilerComments comments;
     private final Op04StructuredStatement code;
@@ -12,6 +16,7 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     private final VariableRecoveryTrace variableRecoveryTrace;
     private final TypeRecoveryTrace typeRecoveryTrace;
     private final MethodDecompileRecord methodDecompileRecord;
+    private final SortedMap<Integer, Integer> lutByOffset;
     private final boolean failed;
     private final boolean exception;
 
@@ -21,7 +26,8 @@ public class AnalysisResultSuccessful implements AnalysisResult {
                              StructureRecoveryTrace structureRecoveryTrace,
                              VariableRecoveryTrace variableRecoveryTrace,
                              TypeRecoveryTrace typeRecoveryTrace,
-                             MethodDecompileRecord methodDecompileRecord) {
+                             MethodDecompileRecord methodDecompileRecord,
+                             SortedMap<Integer, Integer> lutByOffset) {
         this.anonymousClassUsage = anonymousClassUsage;
         this.comments = comments;
         this.code = code;
@@ -29,6 +35,7 @@ public class AnalysisResultSuccessful implements AnalysisResult {
         this.variableRecoveryTrace = variableRecoveryTrace;
         this.typeRecoveryTrace = typeRecoveryTrace;
         this.methodDecompileRecord = methodDecompileRecord;
+        this.lutByOffset = Collections.unmodifiableSortedMap(new TreeMap<Integer, Integer>(lutByOffset));
         boolean failed = false;
         boolean exception = false;
         for (DecompilerComment comment : comments.getCommentCollection()) {
@@ -86,5 +93,10 @@ public class AnalysisResultSuccessful implements AnalysisResult {
     @Override
     public MethodDecompileRecord getMethodDecompileRecord() {
         return methodDecompileRecord;
+    }
+
+    @Override
+    public SortedMap<Integer, Integer> getLutByOffset() {
+        return lutByOffset;
     }
 }

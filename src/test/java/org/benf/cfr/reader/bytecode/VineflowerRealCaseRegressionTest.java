@@ -31,7 +31,10 @@ class VineflowerRealCaseRegressionTest {
                                 "Iterator<Object> it1 = list.iterator();",
                                 "Iterator<Object> it2 = set.iterator();"
                         ),
-                        List.of("Iterator it1", "Iterator it2")
+                        List.of(
+                                "Iterator it1 = list.iterator();",
+                                "Iterator it2 = set.iterator();"
+                        )
                 ),
                 AuditCase.of(
                         "java8nodebug/pkg/TestIterationOverGenericsWithoutLvt.java",

@@ -5,6 +5,9 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredFake
 import org.benf.cfr.reader.util.DecompilerComment;
 import org.benf.cfr.reader.util.DecompilerComments;
 
+import java.util.Collections;
+import java.util.SortedMap;
+
 public class AnalysisResultFromException implements AnalysisResult {
     private final Op04StructuredStatement code;
     private final DecompilerComments comments;
@@ -58,5 +61,10 @@ public class AnalysisResultFromException implements AnalysisResult {
     @Override
     public MethodDecompileRecord getMethodDecompileRecord() {
         return MethodDecompileRecord.empty();
+    }
+
+    @Override
+    public SortedMap<Integer, Integer> getLutByOffset() {
+        return Collections.emptySortedMap();
     }
 }

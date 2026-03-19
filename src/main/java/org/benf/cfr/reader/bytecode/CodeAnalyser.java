@@ -299,7 +299,8 @@ public class CodeAnalyser {
                 analysisContext.structureRecoveryTrace,
                 analysisContext.variableRecoveryTrace,
                 analysisContext.typeRecoveryTrace,
-                analysisContext.methodDecompileRecord
+                analysisContext.methodDecompileRecord,
+                pipelineState.lutByOffset
         );
     }
 

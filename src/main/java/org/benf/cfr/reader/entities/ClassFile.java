@@ -958,6 +958,17 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
                 CodeAnalyserWholeClass.wholeClassAnalysisPass3(arg, dcCommonState, typeUsageCollectingDumper);
             }
         });
+        analysePassOuterFirst(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile arg) {
+                CodeAnalyserWholeClass.refreshLocalVariableMetadata(arg);
+            }
+        });
+        /*
+         * wholeClassAnalysisPass3 may force local declarations to be reprinted with refreshed metadata.
+         * Re-collect type usage after the refresh so final dumping sees the same type surface.
+         */
+        this.dump(typeUsageCollectingDumper);
     }
 
     private void analyseSyntheticTags(Method method, Options options) {
