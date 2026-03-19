@@ -19,14 +19,13 @@ import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.runtime.JdkArchiveResolver;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
-import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
+import me.n1ar4.jar.analyzer.gui.runtime.api.ProjectScopedRuntimeCleaner;
+import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
-import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.jar.analyzer.utils.OSUtil;
 import me.n1ar4.jar.analyzer.utils.ProjectPathNormalizer;
 import me.n1ar4.log.LogManager;
@@ -544,7 +543,7 @@ public final class ProjectRegistryService {
         synchronized (ActiveProjectContext.mutationLock()) {
             String resolvedProjectKey = ActiveProjectContext.resolveRequestedOrActive(projectKey);
             publishActiveProjectRuntime(resolvedProjectKey, snapshot, projectModel);
-            clearActiveProjectServices();
+            resetProjectScopedRuntimeState();
             activateProjectServices(resolvedProjectKey);
         }
     }
@@ -985,9 +984,7 @@ public final class ProjectRegistryService {
             } catch (Exception ex) {
                 logger.debug("close previous project runtime fail: {}", ex.toString());
             }
-            clearActiveProjectServices();
-            boolean restored = applyRuntimeRestorePlan(next.projectKey(), restorePlan);
-            activateProjectServices(next.projectKey());
+            boolean restored = restoreAndActivateProjectRuntime(next.projectKey(), restorePlan);
             logger.info("project switched: {} -> {} (metadataRestored={})",
                     safe(previousProjectKey), safe(next.projectKey()), restored);
         } finally {
@@ -1010,15 +1007,13 @@ public final class ProjectRegistryService {
             } catch (Exception ex) {
                 logger.debug("close current project runtime fail: {}", ex.toString());
             }
-            clearActiveProjectServices();
             RuntimeException failure = null;
             try {
                 if (projectMutation != null) {
                     projectMutation.run();
                 }
                 RuntimeRestorePlan restorePlan = prepareRuntimeRestorePlan(projectKey);
-                boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
-                activateProjectServices(projectKey);
+                boolean restored = restoreAndActivateProjectRuntime(projectKey, restorePlan);
                 logger.info("project refreshed in place: key={} reason={} (metadataRestored={})",
                         safe(projectKey), safe(reason), restored);
             } catch (RuntimeException ex) {
@@ -1142,25 +1137,15 @@ public final class ProjectRegistryService {
         }
     }
 
-    private void clearActiveProjectServices() {
-        try {
-            RuntimeFacades.clearProjectScopedEditorState("project switched; editor reset");
-        } catch (Exception ex) {
-            logger.debug("clear editor state fail: {}", ex.toString());
-        }
-        try {
-            CFRDecompileEngine.cleanCache();
-        } catch (Exception ex) {
-            logger.debug("clean cfr cache fail: {}", ex.toString());
-        }
-        try {
-            var engine = EngineContext.getEngine();
-            if (engine != null) {
-                engine.clearCallGraphCache();
-            }
-        } catch (Exception ex) {
-            logger.debug("clear core engine cache fail: {}", ex.toString());
-        }
+    private boolean restoreAndActivateProjectRuntime(String projectKey, RuntimeRestorePlan restorePlan) {
+        resetProjectScopedRuntimeState();
+        boolean restored = applyRuntimeRestorePlan(projectKey, restorePlan);
+        activateProjectServices(projectKey);
+        return restored;
+    }
+
+    private void resetProjectScopedRuntimeState() {
+        ProjectScopedRuntimeCleaner.resetProjectScopedRuntime("", "", EngineContext::getEngine);
     }
 
     private void activateProjectServices(String projectKey) {

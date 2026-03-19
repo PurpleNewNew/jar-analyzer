@@ -271,7 +271,7 @@
   - 内置模板已收敛为高频集合，只保留调用、alias、source/sink、taint/gadget、类结构等主线查询，不再堆叠低价值样例
 
 - `GET /api/security/rule-validation`
-  直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Chains` 面板都会直接消费同一套摘要/issue 视图。
+  直接返回当前 `model/source/modelSource/sink` 规则校验摘要，以及按 `scope=all|model|source|sink` 过滤后的扁平 issue 列表。非法 `scope` 会返回 `rule_validation_scope_invalid`。适合 GUI、脚本和运维检查直接读取，不需要先走 capabilities。GUI 的独立规则校验对话框（`Start` 面板、`Tools -> 规则校验...`）以及 `Search -> Java 漏洞` / `Flow` 面板都会直接消费同一套摘要/issue 视图。
 
 - 已移除接口:
   - `/api/query/sql` 已删除

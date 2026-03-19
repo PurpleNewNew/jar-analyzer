@@ -37,13 +37,13 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphScope;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.ClassNavDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowResultItemDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSettingsDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetRowDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
@@ -155,7 +155,7 @@ public final class RuntimeFacades {
     private static final GraphFlowService GRAPH_FLOW_SERVICE = new GraphFlowService();
     private static final LeakScanService LEAK_SCAN_SERVICE = new LeakScanService();
     private static final ScaScanService SCA_SCAN_SERVICE = new ScaScanService();
-    private static final ChainsResultStore CHAINS_RESULT_STORE = ChainsResultStore.getInstance();
+    private static final FlowResultStore FLOW_RESULT_STORE = FlowResultStore.getInstance();
 
     private static final BuildFacade BUILD = new BuildRuntimeFacade(
             buildState(),
@@ -177,7 +177,7 @@ public final class RuntimeFacades {
     private static final ScaFacade SCA = new DefaultScaFacade();
     private static final LeakFacade LEAK = new DefaultLeakFacade();
     private static final GadgetFacade GADGET = new DefaultGadgetFacade();
-    private static final ChainsFacade CHAINS = new DefaultChainsFacade();
+    private static final FlowFacade FLOW = new DefaultFlowFacade();
     private static final ApiMcpFacade API_MCP = new DefaultApiMcpFacade();
     private static final EditorFacade EDITOR = new DefaultEditorFacade();
     private static final ProjectTreeFacade PROJECT_TREE = new ProjectTreeRuntimeFacade(
@@ -422,8 +422,8 @@ public final class RuntimeFacades {
         return GADGET;
     }
 
-    public static ChainsFacade chains() {
-        return CHAINS;
+    public static FlowFacade flow() {
+        return FLOW;
     }
 
     public static ApiMcpFacade apiMcp() {
@@ -609,7 +609,7 @@ public final class RuntimeFacades {
         private final AtomicBoolean scaRunning = new AtomicBoolean(false);
         private final AtomicBoolean leakRunning = new AtomicBoolean(false);
         private final AtomicBoolean gadgetRunning = new AtomicBoolean(false);
-        private final AtomicBoolean chainsRunning = new AtomicBoolean(false);
+        private final AtomicBoolean flowRunning = new AtomicBoolean(false);
 
         private volatile BuildSettingsDto buildSettings = new BuildSettingsDto(
                 "",
@@ -667,14 +667,14 @@ public final class RuntimeFacades {
                 "", true, true, true, true);
         private volatile List<GadgetRowDto> gadgetRows = List.of();
 
-        private volatile ChainsSettingsDto chainsSettings = new ChainsSettingsDto(
+        private volatile FlowSettingsDto flowSettings = new FlowSettingsDto(
                 true, false,
                 "", "", "",
                 "", "", "",
                 false, true, 10, false, false,
                 "", "low", true, false, 30
         );
-        private volatile String chainsStatusText = initialTr("就绪", "ready");
+        private volatile String flowStatusText = initialTr("就绪", "ready");
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
                 "", "", null, "", "", "", 0, initialTr("就绪", "ready"));
@@ -2034,65 +2034,65 @@ public final class RuntimeFacades {
         }
     }
 
-    private static final class DefaultChainsFacade implements ChainsFacade {
+    private static final class DefaultFlowFacade implements FlowFacade {
         @Override
-        public ChainsSnapshotDto snapshot() {
-            ChainsResultStore.Snapshot snapshot = CHAINS_RESULT_STORE.snapshot();
-            return new ChainsSnapshotDto(
-                    STATE.chainsSettings,
+        public FlowSnapshotDto snapshot() {
+            FlowResultStore.Snapshot snapshot = FLOW_RESULT_STORE.snapshot();
+            return new FlowSnapshotDto(
+                    STATE.flowSettings,
                     snapshot.dfsResults().size(),
                     snapshot.taintResults().size(),
-                    STATE.chainsStatusText
+                    STATE.flowStatusText
             );
         }
 
         @Override
-        public void apply(ChainsSettingsDto settings) {
+        public void apply(FlowSettingsDto settings) {
             if (settings == null) {
                 return;
             }
-            STATE.chainsSettings = settings;
-            STATE.chainsStatusText = tr("链路设置已更新", "chains settings updated");
+            STATE.flowSettings = settings;
+            STATE.flowStatusText = tr("流分析设置已更新", "flow settings updated");
         }
 
         @Override
         public void startDfs() {
-            if (!STATE.chainsRunning.compareAndSet(false, true)) {
+            if (!STATE.flowRunning.compareAndSet(false, true)) {
                 return;
             }
-            ChainsResultStore.Context chainsContext = ChainsResultStore.captureCurrentContext();
+            FlowResultStore.Context flowContext = FlowResultStore.captureCurrentContext();
             Thread.ofVirtual().name("gui-runtime-dfs").start(() -> {
                 try {
-                    ChainsSettingsDto cfg = STATE.chainsSettings;
-                    STATE.chainsStatusText = tr("DFS 执行中...", "DFS running...");
+                    FlowSettingsDto cfg = STATE.flowSettings;
+                    STATE.flowStatusText = tr("DFS 执行中...", "DFS running...");
                     DfsRunOutcome dfsOutcome = runDfsGraphOnly(cfg);
                     List<FlowPath> resultList = dfsOutcome.results();
-                    if (!CHAINS_RESULT_STORE.replaceDfs(chainsContext, resultList)) {
-                        STATE.chainsStatusText = tr(
+                    if (!FLOW_RESULT_STORE.replaceDfs(flowContext, resultList)) {
+                        STATE.flowStatusText = tr(
                                 "DFS 结果已因项目切换失效",
                                 "DFS results discarded after project change"
                         );
                         return;
                     }
-                    STATE.chainsStatusText = dfsOutcome.statusText();
+                    STATE.flowStatusText = dfsOutcome.statusText();
                     if (cfg.taintEnabled()) {
                         TaintRunOutcome taintOutcome = runTaintGraphOnly(cfg, resultList);
                         List<TaintResult> taintResult = taintOutcome.results();
-                        if (!CHAINS_RESULT_STORE.replaceTaint(chainsContext, taintResult)) {
-                            STATE.chainsStatusText = tr(
+                        if (!FLOW_RESULT_STORE.replaceTaint(flowContext, taintResult)) {
+                            STATE.flowStatusText = tr(
                                     "污点结果已因项目切换失效",
                                     "taint results discarded after project change"
                             );
                             return;
                         }
-                        STATE.chainsStatusText = dfsOutcome.statusText()
+                        STATE.flowStatusText = dfsOutcome.statusText()
                                 + " | " + taintOutcome.statusText();
                     }
                 } catch (Throwable ex) {
-                    STATE.chainsStatusText = tr("DFS 执行异常: ", "DFS error: ") + safe(ex.getMessage());
+                    STATE.flowStatusText = tr("DFS 执行异常: ", "DFS error: ") + safe(ex.getMessage());
                     logger.error("runtime dfs failed: {}", ex.toString());
                 } finally {
-                    STATE.chainsRunning.set(false);
+                    STATE.flowRunning.set(false);
                 }
             });
         }
@@ -2101,32 +2101,32 @@ public final class RuntimeFacades {
         public void startTaint() {
             Thread.ofVirtual().name("gui-runtime-taint").start(() -> {
                 try {
-                    ChainsResultStore.Snapshot chainsSnapshot = CHAINS_RESULT_STORE.snapshot();
-                    if (chainsSnapshot.dfsResults().isEmpty()) {
-                        STATE.chainsStatusText = tr("请先执行 DFS", "run DFS first");
+                    FlowResultStore.Snapshot flowSnapshot = FLOW_RESULT_STORE.snapshot();
+                    if (flowSnapshot.dfsResults().isEmpty()) {
+                        STATE.flowStatusText = tr("请先执行 DFS", "run DFS first");
                         return;
                     }
-                    ChainsSettingsDto cfg = STATE.chainsSettings;
-                    List<FlowPath> snapshot = new ArrayList<>(chainsSnapshot.dfsResults());
-                    STATE.chainsStatusText = tr("污点分析执行中...", "taint running...");
+                    FlowSettingsDto cfg = STATE.flowSettings;
+                    List<FlowPath> snapshot = new ArrayList<>(flowSnapshot.dfsResults());
+                    STATE.flowStatusText = tr("污点分析执行中...", "taint running...");
                     TaintRunOutcome taintOutcome = runTaintGraphOnly(cfg, snapshot);
                     List<TaintResult> taintResult = taintOutcome.results();
-                    if (!CHAINS_RESULT_STORE.replaceTaint(chainsSnapshot.context(), taintResult)) {
-                        STATE.chainsStatusText = tr(
+                    if (!FLOW_RESULT_STORE.replaceTaint(flowSnapshot.context(), taintResult)) {
+                        STATE.flowStatusText = tr(
                                 "污点结果已因项目切换失效",
                                 "taint results discarded after project change"
                         );
                         return;
                     }
-                    STATE.chainsStatusText = taintOutcome.statusText();
+                    STATE.flowStatusText = taintOutcome.statusText();
                 } catch (Throwable ex) {
-                    STATE.chainsStatusText = tr("污点分析异常: ", "taint error: ") + safe(ex.getMessage());
+                    STATE.flowStatusText = tr("污点分析异常: ", "taint error: ") + safe(ex.getMessage());
                     logger.error("runtime taint failed: {}", ex.toString());
                 }
             });
         }
 
-        private static DfsRunOutcome runDfsGraphOnly(ChainsSettingsDto cfg) {
+        private static DfsRunOutcome runDfsGraphOnly(FlowSettingsDto cfg) {
             FlowOptions options = toFlowOptions(cfg);
             GraphFlowService.DfsOutcome outcome = GRAPH_FLOW_SERVICE.runDfs(options, null);
             List<FlowPath> results = outcome == null ? List.of() : outcome.results();
@@ -2138,7 +2138,7 @@ public final class RuntimeFacades {
             );
         }
 
-        private static TaintRunOutcome runTaintGraphOnly(ChainsSettingsDto cfg, List<FlowPath> dfsSnapshot) {
+        private static TaintRunOutcome runTaintGraphOnly(FlowSettingsDto cfg, List<FlowPath> dfsSnapshot) {
             List<FlowPath> safeSnapshot = dfsSnapshot == null ? List.of() : dfsSnapshot;
             GraphFlowService.TaintOutcome outcome = GRAPH_FLOW_SERVICE.analyzeDfsResults(
                     safeSnapshot,
@@ -2149,14 +2149,14 @@ public final class RuntimeFacades {
             );
             List<TaintResult> results = outcome == null ? List.of() : outcome.results();
             FlowStats stats = outcome == null ? FlowStats.empty() : outcome.stats();
-            logger.info("runtime taint backend=graph chains={}", results.size());
+            logger.info("runtime taint backend=graph flows={}", results.size());
             return new TaintRunOutcome(
                     results,
                     formatGraphStatus(tr("污点后端: 图引擎", "Taint backend: graph"), stats)
             );
         }
 
-        private static FlowOptions toFlowOptions(ChainsSettingsDto cfg) {
+        private static FlowOptions toFlowOptions(FlowSettingsDto cfg) {
             int depth = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
             int maxLimit = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
             boolean searchAllSources = cfg != null && cfg.sourceNull();
@@ -2184,12 +2184,12 @@ public final class RuntimeFacades {
                     .build();
         }
 
-        private static Integer resolveFlowTimeoutMs(ChainsSettingsDto cfg) {
+        private static Integer resolveFlowTimeoutMs(FlowSettingsDto cfg) {
             int depth = Math.max(1, cfg == null ? 10 : cfg.maxDepth());
             return depth > 64 ? 30_000 : 15_000;
         }
 
-        private static Integer resolveFlowMaxPaths(ChainsSettingsDto cfg) {
+        private static Integer resolveFlowMaxPaths(FlowSettingsDto cfg) {
             int maxRows = Math.max(1, cfg == null ? 30 : cfg.maxResultLimit());
             return Math.min(5_000, maxRows);
         }
@@ -2226,13 +2226,13 @@ public final class RuntimeFacades {
 
         @Override
         public void clearResults() {
-            CHAINS_RESULT_STORE.clear();
-            STATE.chainsStatusText = tr("结果已清空", "results cleared");
+            FLOW_RESULT_STORE.clear();
+            STATE.flowStatusText = tr("结果已清空", "results cleared");
         }
 
         @Override
         public void openAdvanceSettings() {
-            emitToolingWindow(ToolingWindowAction.CHAINS_ADVANCED);
+            emitToolingWindow(ToolingWindowAction.FLOW_ADVANCED);
         }
 
         @Override
@@ -2242,8 +2242,8 @@ public final class RuntimeFacades {
             if (c.isBlank() || m.isBlank()) {
                 return;
             }
-            ChainsSettingsDto cfg = STATE.chainsSettings;
-            STATE.chainsSettings = new ChainsSettingsDto(
+            FlowSettingsDto cfg = STATE.flowSettings;
+            STATE.flowSettings = new FlowSettingsDto(
                     cfg.sinkSelected(),
                     true,
                     cfg.sinkClass(),
@@ -2272,8 +2272,8 @@ public final class RuntimeFacades {
             if (c.isBlank() || m.isBlank()) {
                 return;
             }
-            ChainsSettingsDto cfg = STATE.chainsSettings;
-            STATE.chainsSettings = new ChainsSettingsDto(
+            FlowSettingsDto cfg = STATE.flowSettings;
+            STATE.flowSettings = new FlowSettingsDto(
                     true,
                     cfg.sourceSelected(),
                     c,
@@ -3274,10 +3274,10 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openChainsDfsResult() {
+        public void openFlowDfsResult() {
             emitToolingWindow(new ToolingWindowRequest(
-                    ToolingWindowAction.CHAINS_RESULT,
-                    new ToolingWindowPayload.ChainsResultPayload(
+                    ToolingWindowAction.FLOW_RESULT,
+                    new ToolingWindowPayload.FlowResultPayload(
                             false,
                             "DFS Result",
                             "No DFS result. Start DFS first.",
@@ -3287,10 +3287,10 @@ public final class RuntimeFacades {
         }
 
         @Override
-        public void openChainsTaintResult() {
+        public void openFlowTaintResult() {
             emitToolingWindow(new ToolingWindowRequest(
-                    ToolingWindowAction.CHAINS_RESULT,
-                    new ToolingWindowPayload.ChainsResultPayload(
+                    ToolingWindowAction.FLOW_RESULT,
+                    new ToolingWindowPayload.FlowResultPayload(
                             true,
                             "Taint Result",
                             "No taint result. Start Taint first.",
@@ -3676,18 +3676,18 @@ public final class RuntimeFacades {
             return sb.toString();
         }
 
-        private List<ChainsResultItemDto> buildDfsResultItems() {
-            List<ChainsResultItemDto> items = new ArrayList<>();
-            ChainsResultStore.Snapshot chainsSnapshot = CHAINS_RESULT_STORE.snapshot();
-            if (chainsSnapshot.dfsResults().isEmpty()) {
+        private List<FlowResultItemDto> buildDfsResultItems() {
+            List<FlowResultItemDto> items = new ArrayList<>();
+            FlowResultStore.Snapshot flowSnapshot = FLOW_RESULT_STORE.snapshot();
+            if (flowSnapshot.dfsResults().isEmpty()) {
                 return items;
             }
             int index = 1;
-            for (FlowPath result : chainsSnapshot.dfsResults()) {
+            for (FlowPath result : flowSnapshot.dfsResults()) {
                 if (result == null) {
                     continue;
                 }
-                items.add(new ChainsResultItemDto(
+                items.add(new FlowResultItemDto(
                         index,
                         formatHandle(result.getSink()),
                         formatHandle(result.getSource()),
@@ -3711,19 +3711,19 @@ public final class RuntimeFacades {
             return items;
         }
 
-        private List<ChainsResultItemDto> buildTaintResultItems() {
-            List<ChainsResultItemDto> items = new ArrayList<>();
-            ChainsResultStore.Snapshot chainsSnapshot = CHAINS_RESULT_STORE.snapshot();
-            if (chainsSnapshot.taintResults().isEmpty()) {
+        private List<FlowResultItemDto> buildTaintResultItems() {
+            List<FlowResultItemDto> items = new ArrayList<>();
+            FlowResultStore.Snapshot flowSnapshot = FLOW_RESULT_STORE.snapshot();
+            if (flowSnapshot.taintResults().isEmpty()) {
                 return items;
             }
             int index = 1;
-            for (TaintResult result : chainsSnapshot.taintResults()) {
+            for (TaintResult result : flowSnapshot.taintResults()) {
                 if (result == null) {
                     continue;
                 }
                 FlowPath dfs = result.getDfsResult();
-                items.add(new ChainsResultItemDto(
+                items.add(new FlowResultItemDto(
                         index,
                         formatHandle(dfs == null ? null : dfs.getSink()),
                         formatHandle(dfs == null ? null : dfs.getSource()),
@@ -4016,8 +4016,15 @@ public final class RuntimeFacades {
                 "",
                 "",
                 0,
-                safe(statusText).isBlank() ? tr("项目已切换，编辑器已清空", "project switched; editor reset") : safe(statusText)
+                safe(statusText).isBlank() ? tr("项目上下文已刷新，编辑器已清空", "project context refreshed; editor reset") : safe(statusText)
         );
+    }
+
+    public static void clearProjectScopedFlowState(String statusText) {
+        FLOW_RESULT_STORE.clear();
+        STATE.flowStatusText = safe(statusText).isBlank()
+                ? tr("流分析结果已清空", "flow results cleared")
+                : safe(statusText);
     }
 
     private static String safe(String value) {

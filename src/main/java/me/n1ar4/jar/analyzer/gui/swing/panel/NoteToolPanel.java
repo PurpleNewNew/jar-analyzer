@@ -113,10 +113,10 @@ public final class NoteToolPanel extends JPanel {
             }
         });
 
-        historySetSourceItem.addActionListener(e -> setHistoryAsChainsPoint(true));
-        historySetSinkItem.addActionListener(e -> setHistoryAsChainsPoint(false));
-        favoriteSetSourceItem.addActionListener(e -> setFavoriteAsChainsPoint(true));
-        favoriteSetSinkItem.addActionListener(e -> setFavoriteAsChainsPoint(false));
+        historySetSourceItem.addActionListener(e -> setHistoryAsFlowPoint(true));
+        historySetSinkItem.addActionListener(e -> setHistoryAsFlowPoint(false));
+        favoriteSetSourceItem.addActionListener(e -> setFavoriteAsFlowPoint(true));
+        favoriteSetSinkItem.addActionListener(e -> setFavoriteAsFlowPoint(false));
         historyMenu.add(historySetSourceItem);
         historyMenu.add(historySetSinkItem);
         favoriteMenu.add(favoriteSetSourceItem);
@@ -294,25 +294,25 @@ public final class NoteToolPanel extends JPanel {
         favoriteMenu.show(favoriteList, e.getX(), e.getY());
     }
 
-    private void setHistoryAsChainsPoint(boolean source) {
+    private void setHistoryAsFlowPoint(boolean source) {
         MethodNavDto item = historyList.getSelectedValue();
-        setAsChainsPoint(item, source);
+        setAsFlowPoint(item, source);
     }
 
-    private void setFavoriteAsChainsPoint(boolean source) {
+    private void setFavoriteAsFlowPoint(boolean source) {
         MethodNavDto item = favoriteList.getSelectedValue();
-        setAsChainsPoint(item, source);
+        setAsFlowPoint(item, source);
     }
 
-    private void setAsChainsPoint(MethodNavDto item, boolean source) {
+    private void setAsFlowPoint(MethodNavDto item, boolean source) {
         if (item == null) {
             return;
         }
         if (source) {
-            RuntimeFacades.chains().setSource(item.className(), item.methodName(), item.methodDesc());
+            RuntimeFacades.flow().setSource(item.className(), item.methodName(), item.methodDesc());
             statusValue.setText(SwingI18n.tr("已设为 source", "set as source"));
         } else {
-            RuntimeFacades.chains().setSink(item.className(), item.methodName(), item.methodDesc());
+            RuntimeFacades.flow().setSink(item.className(), item.methodName(), item.methodDesc());
             statusValue.setText(SwingI18n.tr("已设为 sink", "set as sink"));
         }
     }

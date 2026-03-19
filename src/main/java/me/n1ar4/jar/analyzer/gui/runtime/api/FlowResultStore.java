@@ -8,15 +8,15 @@ import me.n1ar4.jar.analyzer.taint.TaintResult;
 import java.util.ArrayList;
 import java.util.List;
 
-final class ChainsResultStore {
-    private static final ChainsResultStore INSTANCE = new ChainsResultStore();
+final class FlowResultStore {
+    private static final FlowResultStore INSTANCE = new FlowResultStore();
 
     private volatile Snapshot snapshot = Snapshot.empty();
 
-    private ChainsResultStore() {
+    private FlowResultStore() {
     }
 
-    static ChainsResultStore getInstance() {
+    static FlowResultStore getInstance() {
         return INSTANCE;
     }
 

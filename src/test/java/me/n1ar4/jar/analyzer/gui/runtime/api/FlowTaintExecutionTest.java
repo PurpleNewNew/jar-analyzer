@@ -9,7 +9,7 @@ import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPathEdge;
 import me.n1ar4.jar.analyzer.graph.flow.model.FlowPath;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSettingsDto;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,10 +17,10 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class ChainsTaintExecutionTest {
+class FlowTaintExecutionTest {
     @AfterEach
     void cleanup() {
-        ChainsResultStore.getInstance().clear();
+        FlowResultStore.getInstance().clear();
         DatabaseManager.clearAllData();
     }
 
@@ -47,12 +47,12 @@ class ChainsTaintExecutionTest {
         dfs.setSink(sink);
         dfs.setMethodList(List.of(source, sink));
         dfs.setEdges(List.of(edge));
-        ChainsResultStore.getInstance().replaceDfs(
-                ChainsResultStore.captureCurrentContext(),
+        FlowResultStore.getInstance().replaceDfs(
+                FlowResultStore.captureCurrentContext(),
                 List.of(dfs)
         );
 
-        RuntimeFacades.chains().apply(new ChainsSettingsDto(
+        RuntimeFacades.flow().apply(new FlowSettingsDto(
                 true,
                 false,
                 "demo/Sink",
@@ -73,14 +73,14 @@ class ChainsTaintExecutionTest {
                 20
         ));
 
-        RuntimeFacades.chains().startTaint();
+        RuntimeFacades.flow().startTaint();
 
         long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline
-                && RuntimeFacades.chains().snapshot().taintCount() == 0) {
+                && RuntimeFacades.flow().snapshot().taintCount() == 0) {
             Thread.sleep(25L);
         }
 
-        assertEquals(1, RuntimeFacades.chains().snapshot().taintCount());
+        assertEquals(1, RuntimeFacades.flow().snapshot().taintCount());
     }
 }

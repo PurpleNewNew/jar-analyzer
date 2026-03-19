@@ -19,11 +19,11 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.ApiStartupConfigDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.BuildSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.CallGraphSnapshotDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsResultItemDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationResultDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDeclarationTargetDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.EditorDocumentDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowResultItemDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSettingsDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.GadgetSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.runtime.model.LeakSnapshotDto;
@@ -46,8 +46,8 @@ import me.n1ar4.jar.analyzer.gui.runtime.model.WebSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.panel.AdvanceToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ApiMcpToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.CallToolPanel;
-import me.n1ar4.jar.analyzer.gui.swing.panel.ChainsToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.CypherToolPanel;
+import me.n1ar4.jar.analyzer.gui.swing.panel.FlowToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.GadgetToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.ImplToolPanel;
 import me.n1ar4.jar.analyzer.gui.swing.panel.LeakToolPanel;
@@ -242,7 +242,7 @@ public final class SwingMainFrame extends JFrame {
     private final LeakToolPanel leakPanel = new LeakToolPanel();
     private final GadgetToolPanel gadgetPanel = new GadgetToolPanel();
     private final AdvanceToolPanel advancePanel = new AdvanceToolPanel();
-    private final ChainsToolPanel chainsPanel = new ChainsToolPanel();
+    private final FlowToolPanel flowPanel = new FlowToolPanel();
     private final ApiMcpToolPanel apiPanel = new ApiMcpToolPanel();
     private final CypherToolPanel cypherPanel = new CypherToolPanel();
 
@@ -352,7 +352,7 @@ public final class SwingMainFrame extends JFrame {
     private ScaSnapshotDto lastAppliedScaSnapshot;
     private LeakSnapshotDto lastAppliedLeakSnapshot;
     private GadgetSnapshotDto lastAppliedGadgetSnapshot;
-    private ChainsSnapshotDto lastAppliedChainsSnapshot;
+    private FlowSnapshotDto lastAppliedFlowSnapshot;
     private ToolingConfigSnapshotDto lastAppliedToolingSnapshot;
     private ApiInfoDto lastAppliedApiInfoSnapshot;
     private ApiStartupConfigDto lastAppliedApiStartupSnapshot;
@@ -1693,7 +1693,7 @@ public final class SwingMainFrame extends JFrame {
         topPanels.put(ToolTab.LEAK, leakPanel);
         topPanels.put(ToolTab.GADGET, gadgetPanel);
         topPanels.put(ToolTab.ADVANCE, advancePanel);
-        topPanels.put(ToolTab.CHAINS, chainsPanel);
+        topPanels.put(ToolTab.FLOW, flowPanel);
         topPanels.put(ToolTab.API, apiPanel);
         for (JPanel panel : topPanels.values()) {
             panel.setMinimumSize(new Dimension(0, 0));
@@ -1989,7 +1989,7 @@ public final class SwingMainFrame extends JFrame {
             case LEAK -> "/svg/leak.svg";
             case GADGET -> "/svg/gadget.svg";
             case ADVANCE -> "/svg/advance.svg";
-            case CHAINS -> "/svg/tomcat.svg";
+            case FLOW -> "/svg/tomcat.svg";
             case API -> "/svg/dir.svg";
         };
         return loadIcon(path, 16);
@@ -2137,7 +2137,7 @@ public final class SwingMainFrame extends JFrame {
         ScaSnapshotDto sca = snapshotSafe(RuntimeFacades.sca()::snapshot, null);
         LeakSnapshotDto leak = snapshotSafe(RuntimeFacades.leak()::snapshot, null);
         GadgetSnapshotDto gadget = snapshotSafe(RuntimeFacades.gadget()::snapshot, null);
-        ChainsSnapshotDto chains = snapshotSafe(RuntimeFacades.chains()::snapshot, null);
+        FlowSnapshotDto flow = snapshotSafe(RuntimeFacades.flow()::snapshot, null);
         ToolingConfigSnapshotDto tooling = snapshotSafe(RuntimeFacades.tooling()::configSnapshot, null);
         EditorDocumentDto editor = snapshotSafe(RuntimeFacades.editor()::current, null);
         ApiInfoDto api = snapshotSafe(RuntimeFacades.apiMcp()::apiInfo, null);
@@ -2154,7 +2154,7 @@ public final class SwingMainFrame extends JFrame {
             }, List.of());
         }
         return new UiSnapshot(
-                build, search, call, web, note, sca, leak, gadget, chains, tooling, editor, api, apiStartup, mcp, tree,
+                build, search, call, web, note, sca, leak, gadget, flow, tooling, editor, api, apiStartup, mcp, tree,
                 fullSnapshot
         );
     }
@@ -2200,9 +2200,9 @@ public final class SwingMainFrame extends JFrame {
             gadgetPanel.applySnapshot(snapshot.gadget());
             lastAppliedGadgetSnapshot = snapshot.gadget();
         }
-        if (snapshot.chains() != null && !Objects.equals(lastAppliedChainsSnapshot, snapshot.chains())) {
-            chainsPanel.applySnapshot(snapshot.chains());
-            lastAppliedChainsSnapshot = snapshot.chains();
+        if (snapshot.flow() != null && !Objects.equals(lastAppliedFlowSnapshot, snapshot.flow())) {
+            flowPanel.applySnapshot(snapshot.flow());
+            lastAppliedFlowSnapshot = snapshot.flow();
         }
         if (snapshot.tooling() != null && !Objects.equals(lastAppliedToolingSnapshot, snapshot.tooling())) {
             applyLanguage(snapshot.tooling().language());
@@ -3573,10 +3573,10 @@ public final class SwingMainFrame extends JFrame {
             }
             case SCA_INPUT_PICKER -> chooseScaInput(payload);
             case GADGET_DIR_PICKER -> chooseGadgetDir(payload);
-            case CHAINS_RESULT -> showChainsResult(payload);
-            case CHAINS_ADVANCED -> {
+            case FLOW_RESULT -> showFlowResult(payload);
+            case FLOW_ADVANCED -> {
                 setRightCollapsed(false);
-                topTab = ToolTab.CHAINS;
+                topTab = ToolTab.FLOW;
                 applyRightPaneState();
             }
             case EXTERNAL_TOOLS -> {
@@ -3675,20 +3675,20 @@ public final class SwingMainFrame extends JFrame {
         requestRefresh(true, true);
     }
 
-    private void showChainsResult(ToolingWindowPayload payload) {
-        if (!(payload instanceof ToolingWindowPayload.ChainsResultPayload chains)) {
-            showTextDialog("Chains", "No result payload.");
+    private void showFlowResult(ToolingWindowPayload payload) {
+        if (!(payload instanceof ToolingWindowPayload.FlowResultPayload flow)) {
+            showTextDialog("Flow", "No result payload.");
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(safe(chains.title())).append('\n');
-        sb.append("total: ").append(chains.items() == null ? 0 : chains.items().size()).append('\n');
+        sb.append(safe(flow.title())).append('\n');
+        sb.append("total: ").append(flow.items() == null ? 0 : flow.items().size()).append('\n');
         sb.append('\n');
-        List<ChainsResultItemDto> items = chains.items();
+        List<FlowResultItemDto> items = flow.items();
         if (items == null || items.isEmpty()) {
-            sb.append(safe(chains.emptyHint()));
+            sb.append(safe(flow.emptyHint()));
         } else {
-            for (ChainsResultItemDto item : items) {
+            for (FlowResultItemDto item : items) {
                 if (item == null) {
                     continue;
                 }
@@ -3720,7 +3720,7 @@ public final class SwingMainFrame extends JFrame {
                 sb.append('\n');
             }
         }
-        showTextDialog(safe(chains.title()), sb.toString());
+        showTextDialog(safe(flow.title()), sb.toString());
     }
 
     private void showTextDialog(String title, String content) {
@@ -4237,7 +4237,7 @@ public final class SwingMainFrame extends JFrame {
         leakPanel.applyLanguage();
         gadgetPanel.applyLanguage();
         advancePanel.applyLanguage();
-        chainsPanel.applyLanguage();
+        flowPanel.applyLanguage();
         apiPanel.applyLanguage();
         cypherPanel.applyLanguage();
         applyBottomCypherState();
@@ -4425,7 +4425,7 @@ public final class SwingMainFrame extends JFrame {
         LEAK("leak"),
         GADGET("gadget"),
         ADVANCE("advance"),
-        CHAINS("chains"),
+        FLOW("flow"),
         API("api");
 
         private final String code;
@@ -4573,7 +4573,7 @@ public final class SwingMainFrame extends JFrame {
             ScaSnapshotDto sca,
             LeakSnapshotDto leak,
             GadgetSnapshotDto gadget,
-            ChainsSnapshotDto chains,
+            FlowSnapshotDto flow,
             ToolingConfigSnapshotDto tooling,
             EditorDocumentDto editor,
             ApiInfoDto apiInfo,

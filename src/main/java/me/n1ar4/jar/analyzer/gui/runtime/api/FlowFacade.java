@@ -1,12 +1,12 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSettingsDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSnapshotDto;
 
-public interface ChainsFacade {
-    ChainsSnapshotDto snapshot();
+public interface FlowFacade {
+    FlowSnapshotDto snapshot();
 
-    void apply(ChainsSettingsDto settings);
+    void apply(FlowSettingsDto settings);
 
     void startDfs();
 

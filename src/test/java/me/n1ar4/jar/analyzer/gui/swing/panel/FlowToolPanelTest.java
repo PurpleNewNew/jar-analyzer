@@ -14,14 +14,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-class ChainsToolPanelTest {
+class FlowToolPanelTest {
     @AfterEach
     void resetLanguage() {
         SwingI18n.setLanguage("");
     }
 
     @Test
-    void shouldApplyRuleValidationSummaryToChainsStatus() throws Exception {
+    void shouldApplyRuleValidationSummaryToFlowStatus() throws Exception {
         SwingI18n.setLanguage("en");
         Map<String, Object> summary = Map.of(
                 "ok", false,
@@ -31,7 +31,7 @@ class ChainsToolPanelTest {
         );
         AtomicReference<String> statusRef = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
-            ChainsToolPanel panel = new ChainsToolPanel();
+            FlowToolPanel panel = new FlowToolPanel();
             panel.applyRuleValidationState(summary, List.of());
             statusRef.set(panel.currentRuleValidationStatusText());
         });

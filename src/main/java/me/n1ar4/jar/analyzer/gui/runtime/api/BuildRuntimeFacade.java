@@ -174,39 +174,8 @@ final class BuildRuntimeFacade implements BuildFacade {
     }
 
     private void clearCachesBestEffort() {
-        try {
-            CFRDecompileEngine.cleanCache();
-        } catch (Throwable ex) {
-            logger.debug("clear cfr cache failed: {}", ex.toString());
-        }
-        try {
-            CoreEngine engine = engineSupplier.get();
-            if (engine != null) {
-                engine.clearCallGraphCache();
-            }
-        } catch (Throwable ex) {
-            logger.debug("clear call graph cache failed: {}", ex.toString());
-        }
-        try {
-            GraphStore.invalidateCache();
-        } catch (Throwable ex) {
-            logger.debug("invalidate graph cache failed: {}", ex.toString());
-        }
-        try {
-            DatabaseManager.clearSemanticCache();
-        } catch (Throwable ex) {
-            logger.debug("clear semantic cache failed: {}", ex.toString());
-        }
-        try {
-            ChainsResultStore.getInstance().clear();
-        } catch (Throwable ex) {
-            logger.debug("clear taint cache failed: {}", ex.toString());
-        }
-        try {
-            ClassIndex.refresh();
-        } catch (Throwable ex) {
-            logger.debug("refresh class index failed: {}", ex.toString());
-        }
+        ProjectScopedRuntimeCleaner.clearDerivedCaches(engineSupplier);
+        ProjectScopedRuntimeCleaner.clearFlowResults();
     }
 
     private String buildOutOfMemoryStatus(String buildStage, long maxHeap) {

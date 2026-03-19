@@ -8,7 +8,7 @@ public sealed interface ToolingWindowPayload
         ToolingWindowPayload.MarkdownPayload,
         ToolingWindowPayload.PathPayload,
         ToolingWindowPayload.TextPayload,
-        ToolingWindowPayload.ChainsResultPayload {
+        ToolingWindowPayload.FlowResultPayload {
 
     record EmptyPayload() implements ToolingWindowPayload {
     }
@@ -32,11 +32,11 @@ public sealed interface ToolingWindowPayload
     record TextPayload(String title, String content) implements ToolingWindowPayload {
     }
 
-    record ChainsResultPayload(
+    record FlowResultPayload(
             boolean taintView,
             String title,
             String emptyHint,
-            List<ChainsResultItemDto> items
+            List<FlowResultItemDto> items
     ) implements ToolingWindowPayload {
     }
 }

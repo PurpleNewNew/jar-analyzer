@@ -142,8 +142,8 @@ public final class SearchToolPanel extends JPanel {
                 maybeShowResultMenu(e);
             }
         });
-        setAsSourceItem.addActionListener(e -> setSelectedAsChainsPoint(true));
-        setAsSinkItem.addActionListener(e -> setSelectedAsChainsPoint(false));
+        setAsSourceItem.addActionListener(e -> setSelectedAsFlowPoint(true));
+        setAsSinkItem.addActionListener(e -> setSelectedAsFlowPoint(false));
         resultMenu.add(setAsSourceItem);
         resultMenu.add(setAsSinkItem);
         resultPanel.add(new JScrollPane(resultList), BorderLayout.CENTER);
@@ -363,16 +363,16 @@ public final class SearchToolPanel extends JPanel {
         resultMenu.show(resultList, e.getX(), e.getY());
     }
 
-    private void setSelectedAsChainsPoint(boolean source) {
+    private void setSelectedAsFlowPoint(boolean source) {
         SearchResultDto selected = resultList.getSelectedValue();
         if (selected == null || safe(selected.methodName()).isBlank()) {
             return;
         }
         if (source) {
-            RuntimeFacades.chains().setSource(selected.className(), selected.methodName(), selected.methodDesc());
+            RuntimeFacades.flow().setSource(selected.className(), selected.methodName(), selected.methodDesc());
             statusValue.setText(SwingI18n.tr("已设为 source", "set as source"));
         } else {
-            RuntimeFacades.chains().setSink(selected.className(), selected.methodName(), selected.methodDesc());
+            RuntimeFacades.flow().setSink(selected.className(), selected.methodName(), selected.methodDesc());
             statusValue.setText(SwingI18n.tr("已设为 sink", "set as sink"));
         }
     }

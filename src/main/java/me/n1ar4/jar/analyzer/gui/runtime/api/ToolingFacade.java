@@ -43,9 +43,9 @@ public interface ToolingFacade {
 
     void openHtmlGraph();
 
-    void openChainsDfsResult();
+    void openFlowDfsResult();
 
-    void openChainsTaintResult();
+    void openFlowTaintResult();
 
     void openJdGui();
 

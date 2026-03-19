@@ -73,8 +73,8 @@ class ToolingWindowContractTest {
     }
 
     @Test
-    void chainsViewerShouldEmitStructuredPayload() {
-        ChainsResultStore store = ChainsResultStore.getInstance();
+    void flowViewerShouldEmitStructuredPayload() {
+        FlowResultStore store = FlowResultStore.getInstance();
         store.clear();
         List<ToolingWindowRequest> requests = new ArrayList<>();
         RuntimeFacades.setToolingWindowConsumer(requests::add);
@@ -96,7 +96,7 @@ class ToolingWindowContractTest {
             dfs.setTruncateReason("max depth");
             dfs.setRecommend("increase depth");
             dfs.setMethodList(List.of(handle));
-            ChainsResultStore.Context context = ChainsResultStore.captureCurrentContext();
+            FlowResultStore.Context context = FlowResultStore.captureCurrentContext();
             store.replaceDfs(context, List.of(dfs));
 
             TaintResult taint = new TaintResult();
@@ -106,23 +106,23 @@ class ToolingWindowContractTest {
             taint.setTaintText("sanitizer hit: demo");
             store.replaceTaint(context, List.of(taint));
 
-            RuntimeFacades.tooling().openChainsDfsResult();
-            RuntimeFacades.tooling().openChainsTaintResult();
+            RuntimeFacades.tooling().openFlowDfsResult();
+            RuntimeFacades.tooling().openFlowTaintResult();
 
             assertEquals(2, requests.size());
-            assertEquals(ToolingWindowAction.CHAINS_RESULT, requests.get(0).action());
-            assertEquals(ToolingWindowAction.CHAINS_RESULT, requests.get(1).action());
+            assertEquals(ToolingWindowAction.FLOW_RESULT, requests.get(0).action());
+            assertEquals(ToolingWindowAction.FLOW_RESULT, requests.get(1).action());
 
-            ToolingWindowPayload.ChainsResultPayload dfsPayload = assertInstanceOf(
-                    ToolingWindowPayload.ChainsResultPayload.class, requests.get(0).payload()
+            ToolingWindowPayload.FlowResultPayload dfsPayload = assertInstanceOf(
+                    ToolingWindowPayload.FlowResultPayload.class, requests.get(0).payload()
             );
             assertFalse(dfsPayload.taintView());
             assertEquals("DFS Result", dfsPayload.title());
             assertEquals(1, dfsPayload.items().size());
             assertEquals(1, dfsPayload.items().get(0).methods().size());
 
-            ToolingWindowPayload.ChainsResultPayload taintPayload = assertInstanceOf(
-                    ToolingWindowPayload.ChainsResultPayload.class, requests.get(1).payload()
+            ToolingWindowPayload.FlowResultPayload taintPayload = assertInstanceOf(
+                    ToolingWindowPayload.FlowResultPayload.class, requests.get(1).payload()
             );
             assertTrue(taintPayload.taintView());
             assertEquals("Taint Result", taintPayload.title());

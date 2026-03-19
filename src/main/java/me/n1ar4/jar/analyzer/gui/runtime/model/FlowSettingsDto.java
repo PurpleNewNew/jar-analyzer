@@ -1,6 +1,6 @@
 package me.n1ar4.jar.analyzer.gui.runtime.model;
 
-public record ChainsSettingsDto(
+public record FlowSettingsDto(
         boolean sinkSelected,
         boolean sourceSelected,
         String sinkClass,

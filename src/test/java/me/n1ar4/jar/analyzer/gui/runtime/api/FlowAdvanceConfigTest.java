@@ -10,16 +10,16 @@
 
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSettingsDto;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ChainsAdvanceConfigTest {
+class FlowAdvanceConfigTest {
     @Test
     void applyAndSnapshotShouldKeepAdvancedFields() {
-        ChainsSettingsDto settings = new ChainsSettingsDto(
+        FlowSettingsDto settings = new FlowSettingsDto(
                 true,
                 false,
                 "java/lang/Runtime",
@@ -39,8 +39,8 @@ class ChainsAdvanceConfigTest {
                 true,
                 77
         );
-        RuntimeFacades.chains().apply(settings);
-        ChainsSettingsDto snapshot = RuntimeFacades.chains().snapshot().settings();
+        RuntimeFacades.flow().apply(settings);
+        FlowSettingsDto snapshot = RuntimeFacades.flow().snapshot().settings();
         assertEquals("java.lang.Object;java.util.;", snapshot.blacklist());
         assertEquals("high", snapshot.minEdgeConfidence());
         assertTrue(snapshot.showEdgeMeta());

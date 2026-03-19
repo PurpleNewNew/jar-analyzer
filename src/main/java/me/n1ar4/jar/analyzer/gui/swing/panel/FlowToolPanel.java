@@ -11,8 +11,8 @@
 package me.n1ar4.jar.analyzer.gui.swing.panel;
 
 import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSettingsDto;
-import me.n1ar4.jar.analyzer.gui.runtime.model.ChainsSnapshotDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSettingsDto;
+import me.n1ar4.jar.analyzer.gui.runtime.model.FlowSnapshotDto;
 import me.n1ar4.jar.analyzer.gui.swing.SwingI18n;
 import me.n1ar4.jar.analyzer.gui.swing.SwingTextSync;
 import me.n1ar4.jar.analyzer.gui.swing.SwingUiApplyGuard;
@@ -45,7 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class ChainsToolPanel extends JPanel {
+public final class FlowToolPanel extends JPanel {
     private final JRadioButton fromSinkRadio = new JRadioButton("from sink");
     private final JRadioButton fromSourceRadio = new JRadioButton("from source");
 
@@ -83,7 +83,7 @@ public final class ChainsToolPanel extends JPanel {
 
     private volatile boolean syncing;
 
-    public ChainsToolPanel() {
+    public FlowToolPanel() {
         super(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         initUi();
@@ -146,21 +146,21 @@ public final class ChainsToolPanel extends JPanel {
         JButton startDfsBtn = new JButton("Start DFS");
         startDfsBtn.addActionListener(e -> {
             applySettings();
-            RuntimeFacades.chains().startDfs();
+            RuntimeFacades.flow().startDfs();
         });
         JButton startTaintBtn = new JButton("Start Taint");
         startTaintBtn.addActionListener(e -> {
             applySettings();
-            RuntimeFacades.chains().startTaint();
+            RuntimeFacades.flow().startTaint();
         });
         JButton clearBtn = new JButton("Clear");
-        clearBtn.addActionListener(e -> RuntimeFacades.chains().clearResults());
+        clearBtn.addActionListener(e -> RuntimeFacades.flow().clearResults());
         JButton openDfsBtn = new JButton("View DFS");
-        openDfsBtn.addActionListener(e -> RuntimeFacades.tooling().openChainsDfsResult());
+        openDfsBtn.addActionListener(e -> RuntimeFacades.tooling().openFlowDfsResult());
         JButton openTaintBtn = new JButton("View Taint");
-        openTaintBtn.addActionListener(e -> RuntimeFacades.tooling().openChainsTaintResult());
+        openTaintBtn.addActionListener(e -> RuntimeFacades.tooling().openFlowTaintResult());
         JButton advanceBtn = new JButton("Advanced");
-        advanceBtn.addActionListener(e -> RuntimeFacades.chains().openAdvanceSettings());
+        advanceBtn.addActionListener(e -> RuntimeFacades.flow().openAdvanceSettings());
         actions.add(applyBtn);
         actions.add(startDfsBtn);
         actions.add(startTaintBtn);
@@ -215,17 +215,17 @@ public final class ChainsToolPanel extends JPanel {
         refreshRuleValidationAsync(false);
     }
 
-    public void applySnapshot(ChainsSnapshotDto snapshot) {
+    public void applySnapshot(FlowSnapshotDto snapshot) {
         if (snapshot == null) {
             return;
         }
-        if (!SwingUiApplyGuard.ensureEdt("ChainsToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
+        if (!SwingUiApplyGuard.ensureEdt("FlowToolPanel.applySnapshot", () -> applySnapshot(snapshot))) {
             return;
         }
         if (!snapshotThrottle.allow(SwingUiApplyGuard.fingerprint(snapshot))) {
             return;
         }
-        ChainsSettingsDto settings = snapshot.settings();
+        FlowSettingsDto settings = snapshot.settings();
         if (settings != null) {
             syncing = true;
             try {
@@ -262,7 +262,7 @@ public final class ChainsToolPanel extends JPanel {
         if (syncing) {
             return;
         }
-        RuntimeFacades.chains().apply(new ChainsSettingsDto(
+        RuntimeFacades.flow().apply(new FlowSettingsDto(
                 fromSinkRadio.isSelected(),
                 fromSourceRadio.isSelected(),
                 safe(sinkClassText.getText()),
@@ -310,7 +310,7 @@ public final class ChainsToolPanel extends JPanel {
     }
 
     private void refreshRuleValidationAsync(boolean forceRefresh) {
-        Thread.ofVirtual().name("gui-chains-rule-validation").start(() -> {
+        Thread.ofVirtual().name("gui-flow-rule-validation").start(() -> {
             if (forceRefresh) {
                 ModelRegistry.checkNow();
                 SinkRuleRegistry.checkNow();
