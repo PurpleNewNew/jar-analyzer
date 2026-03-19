@@ -11,6 +11,20 @@
 package me.n1ar4.jar.analyzer.server.handler.base;
 
 import com.alibaba.fastjson2.JSON;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.Position;
+import com.github.javaparser.Range;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CompactConstructorDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.nodeTypes.NodeWithParameters;
 import fi.iki.elonen.NanoHTTPD;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
@@ -35,6 +49,9 @@ import java.util.regex.Pattern;
 
 public class BaseHandler {
     protected static final Logger logger = LogManager.getLogger();
+    private static final Object METHOD_PARSE_LOCK = new Object();
+    private static final JavaParser METHOD_PARSER = createMethodParser();
+
     protected String getParam(NanoHTTPD.IHTTPSession session, String key) {
         List<String> data = session.getParameters().get(key);
         if (data == null || data.isEmpty()) {
@@ -197,88 +214,222 @@ public class BaseHandler {
         }
 
         try {
-            if (!StringUtil.isNull(methodDesc) && "null".equalsIgnoreCase(methodDesc.trim())) {
-                methodDesc = null;
+            String normalizedDesc = normalizeMethodDesc(methodDesc);
+            String astMatch = extractMethodCodeByAst(classCode, methodName, normalizedDesc);
+            if (!StringUtil.isNull(astMatch)) {
+                return astMatch;
             }
-            String[] lines = classCode.split("\n");
-            StringBuilder methodCode = new StringBuilder();
-            boolean inMethod = false;
-            int braceCount = 0;
-            boolean foundMethod = false;
-
-            // 构建方法匹配的正则表达式
-            // 匹配方法声明，考虑各种修饰符和参数
-            String methodPattern;
-            boolean isClinit = "<clinit>".equals(methodName);
-            String matchMethodName = resolveMethodName(classCode, methodName);
-            if (isClinit) {
-                methodPattern = "^\\s*static\\s*\\{.*";
-            } else {
-                methodPattern = ".*\\b" + Pattern.quote(matchMethodName) + "\\s*\\(.*\\).*\\{?";
+            String scanned = extractMethodCodeByScan(classCode, methodName, normalizedDesc);
+            if (!StringUtil.isNull(scanned)) {
+                return scanned;
             }
-
-            Pattern pattern = Pattern.compile(methodPattern);
-
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i];
-                if (!inMethod) {
-                    Matcher matcher = pattern.matcher(line.trim());
-                    boolean nameCandidate = !isClinit
-                            && !StringUtil.isNull(methodDesc)
-                            && containsWord(line, matchMethodName)
-                            && line.indexOf('(') >= 0
-                            && !line.trim().startsWith("@");
-                    if (matcher.matches() || nameCandidate) {
-                        if (!isClinit && !StringUtil.isNull(methodDesc)) {
-                            // 支持方法签名跨行（长泛型/注解参数等）
-                            if (!methodDescMatches(lines, i, methodDesc)) {     
-                                continue;
-                            }
-                        }
-                        // 找到方法开始
-                        inMethod = true;
-                        foundMethod = true;
-                        if (!isClinit) {
-                            int annStart = findAnnotationStart(lines, i);
-                            for (int j = annStart; j < i; j++) {
-                                methodCode.append(lines[j]).append("\n");
-                            }
-                        }
-                        methodCode.append(line).append("\n");
-
-                        // 计算大括号
-                        braceCount += countChar(line, '{') - countChar(line, '}');
-
-                        // 如果方法声明在一行内完成且没有大括号，可能是抽象方法或接口方法
-                        if (line.trim().endsWith(";")) {
-                            break;
-                        }
-                    }
-                } else {
-                    // 在方法内部
-                    methodCode.append(line).append("\n");
-                    braceCount += countChar(line, '{') - countChar(line, '}');
-
-                    // 如果大括号平衡，方法结束
-                    if (braceCount <= 0) {
-                        break;
-                    }
-                }
+            if (!StringUtil.isNull(normalizedDesc)) {
+                return null;
             }
-
-            if (foundMethod) {
-                return methodCode.toString().trim();
-            } else {
-                if (!StringUtil.isNull(methodDesc)) {
-                    return null;
-                }
-                return findMethodByFuzzyMatch(classCode, methodName);
-            }
-
+            return findMethodByFuzzyMatch(classCode, methodName);
         } catch (Exception e) {
             logger.warn("Error extracting method code: " + e.getMessage());
             return null;
         }
+    }
+
+    private String normalizeMethodDesc(String methodDesc) {
+        if (StringUtil.isNull(methodDesc)) {
+            return null;
+        }
+        String normalized = methodDesc.trim();
+        if (normalized.isEmpty() || "null".equalsIgnoreCase(normalized)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private String extractMethodCodeByAst(String classCode, String methodName, String methodDesc) {
+        CompilationUnit unit = parseCompilationUnit(classCode);
+        if (unit == null) {
+            return null;
+        }
+        if ("<clinit>".equals(methodName)) {
+            for (InitializerDeclaration declaration : unit.findAll(InitializerDeclaration.class)) {
+                if (declaration != null && declaration.isStatic()) {
+                    return sliceNode(classCode, declaration);
+                }
+            }
+            return null;
+        }
+        if ("<init>".equals(methodName)) {
+            return extractConstructorCodeByAst(classCode, unit, methodDesc);
+        }
+        return extractNamedMethodCodeByAst(classCode, unit, methodName, methodDesc);
+    }
+
+    private CompilationUnit parseCompilationUnit(String classCode) {
+        synchronized (METHOD_PARSE_LOCK) {
+            ParseResult<CompilationUnit> result = METHOD_PARSER.parse(classCode);
+            return result.getResult().orElse(null);
+        }
+    }
+
+    private String extractConstructorCodeByAst(String classCode,
+                                               CompilationUnit unit,
+                                               String methodDesc) {
+        ConstructorDeclaration constructor = selectCallable(unit.findAll(ConstructorDeclaration.class), methodDesc);
+        if (constructor != null) {
+            return sliceNode(classCode, constructor);
+        }
+        CompactConstructorDeclaration compact = selectCompactConstructor(unit.findAll(CompactConstructorDeclaration.class), methodDesc);
+        if (compact != null) {
+            return sliceNode(classCode, compact);
+        }
+        return null;
+    }
+
+    private String extractNamedMethodCodeByAst(String classCode,
+                                               CompilationUnit unit,
+                                               String methodName,
+                                               String methodDesc) {
+        List<MethodDeclaration> candidates = new ArrayList<>();
+        for (MethodDeclaration declaration : unit.findAll(MethodDeclaration.class)) {
+            if (declaration != null && methodName.equals(declaration.getNameAsString())) {
+                candidates.add(declaration);
+            }
+        }
+        MethodDeclaration selected = selectCallable(candidates, methodDesc);
+        return selected == null ? null : sliceNode(classCode, selected);
+    }
+
+    private <T extends Node & NodeWithParameters<?>> T selectCallable(List<T> declarations, String methodDesc) {
+        if (declarations == null || declarations.isEmpty()) {
+            return null;
+        }
+        if (StringUtil.isNull(methodDesc)) {
+            return declarations.size() == 1 ? declarations.get(0) : null;
+        }
+        for (T declaration : declarations) {
+            if (declaration != null && descriptorMatchesParameters(declaration.getParameters(), methodDesc)) {
+                return declaration;
+            }
+        }
+        return null;
+    }
+
+    private CompactConstructorDeclaration selectCompactConstructor(List<CompactConstructorDeclaration> declarations,
+                                                                  String methodDesc) {
+        if (declarations == null || declarations.isEmpty()) {
+            return null;
+        }
+        if (StringUtil.isNull(methodDesc)) {
+            return declarations.size() == 1 ? declarations.get(0) : null;
+        }
+        for (CompactConstructorDeclaration declaration : declarations) {
+            if (declaration != null && descriptorMatchesParameters(resolveCompactConstructorParameters(declaration), methodDesc)) {
+                return declaration;
+            }
+        }
+        return null;
+    }
+
+    private List<Parameter> resolveCompactConstructorParameters(CompactConstructorDeclaration declaration) {
+        if (declaration == null) {
+            return List.of();
+        }
+        Node parent = declaration.getParentNode().orElse(null);
+        if (parent instanceof RecordDeclaration recordDeclaration) {
+            return new ArrayList<>(recordDeclaration.getParameters());
+        }
+        return List.of();
+    }
+
+    private boolean descriptorMatchesParameters(List<Parameter> parameters, String methodDesc) {
+        DescInfo descInfo = DescUtil.parseDesc(methodDesc);
+        List<String> expectedParams = descInfo.getParams();
+        List<Parameter> actualParams = parameters == null ? List.of() : parameters;
+        if (expectedParams.size() != actualParams.size()) {
+            return false;
+        }
+        for (int i = 0; i < expectedParams.size(); i++) {
+            String expectedType = normalizeDescType(expectedParams.get(i));
+            String actualType = normalizeParamType(actualParams.get(i).toString());
+            if (!expectedType.equals(actualType)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String sliceNode(String classCode, Node node) {
+        if (node == null) {
+            return null;
+        }
+        Range range = node.getRange().orElse(null);
+        if (range == null) {
+            return null;
+        }
+        SourceSliceIndex index = new SourceSliceIndex(classCode);
+        int start = index.toOffset(range.begin);
+        int end = index.toInclusiveEnd(range.end);
+        if (start < 0 || end <= start || end > classCode.length()) {
+            return null;
+        }
+        return classCode.substring(start, end).trim();
+    }
+
+    private String extractMethodCodeByScan(String classCode, String methodName, String methodDesc) {
+        String[] lines = classCode.split("\n");
+        StringBuilder methodCode = new StringBuilder();
+        boolean inMethod = false;
+        int braceCount = 0;
+        boolean foundMethod = false;
+        boolean isClinit = "<clinit>".equals(methodName);
+        boolean isConstructor = "<init>".equals(methodName);
+        String matchMethodName = resolveMethodName(classCode, methodName);
+        String methodPattern;
+        if (isClinit) {
+            methodPattern = "^\\s*static\\s*\\{.*";
+        } else if (isConstructor) {
+            methodPattern = ".*\\b" + Pattern.quote(matchMethodName) + "\\s*(\\(.*\\))?\\s*\\{?";
+        } else {
+            methodPattern = ".*\\b" + Pattern.quote(matchMethodName) + "\\s*\\(.*\\).*\\{?";
+        }
+
+        Pattern pattern = Pattern.compile(methodPattern);
+        BraceScanState braceState = new BraceScanState();
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (!inMethod) {
+                Matcher matcher = pattern.matcher(line.trim());
+                boolean nameCandidate = !isClinit
+                        && !StringUtil.isNull(methodDesc)
+                        && containsWord(line, matchMethodName)
+                        && (line.indexOf('(') >= 0 || (isConstructor && line.contains("{")))
+                        && !line.trim().startsWith("@");
+                if (matcher.matches() || nameCandidate) {
+                    if (!isClinit && !StringUtil.isNull(methodDesc) && !methodDescMatches(lines, i, methodDesc)) {
+                        continue;
+                    }
+                    inMethod = true;
+                    foundMethod = true;
+                    if (!isClinit) {
+                        int annStart = findAnnotationStart(lines, i);
+                        for (int j = annStart; j < i; j++) {
+                            methodCode.append(lines[j]).append("\n");
+                        }
+                    }
+                    methodCode.append(line).append("\n");
+                    braceCount += countStructuralBraceDelta(line, braceState);
+                    if (line.trim().endsWith(";")) {
+                        break;
+                    }
+                }
+            } else {
+                methodCode.append(line).append("\n");
+                braceCount += countStructuralBraceDelta(line, braceState);
+                if (braceCount <= 0) {
+                    break;
+                }
+            }
+        }
+        return foundMethod ? methodCode.toString().trim() : null;
     }
 
     /**
@@ -288,11 +439,14 @@ public class BaseHandler {
         try {
             String[] lines = classCode.split("\n");
             StringBuilder result = new StringBuilder();
+            String matchMethodName = resolveMethodName(classCode, methodName);
+            boolean isConstructor = "<init>".equals(methodName);
+            BraceScanState braceState = new BraceScanState();
 
             for (int i = 0; i < lines.length; i++) {
                 String line = lines[i];
-                if (line.contains(methodName) &&
-                        (line.contains("(") && line.contains(")"))) {
+                if (line.contains(matchMethodName)
+                        && ((line.contains("(") && line.contains(")")) || (isConstructor && line.contains("{")))) {
 
                     // 找到可能的方法，收集完整的方法代码
                     result.append(line).append("\n");
@@ -302,12 +456,12 @@ public class BaseHandler {
                         break;
                     }
 
-                    int braceCount = countChar(line, '{') - countChar(line, '}');
+                    int braceCount = countStructuralBraceDelta(line, braceState);
 
                     for (int j = i + 1; j < lines.length && braceCount > 0; j++) {
                         String nextLine = lines[j];
                         result.append(nextLine).append("\n");
-                        braceCount += countChar(nextLine, '{') - countChar(nextLine, '}');
+                        braceCount += countStructuralBraceDelta(nextLine, braceState);
                     }
                     break;
                 }
@@ -332,6 +486,80 @@ public class BaseHandler {
         return count;
     }
 
+    private int countStructuralBraceDelta(String line, BraceScanState state) {
+        if (StringUtil.isNull(line)) {
+            return 0;
+        }
+        BraceScanState active = state == null ? new BraceScanState() : state;
+        int delta = 0;
+        for (int i = 0; i < line.length(); i++) {
+            char current = line.charAt(i);
+            char next = i + 1 < line.length() ? line.charAt(i + 1) : '\0';
+            char next2 = i + 2 < line.length() ? line.charAt(i + 2) : '\0';
+            if (active.inBlockComment) {
+                if (current == '*' && next == '/') {
+                    active.inBlockComment = false;
+                    i++;
+                }
+                continue;
+            }
+            if (active.inTextBlock) {
+                if (current == '"' && next == '"' && next2 == '"') {
+                    active.inTextBlock = false;
+                    i += 2;
+                }
+                continue;
+            }
+            if (active.inString) {
+                if (current == '"' && !active.escaped) {
+                    active.inString = false;
+                }
+                active.escaped = current == '\\' && !active.escaped;
+                continue;
+            }
+            if (active.inChar) {
+                if (current == '\'' && !active.escaped) {
+                    active.inChar = false;
+                }
+                active.escaped = current == '\\' && !active.escaped;
+                continue;
+            }
+            if (current == '/' && next == '/') {
+                break;
+            }
+            if (current == '/' && next == '*') {
+                active.inBlockComment = true;
+                i++;
+                continue;
+            }
+            if (current == '"' && next == '"' && next2 == '"') {
+                active.inTextBlock = true;
+                active.escaped = false;
+                i += 2;
+                continue;
+            }
+            if (current == '"') {
+                active.inString = true;
+                active.escaped = false;
+                continue;
+            }
+            if (current == '\'') {
+                active.inChar = true;
+                active.escaped = false;
+                continue;
+            }
+            if (current == '{') {
+                delta++;
+            } else if (current == '}') {
+                delta--;
+            }
+        }
+        if (!active.inString && !active.inChar) {
+            active.escaped = false;
+        }
+        return delta;
+    }
+
     // 处理 <init> 构造方法的显示名称
     private String resolveMethodName(String classCode, String methodName) {
         if ("<init>".equals(methodName)) {
@@ -348,7 +576,7 @@ public class BaseHandler {
         if (StringUtil.isNull(classCode)) {
             return "";
         }
-        Pattern classPattern = Pattern.compile("\\b(class|interface|enum)\\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+        Pattern classPattern = Pattern.compile("\\b(class|interface|enum|record)\\s+([A-Za-z_$][A-Za-z0-9_$]*)");
         Matcher matcher = classPattern.matcher(classCode);
         if (matcher.find()) {
             return matcher.group(2);
@@ -544,5 +772,58 @@ public class BaseHandler {
             }
         }
         return sb.toString();
+    }
+
+    private static JavaParser createMethodParser() {
+        ParserConfiguration configuration = new ParserConfiguration();
+        configuration.setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE);
+        return new JavaParser(configuration);
+    }
+
+    private static final class BraceScanState {
+        private boolean inBlockComment;
+        private boolean inString;
+        private boolean inChar;
+        private boolean inTextBlock;
+        private boolean escaped;
+    }
+
+    private static final class SourceSliceIndex {
+        private final int[] lineStarts;
+        private final int length;
+
+        private SourceSliceIndex(String code) {
+            String text = code == null ? "" : code;
+            this.length = text.length();
+            List<Integer> starts = new ArrayList<>();
+            starts.add(0);
+            for (int i = 0; i < text.length(); i++) {
+                if (text.charAt(i) == '\n' && i + 1 <= text.length()) {
+                    starts.add(i + 1);
+                }
+            }
+            this.lineStarts = new int[starts.size()];
+            for (int i = 0; i < starts.size(); i++) {
+                this.lineStarts[i] = starts.get(i);
+            }
+        }
+
+        private int toOffset(Position position) {
+            if (position == null || lineStarts.length == 0) {
+                return -1;
+            }
+            int line = Math.max(1, Math.min(position.line, lineStarts.length));
+            int lineStart = lineStarts[line - 1];
+            int offset = lineStart + Math.max(0, position.column - 1);
+            return Math.max(0, Math.min(length, offset));
+        }
+
+        private int toInclusiveEnd(Position position) {
+            int start = toOffset(position);
+            if (start < 0) {
+                return -1;
+            }
+            return Math.max(0, Math.min(length, start + 1));
+        }
     }
 }

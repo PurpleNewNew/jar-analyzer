@@ -1124,6 +1124,7 @@ public class DatabaseManager {
                             }
                         }
                     }
+                    return null;
                 }
                 return PRIMARY_CLASS_FILE_BY_NAME.get(normalized);
             });

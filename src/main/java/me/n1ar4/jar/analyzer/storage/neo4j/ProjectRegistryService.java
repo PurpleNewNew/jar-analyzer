@@ -23,6 +23,7 @@ import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.ProjectRuntimeContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.gui.runtime.api.RuntimeFacades;
 import me.n1ar4.jar.analyzer.starter.Const;
 import me.n1ar4.jar.analyzer.taint.TaintPropagationMode;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
@@ -1142,6 +1143,11 @@ public final class ProjectRegistryService {
     }
 
     private void clearActiveProjectServices() {
+        try {
+            RuntimeFacades.clearProjectScopedEditorState("project switched; editor reset");
+        } catch (Exception ex) {
+            logger.debug("clear editor state fail: {}", ex.toString());
+        }
         try {
             CFRDecompileEngine.cleanCache();
         } catch (Exception ex) {

@@ -116,6 +116,25 @@ class EditorFacadeNavigationTest {
         assertEquals("(Ljava/lang/String;)V", doc.methodDesc());
     }
 
+    @Test
+    void cleanupTemporaryProjectShouldClearEditorState() throws Exception {
+        bootstrapCallbackFixture();
+
+        RuntimeFacades.editor().openMethod("me/n1ar4/cb/CallbackEntry", "dynamicProxy", "()V", null);
+        EditorDocumentDto before = RuntimeFacades.editor().current();
+        assertNotNull(before);
+        assertFalse(safe(before.content()).isBlank());
+
+        ProjectRegistryService.getInstance().cleanupTemporaryProject();
+
+        EditorDocumentDto after = RuntimeFacades.editor().current();
+        assertNotNull(after);
+        assertTrue(safe(after.content()).isBlank());
+        assertTrue(safe(after.methodName()).isBlank());
+        assertTrue(safe(after.methodDesc()).isBlank());
+        assertTrue(safe(after.statusText()).contains("editor reset"));
+    }
+
     private static void bootstrapCallbackFixture() throws Exception {
         Path jar = FixtureJars.callbackTestJar();
         ProjectRuntimeContext.updateResolveInnerJars(false);

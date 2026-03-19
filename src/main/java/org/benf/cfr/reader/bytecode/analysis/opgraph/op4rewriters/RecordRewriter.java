@@ -51,8 +51,8 @@ import java.util.List;
 import java.util.Set;
 
 public class RecordRewriter {
-    private static Set<AccessFlag> recordFieldFlags = SetFactory.newSet(AccessFlag.ACC_FINAL, AccessFlag.ACC_PRIVATE);
-    private static Set<AccessFlagMethod> recordGetterFlags = SetFactory.newSet(AccessFlagMethod.ACC_PUBLIC);
+    private static final Set<AccessFlag> recordFieldFlags = SetFactory.newSet(AccessFlag.ACC_FINAL, AccessFlag.ACC_PRIVATE);
+    private static final Set<AccessFlagMethod> recordGetterFlags = SetFactory.newSet(AccessFlagMethod.ACC_PUBLIC);
 
     public static void rewrite(ClassFile classFile, DCCommonState state) {
         if (!TypeConstants.RECORD.equals(classFile.getBaseClassType())) return;
@@ -77,8 +77,7 @@ public class RecordRewriter {
         if (!Functional.filter(instances, new Predicate<ClassFileField>() {
             @Override
             public boolean test(ClassFileField in) {
-                // Fabric: Allow public fields to also be used as record components.
-                return !in.getField().testAccessFlag(AccessFlag.ACC_FINAL);
+                return !recordFieldFlags.equals(in.getField().getAccessFlags());
             }
         }).isEmpty()) {
             // we have some fields that don't look right.
@@ -256,7 +255,6 @@ public class RecordRewriter {
 
         if (!classArgEq(cmpValues.get(0), thisType)) return false;
 
-        /* Fabric: Disable checking the bsm args matching the field names. Proguard does not remap these.
         StringBuilder semi = new StringBuilder();
         int idx = 2;
         for (ClassFileField field : instances) {
@@ -267,7 +265,6 @@ public class RecordRewriter {
             semi.append(name);
         }
         if (!stringArgEq(cmpValues.get(1), semi.toString())) return false;
-         */
         return true;
     }
 

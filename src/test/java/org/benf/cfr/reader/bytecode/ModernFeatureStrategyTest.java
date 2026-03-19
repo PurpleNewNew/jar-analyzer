@@ -51,7 +51,31 @@ class ModernFeatureStrategyTest {
 
         ModernFeatureStrategy switchPreview = ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_13_Experimental);
         assertTrue(switchPreview.supportsSwitchExpressions());
+        assertFalse(switchPreview.supportsPatternSwitches());
         assertTrue(switchPreview.shouldEmitPreviewSwitchExpressionComment());
         assertTrue(switchPreview.forbidsStandaloneUnderscoreIdentifier());
+    }
+
+    @Test
+    void shouldOnlyEnablePatternSwitchesForSupportedPreviewVersions() {
+        assertFalse(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_15_Experimental)
+                .supportsPatternSwitches());
+        assertFalse(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_16_Experimental)
+                .supportsPatternSwitches());
+
+        assertTrue(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_17_Experimental)
+                .supportsPatternSwitches());
+        assertTrue(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_18_Experimental)
+                .supportsPatternSwitches());
+        assertTrue(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_19_Experimental)
+                .supportsPatternSwitches());
+        assertTrue(ModernFeatureStrategy.from(new OptionsImpl(Map.of()), ClassFileVersion.JAVA_20_Experimental)
+                .supportsPatternSwitches());
+
+        ModernFeatureStrategy previewDisabled = ModernFeatureStrategy.from(
+                new OptionsImpl(Map.of(OptionsImpl.PREVIEW_FEATURES.getName(), "false")),
+                ClassFileVersion.JAVA_19_Experimental
+        );
+        assertFalse(previewDisabled.supportsPatternSwitches());
     }
 }

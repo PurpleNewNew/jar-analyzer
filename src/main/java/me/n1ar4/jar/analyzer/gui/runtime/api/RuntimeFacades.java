@@ -3855,9 +3855,6 @@ public final class RuntimeFacades {
                 absPath = engine.getAbsPath(owner);
             }
             if (safe(absPath).isBlank()) {
-                absPath = engine.getAbsPath(owner);
-            }
-            if (safe(absPath).isBlank()) {
                 return null;
             }
             return new MethodContext(absPath, owner, safe(methodName), safe(methodDesc));
@@ -3993,6 +3990,34 @@ public final class RuntimeFacades {
 
         private record MethodContext(String absPath, String owner, String methodName, String methodDesc) {
         }
+    }
+
+    public static void clearProjectScopedEditorState(String statusText) {
+        synchronized (STATE.navLock) {
+            STATE.navStates.clear();
+            STATE.navIndex = -1;
+            STATE.navReplaying = false;
+        }
+        STATE.editorOpenTicket.incrementAndGet();
+        STATE.currentMethod = null;
+        STATE.currentClass = "";
+        STATE.currentJar = "";
+        STATE.allMethods = List.of();
+        STATE.callers = List.of();
+        STATE.callees = List.of();
+        STATE.impls = List.of();
+        STATE.superImpls = List.of();
+        STATE.editorLineMappings = List.of();
+        STATE.editorDocument = new EditorDocumentDto(
+                "",
+                "",
+                null,
+                "",
+                "",
+                "",
+                0,
+                safe(statusText).isBlank() ? tr("项目已切换，编辑器已清空", "project switched; editor reset") : safe(statusText)
+        );
     }
 
     private static String safe(String value) {

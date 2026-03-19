@@ -206,7 +206,7 @@ public class CoreEngine {
     public String getAbsPath(String className, Integer jarId) {
         ClassFileEntity row = DatabaseManager.getClassFileByClass(className, jarId);
         if (row == null) {
-            return getAbsPath(className);
+            return null;
         }
         return row.resolvePathStr();
     }

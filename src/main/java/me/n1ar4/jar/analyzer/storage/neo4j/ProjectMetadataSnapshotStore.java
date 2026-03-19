@@ -809,6 +809,7 @@ public final class ProjectMetadataSnapshotStore {
                         }
                     }
                 }
+                return null;
             }
             return primaryClassFileByName.get(normalized);
         }

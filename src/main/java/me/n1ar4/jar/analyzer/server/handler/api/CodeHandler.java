@@ -68,7 +68,10 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
             }
             String methodCode = extractMethodCode(decompiledCode, methodName, methodDesc);
             if (methodCode == null) {
-                methodCode = "";
+                return buildError(
+                        NanoHTTPD.Response.Status.NOT_FOUND,
+                        "method_not_found",
+                        "method not found: " + className + "#" + methodName + safeDesc(methodDesc));
             }
             Map<String, Object> result = new HashMap<>();
             result.put("engine", "cfr");
@@ -87,5 +90,10 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                     "code_error",
                     "error: " + e.getMessage());
         }
+    }
+
+    private static String safeDesc(String methodDesc) {
+        String desc = methodDesc == null ? "" : methodDesc.trim();
+        return desc.isEmpty() ? "" : desc;
     }
 }

@@ -68,6 +68,16 @@ public final class ModernFeatureStrategy {
         return matchesPreviewVersion(classFileVersion, ClassFileVersion.JAVA_14_Experimental, ClassFileVersion.JAVA_15_Experimental);
     }
 
+    private static boolean isPatternSwitchPreview(ClassFileVersion classFileVersion) {
+        return matchesPreviewVersion(
+                classFileVersion,
+                ClassFileVersion.JAVA_17_Experimental,
+                ClassFileVersion.JAVA_18_Experimental,
+                ClassFileVersion.JAVA_19_Experimental,
+                ClassFileVersion.JAVA_20_Experimental
+        );
+    }
+
     private static boolean matchesPreviewVersion(ClassFileVersion classFileVersion, ClassFileVersion... previewVersions) {
         if (!classFileVersion.isExperimental()) {
             return false;
@@ -107,7 +117,7 @@ public final class ModernFeatureStrategy {
         if (classFileVersion.equalOrLater(ClassFileVersion.JAVA_21)) {
             return true;
         }
-        return previewFeaturesEnabled && classFileVersion.isExperimental();
+        return previewFeaturesEnabled && isPatternSwitchPreview(classFileVersion);
     }
 
     public boolean supportsBindingPatterns() {
