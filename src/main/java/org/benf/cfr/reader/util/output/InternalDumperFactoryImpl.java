@@ -18,16 +18,17 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class InternalDumperFactoryImpl implements DumperFactory {
     private final boolean checkDupes;
-    private final Set<String> seen = SetFactory.newSet();
-    private volatile boolean seenCaseDupe = false;
     private final Options options;
     private final ProgressDumper progressDumper;
     private final String prefix;
-    private final AtomicInteger truncCount = new AtomicInteger();
+    private final SharedState sharedState;
 
     public InternalDumperFactoryImpl(Options options) {
         this.checkDupes = OsInfo.OS().isCaseInsensitive() && !options.getOption(OptionsImpl.CASE_INSENSITIVE_FS_RENAME);
@@ -38,14 +39,15 @@ public class InternalDumperFactoryImpl implements DumperFactory {
             progressDumper = ProgressDumperNop.INSTANCE;
         }
         this.prefix = "";
+        this.sharedState = new SharedState();
     }
 
     private InternalDumperFactoryImpl(InternalDumperFactoryImpl other, String prefix) {
         this.checkDupes = other.checkDupes;
-        this.seenCaseDupe = other.seenCaseDupe;
         this.options = other.options;
         this.progressDumper = other.progressDumper;
         this.prefix = prefix;
+        this.sharedState = other.sharedState;
     }
 
     @Override
@@ -65,17 +67,17 @@ public class InternalDumperFactoryImpl implements DumperFactory {
     }
 
 
-    public synchronized Dumper getNewTopLevelDumper(JavaTypeInstance classType, SummaryDumper summaryDumper, TypeUsageInformation typeUsageInformation, IllegalIdentifierDump illegalIdentifierDump) {
+    public Dumper getNewTopLevelDumper(JavaTypeInstance classType, SummaryDumper summaryDumper, TypeUsageInformation typeUsageInformation, IllegalIdentifierDump illegalIdentifierDump) {
         Pair<String, Boolean> targetInfo = getPathAndClobber();
 
         if (targetInfo == null) return new StdIODumper(typeUsageInformation, options, illegalIdentifierDump, new MovableDumperContext());
 
         String encoding = options.getOption(OptionsImpl.OUTPUT_ENCODING);
-        FileDumper res = new FileDumper(targetInfo.getFirst() + prefix ,encoding ,targetInfo.getSecond(), classType, summaryDumper, typeUsageInformation, options, truncCount, illegalIdentifierDump);
+        FileDumper res = new FileDumper(targetInfo.getFirst() + prefix ,encoding ,targetInfo.getSecond(), classType, summaryDumper, typeUsageInformation, options, sharedState.truncCount, illegalIdentifierDump);
 
         if (checkDupes) {
-            if (!seen.add(res.getFileName().toLowerCase())) {
-                seenCaseDupe = true;
+            if (!sharedState.seenLowerCasePaths.add(res.getFileName().toLowerCase())) {
+                sharedState.seenCaseDupe.set(true);
             }
         }
         return res;
@@ -130,7 +132,7 @@ public class InternalDumperFactoryImpl implements DumperFactory {
     private class AdditionalComments implements DecompilerCommentSource {
         @Override
         public List<DecompilerComment> getComments() {
-            if (seenCaseDupe) {
+            if (sharedState.seenCaseDupe.get()) {
                 List<DecompilerComment> res = ListFactory.newList();
                 res.add(DecompilerComment.CASE_CLASH_FS);
                 return res;
@@ -153,5 +155,11 @@ public class InternalDumperFactoryImpl implements DumperFactory {
     @Override
     public ProgressDumper getProgressDumper() {
         return progressDumper;
+    }
+
+    private static final class SharedState {
+        private final Set<String> seenLowerCasePaths = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+        private final AtomicBoolean seenCaseDupe = new AtomicBoolean(false);
+        private final AtomicInteger truncCount = new AtomicInteger();
     }
 }

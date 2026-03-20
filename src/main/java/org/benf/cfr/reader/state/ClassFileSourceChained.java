@@ -1,15 +1,30 @@
 package org.benf.cfr.reader.state;
 
+import org.benf.cfr.reader.api.ClassFileSource;
 import org.benf.cfr.reader.apiunreleased.ClassFileSource2;
 import org.benf.cfr.reader.apiunreleased.JarContent;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.util.AnalysisType;
+import org.benf.cfr.reader.util.ConfusedCFRException;
+import org.benf.cfr.reader.util.getopt.Options;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 
 public class ClassFileSourceChained implements ClassFileSource2 {
     private final Collection<ClassFileSource2> sources;
+
+    public static ClassFileSource2 configureSource(ClassFileSource source, Options options, boolean fallbackToDefaultSource) {
+        if (source == null) {
+            return new ClassFileSourceImpl(options);
+        }
+        ClassFileSource2 configuredSource = ClassFileSourceWrapper.wrap(source);
+        if (!fallbackToDefaultSource) {
+            return configuredSource;
+        }
+        return new ClassFileSourceChained(Arrays.asList(configuredSource, new ClassFileSourceImpl(options)));
+    }
 
     public ClassFileSourceChained(Collection<ClassFileSource2> sources) {
         this.sources = sources;
@@ -23,7 +38,7 @@ public class ClassFileSourceChained implements ClassFileSource2 {
                 return res;
             }
         }
-        return null;
+        throw new ConfusedCFRException("Failed to load jar " + jarPath);
     }
 
     @Override
@@ -52,7 +67,7 @@ public class ClassFileSourceChained implements ClassFileSource2 {
                 return res;
             }
         }
-        return null;
+        return path;
     }
 
     @Override
@@ -71,6 +86,6 @@ public class ClassFileSourceChained implements ClassFileSource2 {
         if (lastException != null) {
             throw lastException;
         }
-        return null;
+        throw new IOException("No such file " + path);
     }
 }

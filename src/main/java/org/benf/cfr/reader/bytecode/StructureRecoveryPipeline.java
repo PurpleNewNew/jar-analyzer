@@ -1,9 +1,14 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.StructuredConditionLocalRecovery;
+import org.benf.cfr.reader.util.getopt.OptionsImpl;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 
 final class StructureRecoveryPipeline {
     private static final int MAX_CONTROL_FLOW_RECOVERY_ROUNDS = 6;
@@ -20,9 +25,9 @@ final class StructureRecoveryPipeline {
                 List.of(
                         frontierNormalizationSubphase(),
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.InlinePossiblesPass(),
-                                new StructureRecoveryPasses.RemoveStructuredGotosPass(),
-                                new StructureRecoveryPasses.RewriteConditionLocalAliasesPass()
+                                inlinePossiblesPass(),
+                                removeStructuredGotosPass(),
+                                rewriteConditionLocalAliasesPass()
                         ),
                         structuralCleanupSubphase()
                 )
@@ -34,10 +39,10 @@ final class StructureRecoveryPipeline {
                 List.of(
                         frontierNormalizationSubphase(),
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.PrettifyBadLoopsPass(),
-                                new StructureRecoveryPasses.PatternSemanticsPass(patternSemanticsRewriter),
-                                new StructureRecoveryPasses.InlinePossiblesPass(),
-                                new StructureRecoveryPasses.RemoveStructuredGotosPass()
+                                prettifyBadLoopsPass(),
+                                patternSemanticsPass(patternSemanticsRewriter),
+                                inlinePossiblesPass(),
+                                removeStructuredGotosPass()
                         ),
                         structuralCleanupSubphase()
                 )
@@ -48,21 +53,21 @@ final class StructureRecoveryPipeline {
                 List.of(
                         frontierNormalizationSubphase(),
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.PrettifyBadLoopsPass(),
-                                new StructureRecoveryPasses.PatternSemanticsPass(patternSemanticsRewriter),
-                                new StructureRecoveryPasses.InlinePossiblesPass(),
-                                new StructureRecoveryPasses.RemoveStructuredGotosPass()
+                                prettifyBadLoopsPass(),
+                                patternSemanticsPass(patternSemanticsRewriter),
+                                inlinePossiblesPass(),
+                                removeStructuredGotosPass()
                         ),
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.RewriteConditionLocalAliasesPass(),
-                                new StructureRecoveryPasses.RemovePointlessBlocksPass(),
-                                new StructureRecoveryPasses.RemovePointlessReturnPass(),
-                                new StructureRecoveryPasses.RemovePointlessControlFlowPass(),
-                                new StructureRecoveryPasses.RemovePrimitiveDeconversionPass(),
-                                new StructureRecoveryPasses.InsertLabelledBlocksPass(),
-                                new StructureRecoveryPasses.RemoveUnnecessaryLabelledBreaksPass(),
-                                new StructureRecoveryPasses.FlattenNonReferencedBlocksPass(),
-                                new StructureRecoveryPasses.CleanupStructuredExpressionBodiesPass()
+                                rewriteConditionLocalAliasesPass(),
+                                removePointlessBlocksPass(),
+                                removePointlessReturnPass(),
+                                removePointlessControlFlowPass(),
+                                removePrimitiveDeconversionPass(),
+                                insertLabelledBlocksPass(),
+                                removeUnnecessaryLabelledBreaksPass(),
+                                flattenNonReferencedBlocksPass(),
+                                cleanupStructuredExpressionBodiesPass()
                         )
                 )
         );
@@ -71,7 +76,7 @@ final class StructureRecoveryPipeline {
                 PhaseInputRequirement.FULLY_STRUCTURED,
                 List.of(
                         RecoverySubphase.of(
-                                new StructureRecoveryPasses.RemovePrimitiveDeconversionPass()
+                                removePrimitiveDeconversionPass()
                         )
                 )
         );
@@ -110,25 +115,247 @@ final class StructureRecoveryPipeline {
         // Condition/if frontier cleanup is the one piece shared by all recovery stages: later passes assume
         // they see normalized guards instead of raw forward-goto residue.
         return RecoverySubphase.of(
-                new StructureRecoveryPasses.TidyEmptyCatchPass(),
-                new StructureRecoveryPasses.TidyTryCatchPass(),
-                new StructureRecoveryPasses.ConvertUnstructuredIfPass(),
-                new StructureRecoveryPasses.RewriteForwardIfGotosPass(),
-                new StructureRecoveryPasses.RewriteConditionLocalAliasesPass()
+                tidyEmptyCatchPass(),
+                tidyTryCatchPass(),
+                convertUnstructuredIfPass(),
+                rewriteForwardIfGotosPass(),
+                rewriteConditionLocalAliasesPass()
         );
     }
 
     private static RecoverySubphase structuralCleanupSubphase() {
         return RecoverySubphase.of(
-                new StructureRecoveryPasses.RewriteConditionLocalAliasesPass(),
-                new StructureRecoveryPasses.RemovePointlessBlocksPass(),
-                new StructureRecoveryPasses.RemovePointlessReturnPass(),
-                new StructureRecoveryPasses.RemovePointlessControlFlowPass(),
-                new StructureRecoveryPasses.RemovePrimitiveDeconversionPass(),
-                new StructureRecoveryPasses.InsertLabelledBlocksPass(),
-                new StructureRecoveryPasses.RemoveUnnecessaryLabelledBreaksPass(),
-                new StructureRecoveryPasses.FlattenNonReferencedBlocksPass()
+                rewriteConditionLocalAliasesPass(),
+                removePointlessBlocksPass(),
+                removePointlessReturnPass(),
+                removePointlessControlFlowPass(),
+                removePrimitiveDeconversionPass(),
+                insertLabelledBlocksPass(),
+                removeUnnecessaryLabelledBreaksPass(),
+                flattenNonReferencedBlocksPass()
         );
+    }
+
+    private static StructureRecoveryPass tidyEmptyCatchPass() {
+        return alwaysEnabledPass(
+                "tidy-empty-catch",
+                "Removes empty catch residue before later control-flow recovery.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.tidyEmptyCatch(block)
+        );
+    }
+
+    private static StructureRecoveryPass tidyTryCatchPass() {
+        return alwaysEnabledPass(
+                "tidy-try-catch",
+                "Normalizes try/catch frontiers for downstream structuring.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.tidyTryCatch(block),
+                "tidy-empty-catch"
+        );
+    }
+
+    private static StructureRecoveryPass convertUnstructuredIfPass() {
+        return alwaysEnabledPass(
+                "convert-unstructured-if",
+                "Converts raw conditional frontiers into structured if forms.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.convertUnstructuredIf(block),
+                "tidy-try-catch"
+        );
+    }
+
+    private static StructureRecoveryPass rewriteForwardIfGotosPass() {
+        return alwaysEnabledPass(
+                "rewrite-forward-if-gotos",
+                "Rewrites forward-goto guard residue into structured flow.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.rewriteForwardIfGotos(block),
+                "convert-unstructured-if"
+        );
+    }
+
+    private static StructureRecoveryPass rewriteConditionLocalAliasesPass() {
+        return alwaysEnabledPass(
+                "rewrite-condition-local-aliases",
+                "Normalizes condition-local aliases before cleanup and polish passes.",
+                true,
+                true,
+                (block, context) -> StructuredConditionLocalRecovery.rewriteConditionLocalAliases(block),
+                "rewrite-forward-if-gotos"
+        );
+    }
+
+    private static StructureRecoveryPass prettifyBadLoopsPass() {
+        return alwaysEnabledPass(
+                "prettify-bad-loops",
+                "Canonicalizes malformed loop shapes into structured loop statements.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.prettifyBadLoops(block),
+                "rewrite-forward-if-gotos"
+        );
+    }
+
+    private static StructureRecoveryPass patternSemanticsPass(PatternSemanticsRewriter patternSemanticsRewriter) {
+        return alwaysEnabledPass(
+                "pattern-semantics",
+                "Recovers pattern-matching structure before post-modern cleanup.",
+                true,
+                true,
+                (block, context) -> patternSemanticsRewriter.rewrite(block, context.bytecodeMeta, context.structureRecoveryTrace),
+                "prettify-bad-loops"
+        );
+    }
+
+    private static StructureRecoveryPass inlinePossiblesPass() {
+        return alwaysEnabledPass(
+                "inline-possibles",
+                "Inlines trivial nested blocks that would otherwise block later cleanup.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.inlinePossibles(block)
+        );
+    }
+
+    private static StructureRecoveryPass removeStructuredGotosPass() {
+        return alwaysEnabledPass(
+                "remove-structured-gotos",
+                "Drops leftover structured goto markers once control-flow is recoverable.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.removeStructuredGotos(block),
+                "inline-possibles"
+        );
+    }
+
+    private static StructureRecoveryPass removePointlessBlocksPass() {
+        return alwaysEnabledPass(
+                "remove-pointless-blocks",
+                "Flattens redundant block wrappers without changing method semantics.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.removePointlessBlocks(block),
+                "remove-structured-gotos"
+        );
+    }
+
+    private static StructureRecoveryPass removePointlessReturnPass() {
+        return alwaysEnabledPass(
+                "remove-pointless-return",
+                "Removes redundant terminal returns after control-flow stabilizes.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.removePointlessReturn(block),
+                "remove-pointless-blocks"
+        );
+    }
+
+    private static StructureRecoveryPass removePointlessControlFlowPass() {
+        return alwaysEnabledPass(
+                "remove-pointless-control-flow",
+                "Deletes inert control-flow residue that no longer affects structure.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.removePointlessControlFlow(block),
+                "remove-pointless-return"
+        );
+    }
+
+    private static StructureRecoveryPass removePrimitiveDeconversionPass() {
+        return alwaysEnabledPass(
+                "remove-primitive-deconversion",
+                "Strips primitive boxing/deconversion residue after structure is stable.",
+                true,
+                false,
+                (block, context) -> StructureRecoveryTransforms.removePrimitiveDeconversion(context.options, block)
+        );
+    }
+
+    private static StructureRecoveryPass insertLabelledBlocksPass() {
+        return conditionalPass(
+                "insert-labelled-blocks",
+                "Introduces labelled blocks only when labelled-block output is enabled.",
+                true,
+                true,
+                (block, context) -> context.options.getOption(OptionsImpl.LABELLED_BLOCKS),
+                (block, context) -> {
+                    StructureRecoveryTransforms.insertLabelledBlocks(block);
+                    StructureRecoveryTransforms.rewriteForwardIfGotos(block);
+                },
+                "remove-pointless-control-flow"
+        );
+    }
+
+    private static StructureRecoveryPass removeUnnecessaryLabelledBreaksPass() {
+        return alwaysEnabledPass(
+                "remove-unnecessary-labelled-breaks",
+                "Prunes labelled breaks that no longer carry control-flow meaning.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.removeUnnecessaryLabelledBreaks(block),
+                "insert-labelled-blocks"
+        );
+    }
+
+    private static StructureRecoveryPass flattenNonReferencedBlocksPass() {
+        return alwaysEnabledPass(
+                "flatten-non-referenced-blocks",
+                "Flattens unreferenced block nesting after labelled cleanup.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.flattenNonReferencedBlocks(block),
+                "remove-unnecessary-labelled-breaks"
+        );
+    }
+
+    private static StructureRecoveryPass cleanupStructuredExpressionBodiesPass() {
+        return alwaysEnabledPass(
+                "cleanup-structured-expression-bodies",
+                "Removes expression-body scaffolding once structured output is ready.",
+                true,
+                true,
+                (block, context) -> StructureRecoveryTransforms.cleanupStructuredExpressionBodies(block),
+                "flatten-non-referenced-blocks"
+        );
+    }
+
+    private static StructureRecoveryPass alwaysEnabledPass(String name,
+                                                           String outputPromise,
+                                                           boolean idempotent,
+                                                           boolean allowsStructuralChange,
+                                                           BiConsumer<Op04StructuredStatement, MethodAnalysisContext> action,
+                                                           String... dependencies) {
+        return StructureRecoveryPass.alwaysEnabled(
+                passDescriptor(name, outputPromise, idempotent, allowsStructuralChange, dependencies),
+                action
+        );
+    }
+
+    private static StructureRecoveryPass conditionalPass(String name,
+                                                         String outputPromise,
+                                                         boolean idempotent,
+                                                         boolean allowsStructuralChange,
+                                                         BiPredicate<Op04StructuredStatement, MethodAnalysisContext> enabled,
+                                                         BiConsumer<Op04StructuredStatement, MethodAnalysisContext> action,
+                                                         String... dependencies) {
+        return StructureRecoveryPass.when(
+                passDescriptor(name, outputPromise, idempotent, allowsStructuralChange, dependencies),
+                enabled,
+                action
+        );
+    }
+
+    private static StructuredPassDescriptor passDescriptor(String name,
+                                                           String outputPromise,
+                                                           boolean idempotent,
+                                                           boolean allowsStructuralChange,
+                                                           String... dependencies) {
+        return StructuredPassDescriptor.of(name, outputPromise, idempotent, allowsStructuralChange, dependencies);
     }
 
     private enum PhaseInputRequirement {

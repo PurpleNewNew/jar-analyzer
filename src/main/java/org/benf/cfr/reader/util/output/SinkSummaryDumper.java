@@ -15,12 +15,12 @@ public class SinkSummaryDumper implements SummaryDumper {
     }
 
     @Override
-    public void notify(String message) {
+    public synchronized void notify(String message) {
         sink.write(message + "\n");
     }
 
     @Override
-    public void notifyError(JavaTypeInstance controllingType, Method method, String error) {
+    public synchronized void notifyError(JavaTypeInstance controllingType, Method method, String error) {
         if (lastControllingType != controllingType) {
             lastControllingType = controllingType;
             lastMethod = null;

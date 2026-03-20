@@ -104,6 +104,15 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         while (castType instanceof JavaWildcardTypeInstance) {
             castType = ((JavaWildcardTypeInstance) castType).getUnderlyingType();
         }
+        if (forced) {
+            if (castType == RawJavaType.NULL) {
+                child.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
+            } else {
+                d.separator("(").dump(castType).separator(")");
+                child.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
+            }
+            return d;
+        }
         JavaTypeInstance originalChildType = child.getInferredJavaType().getJavaTypeInstance();
         ExpressionTypeHintHelper.improveExpressionType(child, castType, TypeRecoveryPasses.CAST_CHILD_HINT);
         JavaTypeInstance childType = child.getInferredJavaType().getJavaTypeInstance();
@@ -127,7 +136,8 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
         }
         if (childType != null
                 && childType.getDeGenerifiedType().equals(castType.getDeGenerifiedType())
-                && !castType.equals(childType)) {
+                && !castType.equals(childType)
+                && !requiresExplicitFunctionCast) {
             d.dump(child);
             return d;
         }

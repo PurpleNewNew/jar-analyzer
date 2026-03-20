@@ -5,8 +5,6 @@ import org.benf.cfr.reader.api.ClassFileSource;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.apiunreleased.ClassFileSource2;
 import org.benf.cfr.reader.state.ClassFileSourceChained;
-import org.benf.cfr.reader.state.ClassFileSourceImpl;
-import org.benf.cfr.reader.state.ClassFileSourceWrapper;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.AnalysisType;
 import org.benf.cfr.reader.util.collections.ListFactory;
@@ -16,7 +14,6 @@ import org.benf.cfr.reader.util.output.DumperFactory;
 import org.benf.cfr.reader.util.output.InternalDumperFactoryImpl;
 import org.benf.cfr.reader.util.output.SinkDumperFactory;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -30,18 +27,9 @@ public class CfrDriverImpl implements CfrDriver {
         if (options == null) {
             options = new OptionsImpl(new HashMap<String, String>());
         }
-        ClassFileSource2 tmpSource;
-        if (source == null) {
-            tmpSource = new ClassFileSourceImpl(options);
-        } else {
-            tmpSource = source instanceof ClassFileSource2 ? (ClassFileSource2)source : new ClassFileSourceWrapper(source);
-            if (fallbackToDefaultSource) {
-                tmpSource = new ClassFileSourceChained(Arrays.asList(tmpSource, new ClassFileSourceImpl(options)));
-            }
-        }
         this.outputSinkFactory = outputSinkFactory;
         this.options = options;
-        this.classFileSource = tmpSource;
+        this.classFileSource = ClassFileSourceChained.configureSource(source, options, fallbackToDefaultSource);
     }
 
     @Override
@@ -69,7 +57,14 @@ public class CfrDriverImpl implements CfrDriver {
 
             AnalysisType type = options.getOption(OptionsImpl.ANALYSE_AS);
             if (type == null || type == AnalysisType.DETECT) {
-                type = dcCommonState.detectClsJar(path);
+                String lcPath = path.toLowerCase();
+                if (lcPath.endsWith(".jar")) {
+                    type = AnalysisType.JAR;
+                } else if (lcPath.endsWith(".war")) {
+                    type = AnalysisType.WAR;
+                } else {
+                    type = AnalysisType.CLASS;
+                }
             }
 
             if (type == AnalysisType.JAR || type == AnalysisType.WAR) {

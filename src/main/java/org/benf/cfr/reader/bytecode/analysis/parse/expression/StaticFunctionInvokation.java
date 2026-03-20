@@ -197,8 +197,11 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
     void improveAgainstExpectedType(JavaTypeInstance expectedType) {
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(expectedType);
         improveArgumentTypes(genericTypeBinder);
-        JavaTypeInstance resolvedReturnType = resolveDisplayReturnType(expectedType).getResolvedType();
-        if (resolvedReturnType != null) {
+        DisplayTypeResolution resolution = resolveDisplayReturnType(expectedType);
+        JavaTypeInstance resolvedReturnType = resolution.getResolvedType();
+        if (resolvedReturnType != null
+                && !resolution.requiresExplicitCast()
+                && !needsExpectedReturnCast(expectedType)) {
             getInferredJavaType().forceType(resolvedReturnType, true);
         }
         maybeDropRedundantExplicitGenerics();

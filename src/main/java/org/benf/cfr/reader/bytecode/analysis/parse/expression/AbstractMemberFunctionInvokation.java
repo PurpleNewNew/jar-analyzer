@@ -142,8 +142,9 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         MethodPrototype methodPrototype = getMethodPrototype();
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
         improveArgumentTypes(methodPrototype, genericTypeBinder);
-        JavaTypeInstance resolvedReturnType = resolveDisplayReturnType(expectedType).getResolvedType();
-        if (resolvedReturnType != null) {
+        DisplayTypeResolution resolution = resolveDisplayReturnType(expectedType);
+        JavaTypeInstance resolvedReturnType = resolution.getResolvedType();
+        if (resolvedReturnType != null && !resolution.requiresExplicitCast()) {
             getInferredJavaType().forceType(resolvedReturnType, true);
         }
         JavaTypeInstance expectedObjectType = methodPrototype.getGenericClassType();

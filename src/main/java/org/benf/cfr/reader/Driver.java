@@ -5,8 +5,10 @@ import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.mapping.MappingFactory;
+import org.benf.cfr.reader.mapping.NullMapping;
 import org.benf.cfr.reader.mapping.ObfuscationMapping;
 import org.benf.cfr.reader.relationship.MemberNameResolver;
+import org.benf.cfr.reader.state.ClassFileSourceSupport;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.state.TypeUsageCollectingDumper;
 import org.benf.cfr.reader.state.TypeUsageInformation;
@@ -32,6 +34,7 @@ import org.benf.cfr.reader.util.output.SummaryDumper;
 import org.benf.cfr.reader.util.output.ToStringDumper;
 
 import java.util.Collections;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +45,191 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public class Driver {
+    private static final class JarVersionScope {
+        private final DCCommonState dcCommonState;
+        private final DumperFactory dumperFactory;
+        private final List<JavaTypeInstance> types;
+        private final boolean lomem;
+        private final boolean silent;
+        private final int threadCount;
+
+        private JarVersionScope(DCCommonState dcCommonState,
+                                DumperFactory dumperFactory,
+                                List<JavaTypeInstance> types,
+                                boolean lomem,
+                                boolean silent,
+                                int threadCount) {
+            this.dcCommonState = dcCommonState;
+            this.dumperFactory = dumperFactory;
+            this.types = types;
+            this.lomem = lomem;
+            this.silent = silent;
+            this.threadCount = threadCount;
+        }
+    }
+
+    private static DCCommonState withConfiguredObfuscationMapping(DCCommonState dcCommonState) {
+        ObfuscationMapping existingMapping = dcCommonState.getObfuscationMapping();
+        if (existingMapping != NullMapping.INSTANCE) {
+            return dcCommonState;
+        }
+        ObfuscationMapping configuredMapping = MappingFactory.get(dcCommonState.getOptions(), dcCommonState);
+        if (configuredMapping == existingMapping) {
+            return dcCommonState;
+        }
+        return new DCCommonState(dcCommonState, configuredMapping);
+    }
+
+    private static void resolveMemberNamesIfConfigured(DCCommonState dcCommonState,
+                                                       Collection<? extends JavaTypeInstance> types,
+                                                       boolean includeEnumMembers) {
+        Options options = dcCommonState.getOptions();
+        if (options.getOption(OptionsImpl.RENAME_DUP_MEMBERS) ||
+                (includeEnumMembers && options.getOption(OptionsImpl.RENAME_ENUM_MEMBERS))) {
+            MemberNameResolver.resolveNames(dcCommonState, types);
+        }
+    }
+
+    private static void loadInnerClassesIfConfigured(DCCommonState dcCommonState, ClassFile classFile) {
+        if (dcCommonState.getOptions().getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
+            classFile.loadInnerClasses(dcCommonState);
+        }
+    }
+
+    private static TypeUsageInformation analyseClass(DCCommonState dcCommonState, ClassFile classFile) {
+        Options options = dcCommonState.getOptions();
+        TypeUsageCollectingDumper collectingDumper = new TypeUsageCollectingDumper(options, classFile);
+        classFile.analyseTop(dcCommonState, collectingDumper);
+        return collectingDumper.getRealTypeUsageInformation();
+    }
+
+    private static Dumper getTopLevelDumper(DCCommonState dcCommonState,
+                                            DumperFactory dumperFactory,
+                                            SummaryDumper summaryDumper,
+                                            JavaTypeInstance classType,
+                                            TypeUsageInformation typeUsageInformation) {
+        Options options = dcCommonState.getOptions();
+        Dumper dumper = dumperFactory.getNewTopLevelDumper(dcCommonState.getObfuscationMapping().get(classType),
+                summaryDumper,
+                typeUsageInformation,
+                IllegalIdentifierDump.Factory.get(options));
+        if (options.getOption(OptionsImpl.TRACK_BYTECODE_LOC)) {
+            dumper = dumperFactory.wrapLineNoDumper(dumper);
+        }
+        return dcCommonState.getObfuscationMapping().wrap(dumper);
+    }
+
+    private static DCCommonState withVersionSpecificClassLookup(DCCommonState dcCommonState, List<Integer> versionsSeen) {
+        final List<Integer> descendingVersionsSeen = ListFactory.newList(versionsSeen);
+        Collections.reverse(descendingVersionsSeen);
+        return new DCCommonState(dcCommonState, new BinaryFunction<String, DCCommonState, ClassFile>() {
+            @Override
+            public ClassFile invoke(String arg, DCCommonState arg2) {
+                Exception lastException = null;
+                for (int version : descendingVersionsSeen) {
+                    try {
+                        if (version == 0) {
+                            return arg2.loadClassFileAtPath(arg);
+                        }
+                        return arg2.loadClassFileAtPath(MiscConstants.MULTI_RELEASE_PREFIX + version + "/" + arg);
+                    } catch (CannotLoadClassException e) {
+                        lastException = e;
+                    }
+                }
+                throw new CannotLoadClassException(arg, lastException);
+            }
+        });
+    }
+
+    private static int getBatchThreadCount(Options options, int typeCount) {
+        int threadCount = options.getOption(OptionsImpl.BATCH_THREADS);
+        if (threadCount <= 0) {
+            threadCount = Runtime.getRuntime().availableProcessors();
+        }
+        return Math.max(1, Math.min(threadCount, typeCount));
+    }
+
+    private static JarVersionScope prepareJarVersionScope(int forVersion,
+                                                          List<Integer> versionsSeen,
+                                                          DCCommonState dcCommonState,
+                                                          DumperFactory dumperFactory,
+                                                          List<JavaTypeInstance> types) {
+        Options options = dcCommonState.getOptions();
+        if (forVersion > 0) {
+            dumperFactory = dumperFactory.getFactoryWithPrefix("/" + MiscConstants.MULTI_RELEASE_PREFIX + forVersion + "/", forVersion);
+            dcCommonState = withVersionSpecificClassLookup(dcCommonState, versionsSeen);
+        }
+        final Predicate<String> matcher = MiscUtils.mkRegexFilter(options.getOption(OptionsImpl.JAR_FILTER), true);
+        types = Functional.filter(types, new Predicate<JavaTypeInstance>() {
+            @Override
+            public boolean test(JavaTypeInstance in) {
+                return matcher.test(in.getRawName());
+            }
+        });
+        resolveMemberNamesIfConfigured(dcCommonState, types, true);
+        return new JarVersionScope(dcCommonState,
+                dumperFactory,
+                types,
+                options.getOption(OptionsImpl.LOMEM),
+                options.getOption(OptionsImpl.SILENT),
+                getBatchThreadCount(options, types.size()));
+    }
+
+    private static void dumpJarTypes(JarVersionScope scope,
+                                     SummaryDumper summaryDumper,
+                                     ProgressDumper progressDumper) {
+        if (scope.threadCount <= 1) {
+            for (JavaTypeInstance type : scope.types) {
+                dumpJarType(scope.dcCommonState,
+                        scope.dumperFactory,
+                        summaryDumper,
+                        progressDumper,
+                        scope.lomem,
+                        scope.silent,
+                        type);
+            }
+            return;
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(scope.threadCount);
+        List<Future<?>> futures = new ArrayList<>(scope.types.size());
+        try {
+            for (JavaTypeInstance type : scope.types) {
+                final JavaTypeInstance workType = type;
+                futures.add(executor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        dumpJarType(scope.dcCommonState.forkForBatchWorker(),
+                                scope.dumperFactory,
+                                summaryDumper,
+                                progressDumper,
+                                scope.lomem,
+                                scope.silent,
+                                workType);
+                    }
+                }));
+            }
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while decompiling jar", e);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof Dumper.CannotCreate) {
+                        throw (Dumper.CannotCreate) cause;
+                    }
+                    if (cause instanceof RuntimeException) {
+                        throw (RuntimeException) cause;
+                    }
+                    throw new IllegalStateException(cause);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
     /*
      * When analysing individual classes, we behave a bit differently to jars - this *Could* probably
@@ -55,48 +243,20 @@ public class Driver {
      *   files in a junk directory.
      */
     public static void doClass(DCCommonState dcCommonState, String path, boolean skipInnerClass, DumperFactory dumperFactory) {
+        dcCommonState = withConfiguredObfuscationMapping(dcCommonState);
         Options options = dcCommonState.getOptions();
-        if (dcCommonState.getObfuscationMapping() == null) {
-            ObfuscationMapping mapping = MappingFactory.get(options, dcCommonState);
-            dcCommonState = new DCCommonState(dcCommonState, mapping);
-        }
-
-        IllegalIdentifierDump illegalIdentifierDump = IllegalIdentifierDump.Factory.get(options);
         Dumper d = new ToStringDumper(); // sentinel dumper.
         ExceptionDumper ed = dumperFactory.getExceptionDumper();
         try {
             SummaryDumper summaryDumper = new NopSummaryDumper();
-            ClassFile c = dcCommonState.getClassFileMaybePath(path);
+            ClassFile c = dcCommonState.getClassFileForAnalysis(path);
             if (skipInnerClass && c.isInnerClass()) return;
-
-            dcCommonState.configureWith(c);
             dumperFactory.getProgressDumper().analysingType(c.getClassType());
 
-            // This may seem odd, but we want to make sure we're analysing the version
-            // from the cache, in case that's loaded and tweaked.
-            // ClassPathRelocator handles ensuring we don't reload the wrong file.
-            try {
-                c = dcCommonState.getClassFile(c.getClassType());
-            } catch (CannotLoadClassException ignore) {
-            }
-
-            if (options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
-                c.loadInnerClasses(dcCommonState);
-            }
-            if (options.getOption(OptionsImpl.RENAME_DUP_MEMBERS)) {
-                MemberNameResolver.resolveNames(dcCommonState, ListFactory.newList(dcCommonState.getClassCache().getLoadedTypes()));
-            }
-
-            TypeUsageCollectingDumper collectingDumper = new TypeUsageCollectingDumper(options, c);
-            c.analyseTop(dcCommonState, collectingDumper);
-
-            TypeUsageInformation typeUsageInformation = collectingDumper.getRealTypeUsageInformation();
-
-            d = dumperFactory.getNewTopLevelDumper(c.getClassType(), summaryDumper, typeUsageInformation, illegalIdentifierDump);
-            d = dcCommonState.getObfuscationMapping().wrap(d);
-            if (options.getOption(OptionsImpl.TRACK_BYTECODE_LOC)) {
-                d = dumperFactory.wrapLineNoDumper(d);
-            }
+            loadInnerClassesIfConfigured(dcCommonState, c);
+            resolveMemberNamesIfConfigured(dcCommonState, ListFactory.newList(dcCommonState.getClassCache().getLoadedTypes()), false);
+            TypeUsageInformation typeUsageInformation = analyseClass(dcCommonState, c);
+            d = getTopLevelDumper(dcCommonState, dumperFactory, summaryDumper, c.getClassType(), typeUsageInformation);
 
             String methname = options.getOption(OptionsImpl.METHODNAME);
             if (methname == null) {
@@ -119,13 +279,7 @@ public class Driver {
     }
 
     public static void doJar(DCCommonState dcCommonState, String path, AnalysisType analysisType, DumperFactory dumperFactory) {
-        Options options = dcCommonState.getOptions();
-        IllegalIdentifierDump illegalIdentifierDump = IllegalIdentifierDump.Factory.get(options);
-        if (dcCommonState.getObfuscationMapping() == null) {
-            ObfuscationMapping mapping = MappingFactory.get(options, dcCommonState);
-            dcCommonState = new DCCommonState(dcCommonState, mapping);
-        }
-
+        dcCommonState = withConfiguredObfuscationMapping(dcCommonState);
         SummaryDumper summaryDumper = null;
         try {
             ProgressDumper progressDumper = dumperFactory.getProgressDumper();
@@ -133,7 +287,7 @@ public class Driver {
             summaryDumper.notify("Summary for " + path);
             summaryDumper.notify(MiscConstants.CFR_HEADER_BRA + " " + CfrVersionInfo.VERSION_INFO);
             progressDumper.analysingPath(path);
-            Map<Integer, List<JavaTypeInstance>> clstypes = dcCommonState.explicitlyLoadJar(path, analysisType);
+            Map<Integer, List<JavaTypeInstance>> clstypes = ClassFileSourceSupport.explicitlyLoadJar(dcCommonState, path, analysisType);
             Set<JavaTypeInstance> versionCollisions = getVersionCollisions(clstypes);
             dcCommonState.setCollisions(versionCollisions);
             List<Integer> versionsSeen = ListFactory.newList();
@@ -145,7 +299,7 @@ public class Driver {
                 versionsSeen.add(forVersion);
                 List<Integer> localVersionsSeen = ListFactory.newList(versionsSeen);
                 List<JavaTypeInstance> types = entry.getValue();
-                doJarVersionTypes(forVersion, localVersionsSeen, dcCommonState, dumperFactory, illegalIdentifierDump, summaryDumper, progressDumper, types);
+                doJarVersionTypes(forVersion, localVersionsSeen, dcCommonState, dumperFactory, summaryDumper, progressDumper, types);
             }
         } catch (Exception e) {
             dumperFactory.getExceptionDumper().noteException(path, "Exception analysing jar", e);
@@ -194,112 +348,14 @@ public class Driver {
         return collisions;
     }
 
-    private static void doJarVersionTypes(int forVersion, final List<Integer> versionsSeen, DCCommonState dcCommonState, DumperFactory dumperFactory, IllegalIdentifierDump illegalIdentifierDump, SummaryDumper summaryDumper, ProgressDumper progressDumper, List<JavaTypeInstance> types) {
-        Options options = dcCommonState.getOptions();
-        final boolean lomem = options.getOption(OptionsImpl.LOMEM);
-        final Predicate<String> matcher = MiscUtils.mkRegexFilter(options.getOption(OptionsImpl.JAR_FILTER), true);
-        final boolean silent = options.getOption(OptionsImpl.SILENT);
-
-        // If we're dumping a class which is SPECIFIC to a version, i.e. other than 0, we override the common state
-        // so that it will look up in all version going back from that.
-        if (forVersion > 0) {
-            dumperFactory = dumperFactory.getFactoryWithPrefix("/" + MiscConstants.MULTI_RELEASE_PREFIX + forVersion + "/", forVersion);
-            Collections.reverse(versionsSeen);
-            // We create a new classfile source, which will preferentially hit X, then X-1 down to X.
-            dcCommonState = new DCCommonState(dcCommonState, new BinaryFunction<String, DCCommonState, ClassFile>() {
-                @Override
-                public ClassFile invoke(String arg, DCCommonState arg2) {
-                    // First we try to load forVersion, then forVersion-1, etc.
-                    Exception lastException = null;
-                    for (int version : versionsSeen) {
-                        try {
-                            if (version == 0) {
-                                return arg2.loadClassFileAtPath(arg);
-                            }
-                            return arg2.loadClassFileAtPath(MiscConstants.MULTI_RELEASE_PREFIX + version + "/" + arg);
-                        } catch (CannotLoadClassException e) {
-                            lastException = e;
-                        }
-                    }
-                    throw new CannotLoadClassException(arg, lastException);
-                }
-            });
-        }
-
-        types = Functional.filter(types, new Predicate<JavaTypeInstance>() {
-            @Override
-            public boolean test(JavaTypeInstance in) {
-                return matcher.test(in.getRawName());
-            }
-        });
-        /*
-         * If resolving names, we need a first pass...... otherwise foreign referents will
-         * not see the renaming, depending on order of class files....
-         */
-        if (options.getOption(OptionsImpl.RENAME_DUP_MEMBERS) ||
-                options.getOption(OptionsImpl.RENAME_ENUM_MEMBERS)) {
-            MemberNameResolver.resolveNames(dcCommonState, types);
-        }
-        final DCCommonState batchState = dcCommonState;
-        final DumperFactory batchDumperFactory = dumperFactory;
-        final SummaryDumper sharedSummary = new SynchronizedSummaryDumper(summaryDumper);
-        final ProgressDumper sharedProgress = new SynchronizedProgressDumper(progressDumper);
-        int threadCount = options.getOption(OptionsImpl.BATCH_THREADS);
-        if (threadCount <= 0) {
-            threadCount = Runtime.getRuntime().availableProcessors();
-        }
-        threadCount = Math.max(1, Math.min(threadCount, types.size()));
-        if (threadCount <= 1) {
-            for (JavaTypeInstance type : types) {
-                dumpJarType(batchState, batchDumperFactory, illegalIdentifierDump, sharedSummary, sharedProgress, lomem, silent, type);
-            }
-            return;
-        }
-
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        List<Future<?>> futures = new ArrayList<>(types.size());
-        try {
-            for (JavaTypeInstance type : types) {
-                final JavaTypeInstance workType = type;
-                futures.add(executor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        dumpJarType(batchState.forkForBatchWorker(),
-                                batchDumperFactory,
-                                illegalIdentifierDump,
-                                sharedSummary,
-                                sharedProgress,
-                                lomem,
-                                silent,
-                                workType);
-                    }
-                }));
-            }
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("Interrupted while decompiling jar", e);
-                } catch (ExecutionException e) {
-                    Throwable cause = e.getCause();
-                    if (cause instanceof Dumper.CannotCreate) {
-                        throw (Dumper.CannotCreate) cause;
-                    }
-                    if (cause instanceof RuntimeException) {
-                        throw (RuntimeException) cause;
-                    }
-                    throw new IllegalStateException(cause);
-                }
-            }
-        } finally {
-            executor.shutdownNow();
-        }
+    private static void doJarVersionTypes(int forVersion, final List<Integer> versionsSeen, DCCommonState dcCommonState, DumperFactory dumperFactory, SummaryDumper summaryDumper, ProgressDumper progressDumper, List<JavaTypeInstance> types) {
+        dumpJarTypes(prepareJarVersionScope(forVersion, versionsSeen, dcCommonState, dumperFactory, types),
+                summaryDumper,
+                progressDumper);
     }
 
     private static void dumpJarType(DCCommonState dcCommonState,
                                     DumperFactory dumperFactory,
-                                    IllegalIdentifierDump illegalIdentifierDump,
                                     SummaryDumper summaryDumper,
                                     ProgressDumper progressDumper,
                                     boolean lomem,
@@ -318,21 +374,9 @@ public class Driver {
                 progressDumper.analysingType(type);
             }
             Options options = dcCommonState.getOptions();
-            if (options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
-                c.loadInnerClasses(dcCommonState);
-            }
-            TypeUsageCollectingDumper collectingDumper = new TypeUsageCollectingDumper(options, c);
-            c.analyseTop(dcCommonState, collectingDumper);
-
-            JavaTypeInstance classType = dcCommonState.getObfuscationMapping().get(c.getClassType());
-            TypeUsageInformation typeUsageInformation = collectingDumper.getRealTypeUsageInformation();
-            synchronized (dumperFactory) {
-                d = dumperFactory.getNewTopLevelDumper(classType, summaryDumper, typeUsageInformation, illegalIdentifierDump);
-                if (options.getOption(OptionsImpl.TRACK_BYTECODE_LOC)) {
-                    d = dumperFactory.wrapLineNoDumper(d);
-                }
-            }
-            d = dcCommonState.getObfuscationMapping().wrap(d);
+            loadInnerClassesIfConfigured(dcCommonState, c);
+            TypeUsageInformation typeUsageInformation = analyseClass(dcCommonState, c);
+            d = getTopLevelDumper(dcCommonState, dumperFactory, summaryDumper, c.getClassType(), typeUsageInformation);
             c.dump(d);
             d.newln();
             d.newln();
@@ -348,44 +392,4 @@ public class Driver {
         }
     }
 
-    private static final class SynchronizedSummaryDumper implements SummaryDumper {
-        private final SummaryDumper delegate;
-
-        private SynchronizedSummaryDumper(SummaryDumper delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public synchronized void notify(String message) {
-            delegate.notify(message);
-        }
-
-        @Override
-        public synchronized void notifyError(JavaTypeInstance controllingType, Method method, String error) {
-            delegate.notifyError(controllingType, method, error);
-        }
-
-        @Override
-        public synchronized void close() {
-            delegate.close();
-        }
-    }
-
-    private static final class SynchronizedProgressDumper implements ProgressDumper {
-        private final ProgressDumper delegate;
-
-        private SynchronizedProgressDumper(ProgressDumper delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public synchronized void analysingType(JavaTypeInstance type) {
-            delegate.analysingType(type);
-        }
-
-        @Override
-        public synchronized void analysingPath(String path) {
-            delegate.analysingPath(path);
-        }
-    }
 }

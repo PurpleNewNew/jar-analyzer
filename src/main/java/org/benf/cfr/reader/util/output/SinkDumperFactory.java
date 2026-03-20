@@ -281,12 +281,12 @@ public class SinkDumperFactory implements DumperFactory {
         }
 
         @Override
-        public void analysingType(JavaTypeInstance type) {
+        public synchronized void analysingType(JavaTypeInstance type) {
             progressSink.write("Analysing type " + type.getRawName());
         }
 
         @Override
-        public void analysingPath(String path) {
+        public synchronized void analysingPath(String path) {
             progressSink.write("Analysing path " + path);
         }
     }

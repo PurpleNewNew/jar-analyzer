@@ -2,6 +2,7 @@ package org.benf.cfr.reader.state;
 
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
+import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
@@ -11,10 +12,10 @@ import java.util.Map;
 import java.util.Set;
 
 public class ClassRenamer {
-    private Map<String, String> classCollisionRenamerToReal = MapFactory.newMap();
-    private Map<String, String> classCollisionRenamerFromReal = MapFactory.newMap();
-
-    private List<ClassNameFunction> renamers;
+    private final Map<String, String> classCollisionRenamerToReal = MapFactory.newMap();
+    private final Map<String, String> classCollisionRenamerFromReal = MapFactory.newMap();
+    private final Set<String> knownClassFiles = SetFactory.newOrderedSet();
+    private final List<ClassNameFunction> renamers;
 
     private ClassRenamer(List<ClassNameFunction> renamers) {
         this.renamers = renamers;
@@ -49,13 +50,19 @@ public class ClassRenamer {
     }
 
     void notifyClassFiles(Collection<String> names) {
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        knownClassFiles.addAll(names);
         Map<String, String> originalToXfrm = MapFactory.newOrderedMap();
-        for (String name : names) {
+        for (String name : knownClassFiles) {
             originalToXfrm.put(name, name);
         }
         for (ClassNameFunction renamer : renamers) {
             originalToXfrm = renamer.apply(originalToXfrm);
         }
+        classCollisionRenamerFromReal.clear();
+        classCollisionRenamerToReal.clear();
         for (Map.Entry<String, String> entry : originalToXfrm.entrySet()) {
             String original = entry.getKey();
             String rename = entry.getValue();

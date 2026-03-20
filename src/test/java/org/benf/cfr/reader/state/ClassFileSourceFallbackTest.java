@@ -1,11 +1,15 @@
 package org.benf.cfr.reader.state;
 
+import org.benf.cfr.reader.PluginRunner;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.ClassFileSource;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.api.SinkReturns;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.util.AnalysisType;
+import org.benf.cfr.reader.util.ConfusedCFRException;
+import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,8 +30,10 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClassFileSourceFallbackTest {
@@ -90,6 +96,125 @@ class ClassFileSourceFallbackTest {
         assertNull(wrapper.addJar(null));
         assertNull(wrapper.addJarContent(null, AnalysisType.JAR));
         assertEquals(0, addJarCalls.get());
+    }
+
+    @Test
+    void pluginRunnerShouldUseDefaultSourceWithoutPriorReset(@TempDir Path tempDir) throws IOException {
+        Path classFile = compileJava(tempDir, "PluginSample",
+                "public class PluginSample {\n" +
+                        "    public int value() {\n" +
+                        "        return 7;\n" +
+                        "    }\n" +
+                        "}\n");
+
+        PluginRunner pluginRunner = new PluginRunner(Map.of("showversion", "false", "silent", "true"));
+        String decompiled = pluginRunner.getDecompilationFor(classFile.toString());
+
+        assertTrue(decompiled.contains("class PluginSample"), decompiled);
+        assertTrue(decompiled.contains("int value()"), decompiled);
+    }
+
+    @Test
+    void chainedSourceShouldTurnNullClassMissesIntoIOException() {
+        ClassFileSourceChained chained = new ClassFileSourceChained(Collections.singletonList(new NullClassFileSource()));
+
+        IOException exception = assertThrows(IOException.class, () -> chained.getClassFileContent("Missing.class"));
+
+        assertEquals("No such file Missing.class", exception.getMessage());
+    }
+
+    @Test
+    void chainedSourceShouldRejectJarMissAfterAllSourcesFail() {
+        ClassFileSourceChained chained = new ClassFileSourceChained(Collections.singletonList(new NullClassFileSource()));
+
+        ConfusedCFRException exception = assertThrows(ConfusedCFRException.class,
+                () -> chained.addJarContent("missing.jar", AnalysisType.JAR));
+
+        assertEquals("Failed to load jar missing.jar", exception.getMessage());
+    }
+
+    @Test
+    void chainedSourceShouldReturnIdentityPathWhenRenameMisses() {
+        ClassFileSourceChained chained = new ClassFileSourceChained(Collections.singletonList(new NullClassFileSource()));
+
+        assertEquals("a/b/Missing", chained.getPossiblyRenamedPath("a/b/Missing"));
+    }
+
+    @Test
+    void shouldResolveSingleClassInputThroughOneAnalysisEntry(@TempDir Path tempDir) throws IOException {
+        Path compiledClass = compileJava(tempDir, "Sample",
+                "public class Sample {\n" +
+                        "    public int value() {\n" +
+                        "        return 3;\n" +
+                        "    }\n" +
+                        "}\n");
+        Path oddClass = tempDir.resolve("Odd.class");
+        Files.move(compiledClass, oddClass);
+
+        TrackingClassFileSource source = new TrackingClassFileSource(oddClass);
+        DCCommonState state = new DCCommonState(new OptionsImpl(Map.of()), source);
+
+        JavaRefTypeInstance classType = (JavaRefTypeInstance) state.getClassFileForAnalysis(oddClass.toString()).getClassType();
+
+        assertEquals("Sample", classType.getRawName());
+        assertEquals(List.of(oddClass.toString(), "Sample.class"), source.requestedPaths);
+        assertEquals(oddClass.toString(), source.informedUsePath);
+        assertEquals("Sample.class", source.informedClassFilePath);
+    }
+
+    @Test
+    void explicitJarShouldOverrideRelocatedLooseClass(@TempDir Path tempDir) throws IOException {
+        Path looseDir = Files.createDirectories(tempDir.resolve("loose"));
+        Path jarDir = Files.createDirectories(tempDir.resolve("jar"));
+        Path looseClass = compileJava(looseDir, "Sample",
+                "public class Sample {\n" +
+                        "    public int value() {\n" +
+                        "        return 1;\n" +
+                        "    }\n" +
+                        "}\n");
+        Path jarClass = compileJava(jarDir, "Sample",
+                "public class Sample {\n" +
+                        "    public int value() {\n" +
+                        "        return 2;\n" +
+                        "    }\n" +
+                        "}\n");
+        Path jarFile = createJar(tempDir.resolve("sample.jar"), jarClass, "Sample.class");
+
+        ClassFileSourceImpl source = new ClassFileSourceImpl(new OptionsImpl(Map.of()));
+        source.informAnalysisRelativePathDetail(looseClass.toString(), "Sample.class");
+        source.addJarContent(jarFile.toString(), AnalysisType.JAR);
+
+        Pair<byte[], String> content = source.getClassFileContent("Sample.class");
+
+        assertArrayEquals(Files.readAllBytes(jarClass), content.getFirst());
+    }
+
+    @Test
+    void classpathJarShouldStillAllowRelocatedLooseClassOverride(@TempDir Path tempDir) throws IOException {
+        Path looseDir = Files.createDirectories(tempDir.resolve("loose"));
+        Path jarDir = Files.createDirectories(tempDir.resolve("jar"));
+        Path looseClass = compileJava(looseDir, "Sample",
+                "public class Sample {\n" +
+                        "    public int value() {\n" +
+                        "        return 1;\n" +
+                        "    }\n" +
+                        "}\n");
+        Path jarClass = compileJava(jarDir, "Sample",
+                "public class Sample {\n" +
+                        "    public int value() {\n" +
+                        "        return 2;\n" +
+                        "    }\n" +
+                        "}\n");
+        Path jarFile = createJar(tempDir.resolve("cp.jar"), jarClass, "Sample.class");
+
+        ClassFileSourceImpl source = new ClassFileSourceImpl(new OptionsImpl(Map.of(
+                OptionsImpl.EXTRA_CLASS_PATH.getName(), jarFile.toString()
+        )));
+        source.informAnalysisRelativePathDetail(looseClass.toString(), "Sample.class");
+
+        Pair<byte[], String> content = source.getClassFileContent("Sample.class");
+
+        assertArrayEquals(Files.readAllBytes(looseClass), content.getFirst());
     }
 
     private static String decompileWithOverride(String path, ClassFileSource source) {
@@ -183,5 +308,72 @@ class ClassFileSourceFallbackTest {
     }
 
     private static final class NullJarLegacySource extends ThrowingLegacySource {
+    }
+
+    private static final class NullClassFileSource implements org.benf.cfr.reader.apiunreleased.ClassFileSource2 {
+        @Override
+        public void informAnalysisRelativePathDetail(String usePath, String classFilePath) {
+        }
+
+        @Override
+        public Collection<String> addJar(String jarPath) {
+            return null;
+        }
+
+        @Override
+        public String getPossiblyRenamedPath(String path) {
+            return null;
+        }
+
+        @Override
+        public Pair<byte[], String> getClassFileContent(String path) {
+            return null;
+        }
+
+        @Override
+        public org.benf.cfr.reader.apiunreleased.JarContent addJarContent(String jarPath, AnalysisType analysisType) {
+            return null;
+        }
+    }
+
+    private static final class TrackingClassFileSource implements org.benf.cfr.reader.apiunreleased.ClassFileSource2 {
+        private final Path oddClass;
+        private String informedUsePath;
+        private String informedClassFilePath;
+        private final List<String> requestedPaths = new java.util.ArrayList<>();
+
+        private TrackingClassFileSource(Path oddClass) {
+            this.oddClass = oddClass;
+        }
+
+        @Override
+        public void informAnalysisRelativePathDetail(String usePath, String classFilePath) {
+            this.informedUsePath = usePath;
+            this.informedClassFilePath = classFilePath;
+        }
+
+        @Override
+        public Collection<String> addJar(String jarPath) {
+            return null;
+        }
+
+        @Override
+        public String getPossiblyRenamedPath(String path) {
+            return path;
+        }
+
+        @Override
+        public Pair<byte[], String> getClassFileContent(String path) throws IOException {
+            requestedPaths.add(path);
+            if (path.equals(oddClass.toString()) || (informedUsePath != null && path.equals(informedClassFilePath))) {
+                return Pair.make(Files.readAllBytes(oddClass), oddClass.toString());
+            }
+            throw new IOException("No such file " + path);
+        }
+
+        @Override
+        public org.benf.cfr.reader.apiunreleased.JarContent addJarContent(String jarPath, AnalysisType analysisType) {
+            return null;
+        }
     }
 }

@@ -57,7 +57,7 @@ public interface ClassFileSource {
      * This allows you to remap paths.
      *
      * @param path Path CFR would like to use
-     * @return Remapped path.
+     * @return Remapped path. Implementations should return the original {@code path} when no remap applies.
      */
     String getPossiblyRenamedPath(String path);
 

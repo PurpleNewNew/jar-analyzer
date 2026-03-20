@@ -6,12 +6,8 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.util.AnalysisType;
 import org.benf.cfr.reader.util.ConfusedCFRException;
 import org.benf.cfr.reader.util.MiscConstants;
-import org.benf.cfr.reader.util.collections.Functional;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
-import org.benf.cfr.reader.util.collections.SetFactory;
-import org.benf.cfr.reader.util.functors.Predicate;
-import org.benf.cfr.reader.util.functors.UnaryFunction;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 
@@ -31,11 +27,10 @@ import java.util.zip.ZipFile;
 import static org.benf.cfr.reader.bytecode.analysis.types.ClassNameUtils.getPackageAndClassNames;
 
 public class ClassFileSourceImpl implements ClassFileSource2 {
-    private final Set<String> explicitJars = SetFactory.newSet();
-    private Map<String, JarSourceEntry> classToPathMap;
+    private Map<String, JarSourceEntry> classPathIndex;
     private final Options options;
-    private ClassRenamer classRenamer;
-    private ClassFileRelocator classRelocator;
+    private final ClassRenamer classRenamer;
+    private ClassFileRelocator analysisRelocator = ClassFileRelocator.NopRelocator.Instance;
     /*
      * Initialisation info
      */
@@ -52,6 +47,7 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
 
     public ClassFileSourceImpl(Options options) {
         this.options = options;
+        this.classRenamer = ClassRenamer.create(options);
     }
 
     private byte[] getBytesFromFile(InputStream is, long length) throws IOException {
@@ -86,16 +82,10 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
 
     @Override
     public Pair<byte [], String> getClassFileContent(final String inputPath) throws IOException {
-        Map<String, JarSourceEntry> classPathFiles = getClassPathClasses();
-
-        JarSourceEntry jarEntry = classPathFiles.get(inputPath);
-
         // If path is an alias due to case insensitivity, restore to the correct name here, before
         // accessing zipfile.
-        String path = inputPath;
-        if (classRenamer != null) {
-            path = classRenamer.getOriginalClass(path);
-        }
+        String path = classRenamer == null ? inputPath : classRenamer.getOriginalClass(inputPath);
+        JarSourceEntry jarEntry = getClassPathIndex().get(path);
 
         ZipFile zipFile = null;
 
@@ -103,8 +93,8 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
             InputStream is;
             long length;
 
-            String usePath = classRelocator.correctPath(path);
-            boolean forceJar = jarEntry != null && explicitJars.contains(jarEntry.getPath());
+            String usePath = analysisRelocator.correctPath(path);
+            boolean forceJar = jarEntry != null && jarEntry.isExplicitJar();
             File file = forceJar ? null : new File(usePath);
             byte[] content;
             if (file != null && file.exists()) {
@@ -112,7 +102,7 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
                 length = file.length();
                 content = getBytesFromFile(is, length);
             } else if (jarEntry != null) {
-                zipFile = new ZipFile(new File(jarEntry.getPath()), ZipFile.OPEN_READ);
+                zipFile = new ZipFile(new File(jarEntry.path), ZipFile.OPEN_READ);
                 if (jarEntry.analysisType == AnalysisType.WAR) {
                     path = MiscConstants.WAR_PREFIX + path;
                 }
@@ -246,22 +236,16 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
 
     public JarContent addJarContent(String jarPath, AnalysisType analysisType) {
         // Make sure classpath is scraped first, so we'll overwrite it.
-        getClassPathClasses();
+        getClassPathIndex();
 
         File file = new File(jarPath);
         if (!file.exists()) {
             throw new ConfusedCFRException("No such jar file " + jarPath);
         }
         jarPath = file.getAbsolutePath();
-        JarContent jarContent = processClassPathFile(file, false, analysisType);
+        JarContent jarContent = readJarContent(file, analysisType, false);
         if (jarContent == null){
             throw new ConfusedCFRException("Failed to load jar " + jarPath);
-        }
-
-        JarSourceEntry sourceEntry = new JarSourceEntry(analysisType, jarPath);
-
-        if (classRenamer != null) {
-            classRenamer.notifyClassFiles(jarContent.getClassFiles());
         }
 
         String jarClassPath = jarContent.getManifestEntries().get(MiscConstants.MANIFEST_CLASS_PATH);
@@ -269,45 +253,31 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
             addToRelativeClassPath(file, jarClassPath);
         }
 
-        List < String > output = ListFactory.newList();
-        for (String classPath : jarContent.getClassFiles()) {
-            if (classPath.toLowerCase().endsWith(".class")) {
-                // nb : entry.value will always be the jar here, but ....
-                if (classRenamer != null) {
-                    classPath = classRenamer.getRenamedClass(classPath);
-                }
-                classToPathMap.put(classPath, sourceEntry);
-                output.add(classPath);
-            }
-        }
-        explicitJars.add(jarPath);
+        registerJarContent(jarContent, new JarSourceEntry(analysisType, jarPath, true), null);
         return jarContent;
     }
 
     private static class JarSourceEntry {
         private final AnalysisType analysisType;
         private final String path;
+        private final boolean explicitJar;
 
-        JarSourceEntry(AnalysisType analysisType, String path) {
+        JarSourceEntry(AnalysisType analysisType, String path, boolean explicitJar) {
             this.analysisType = analysisType;
             this.path = path;
+            this.explicitJar = explicitJar;
         }
 
-        @SuppressWarnings("unused")
-        public AnalysisType getAnalysisType() {
-            return analysisType;
-        }
-
-        public String getPath() {
-            return path;
+        private boolean isExplicitJar() {
+            return explicitJar;
         }
     }
 
-    private Map<String, JarSourceEntry> getClassPathClasses() {
-        if (classToPathMap == null) {
+    private Map<String, JarSourceEntry> getClassPathIndex() {
+        if (classPathIndex == null) {
             boolean dump = options.getOption(OptionsImpl.DUMP_CLASS_PATH);
 
-            classToPathMap = MapFactory.newMap();
+            classPathIndex = MapFactory.newMap();
             String classPath = System.getProperty("java.class.path");
             String sunBootClassPath = System.getProperty("sun.boot.class.path");
             if (sunBootClassPath != null) {
@@ -321,44 +291,72 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
             if (null != extraClassPath) {
                 classPath = classPath + File.pathSeparatorChar + extraClassPath;
             }
-
-            classRenamer = ClassRenamer.create(options);
-
+            List<String> pendingClassFiles = ListFactory.newList();
             String[] classPaths = classPath.split("" + File.pathSeparatorChar);
-            for (String path : classPaths) {
-                processToClassPath(dump, path);
-            }
+            scanPaths(dump, pendingClassFiles, Arrays.asList(classPaths));
+            notifyClassFiles(pendingClassFiles);
             if (dump) {
                 System.out.println(" */");
             }
         }
-        return classToPathMap;
+        return classPathIndex;
     }
 
-    private void processToClassPath(boolean dump, String path) {
+    private void notifyClassFiles(Collection<String> classFiles) {
+        if (classRenamer != null && classFiles != null && !classFiles.isEmpty()) {
+            classRenamer.notifyClassFiles(classFiles);
+        }
+    }
+
+    private void registerClassFiles(Collection<String> classFiles,
+                                    JarSourceEntry sourceEntry,
+                                    Collection<String> pendingClassFiles) {
+        if (classFiles == null || classFiles.isEmpty()) {
+            return;
+        }
+        if (pendingClassFiles == null) {
+            notifyClassFiles(classFiles);
+        } else {
+            pendingClassFiles.addAll(classFiles);
+        }
+        for (String classPath : classFiles) {
+            if (classPath.toLowerCase().endsWith(".class")) {
+                classPathIndex.put(classPath, sourceEntry);
+            }
+        }
+    }
+
+    private void scanPaths(boolean dump, Collection<String> pendingClassFiles, Collection<String> paths) {
+        for (String path : paths) {
+            processToClassPath(dump, path, pendingClassFiles);
+        }
+    }
+
+    private void processToClassPath(boolean dump, String path, Collection<String> pendingClassFiles) {
         if (dump) {
             System.out.println(" " + path);
         }
-        File f = new File(path);
-        if (f.exists()) {
-            if (f.isDirectory()) {
-                if (dump) {
-                    System.out.println(" (Directory)");
-                }
-                // Load all the jars in that directory.
-                File[] files = f.listFiles();
-                if (files != null) {
-                    for (File file : files) {
-                        processClassPathFile(file, file.getAbsolutePath(), classToPathMap, AnalysisType.JAR, dump);
-                    }
-                }
-            } else {
-                processClassPathFile(f, path, classToPathMap, AnalysisType.JAR, dump);
-            }
-        } else {
+        File pathEntry = new File(path);
+        if (!pathEntry.exists()) {
             if (dump) {
                 System.out.println(" (Can't access)");
             }
+            return;
+        }
+        List<File> scanTargets;
+        if (pathEntry.isDirectory()) {
+            if (dump) {
+                System.out.println(" (Directory)");
+            }
+            File[] files = pathEntry.listFiles();
+            scanTargets = files == null ? Collections.<File>emptyList() : Arrays.asList(files);
+        } else {
+            scanTargets = Collections.singletonList(pathEntry);
+        }
+        for (File scanTarget : scanTargets) {
+            registerJarContent(readJarContent(scanTarget, AnalysisType.JAR, dump),
+                    new JarSourceEntry(AnalysisType.JAR, scanTarget.getAbsolutePath(), false),
+                    pendingClassFiles);
         }
     }
 
@@ -375,98 +373,74 @@ public class ClassFileSourceImpl implements ClassFileSource2 {
         } catch (IOException e) {
             return;
         }
+        List<String> resolvedClassPaths = ListFactory.newList();
         for (String path : classPaths) {
-            processToClassPath(dump, relative + File.separatorChar + path);
+            resolvedClassPaths.add(relative + File.separatorChar + path);
         }
+        List<String> pendingClassFiles = ListFactory.newList();
+        scanPaths(dump, pendingClassFiles, resolvedClassPaths);
+        notifyClassFiles(pendingClassFiles);
     }
 
-    private void processClassPathFile(File file, String absolutePath, Map<String, JarSourceEntry> classToPathMap, AnalysisType analysisType, boolean dump) {
-        JarContent content = processClassPathFile(file, dump, analysisType);
+    private void registerJarContent(JarContent content,
+                                    JarSourceEntry sourceEntry,
+                                    Collection<String> pendingClassFiles) {
         if (content == null) {
             return;
         }
-        JarSourceEntry sourceEntry = new JarSourceEntry(analysisType, absolutePath);
-        for (String name : content.getClassFiles()) {
-            classToPathMap.put(name, sourceEntry);
-        }
+        Collection<String> classFiles = content.getClassFiles();
+        registerClassFiles(classFiles, sourceEntry, pendingClassFiles);
     }
 
-    private JarContent processClassPathFile(final File file, boolean dump, AnalysisType analysisType) {
-        List<String> content = ListFactory.newList();
-        Map<String, String> manifest;
-        try {
-            ZipFile zipFile = new ZipFile(file, ZipFile.OPEN_READ);
-            manifest = getManifestContent(zipFile);
-            try {
-                Enumeration<? extends ZipEntry> enumeration = zipFile.entries();
-                while (enumeration.hasMoreElements()) {
-                    ZipEntry entry = enumeration.nextElement();
-                    if (!entry.isDirectory()) {
-                        String name = entry.getName();
-                        if (name.endsWith(".class")) {
-                            if (dump) {
-                                System.out.println("  " + name);
-                            }
-                            content.add(name);
-                        } else {
-                            if (dump) {
-                                System.out.println("  [ignoring] " + name);
-                            }
-                        }
-                    }
+    private JarContent readJarContent(File file, AnalysisType analysisType, boolean dump) {
+        List<String> classFiles = ListFactory.newList();
+        Map<String, String> manifestEntries = MapFactory.newMap();
+        try (ZipFile zipFile = new ZipFile(file, ZipFile.OPEN_READ)) {
+            Enumeration<? extends ZipEntry> enumeration = zipFile.entries();
+            while (enumeration.hasMoreElements()) {
+                ZipEntry entry = enumeration.nextElement();
+                if (entry.isDirectory()) {
+                    continue;
                 }
-            } finally {
-                zipFile.close();
+                String name = entry.getName();
+                if (MiscConstants.MANIFEST_PATH.equals(name)) {
+                    try (InputStream is = zipFile.getInputStream(entry);
+                         BufferedReader bis = new BufferedReader(new InputStreamReader(is))) {
+                        String line;
+                        while (null != (line = bis.readLine())) {
+                            int idx = line.indexOf(':');
+                            if (idx <= 0) continue;
+                            manifestEntries.put(line.substring(0, idx), line.substring(idx + 1).trim());
+                        }
+                    } catch (IOException ignore) {
+                    }
+                    continue;
+                }
+                if (!name.endsWith(".class")) {
+                    if (dump) {
+                        System.out.println("  [ignoring] " + name);
+                    }
+                    continue;
+                }
+                if (analysisType == AnalysisType.WAR) {
+                    if (!name.startsWith(MiscConstants.WAR_PREFIX)) {
+                        continue;
+                    }
+                    name = name.substring(MiscConstants.WAR_PREFIX.length());
+                }
+                if (dump) {
+                    System.out.println("  " + name);
+                }
+                classFiles.add(name);
             }
         } catch (IOException e) {
             return null;
         }
-        if (analysisType == AnalysisType.WAR) {
-            // Strip WEB-INF/classes from the front of class files.
-            final int prefixLen = MiscConstants.WAR_PREFIX.length();
-            content = Functional.map(Functional.filter(content, new Predicate<String>() {
-                @Override
-                public boolean test(String in) {
-                    return in.startsWith(MiscConstants.WAR_PREFIX);
-                }
-            }), new UnaryFunction<String, String>() {
-                @Override
-                public String invoke(String arg) {
-                    return arg.substring(prefixLen);
-                }
-            });
-        }
-
-        return new JarContentImpl(content, manifest, analysisType);
-    }
-
-    private Map<String, String> getManifestContent(ZipFile zipFile) {
-        try {
-            ZipEntry manifestEntry = zipFile.getEntry(MiscConstants.MANIFEST_PATH);
-            Map<String, String> manifest;
-            if (manifestEntry == null) {
-                // Odd, but feh.
-                manifest = MapFactory.newMap();
-            } else {
-                InputStream is = zipFile.getInputStream(manifestEntry);
-                BufferedReader bis = new BufferedReader(new InputStreamReader(is));
-                manifest = MapFactory.newMap();
-                String line;
-                while (null != (line = bis.readLine())) {
-                    int idx = line.indexOf(':');
-                    if (idx <= 0) continue;
-                    manifest.put(line.substring(0, idx), line.substring(idx + 1).trim());
-                }
-                bis.close();
-            }
-            return manifest;
-        } catch (Exception e) {
-            return MapFactory.newMap();
-        }
+        return new JarContentImpl(classFiles, manifestEntries, analysisType);
     }
 
     @Override
     public void informAnalysisRelativePathDetail(String usePath, String specPath) {
-        classRelocator = new ClassFileRelocator.Configurator().configureWith(usePath, specPath);
+        analysisRelocator = new ClassFileRelocator.Configurator().configureWith(usePath, specPath);
     }
 }

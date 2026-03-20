@@ -105,6 +105,8 @@ public class InferredJavaType {
         void shallowSetCanBeVar();
 
         void confirmVarIfPossible();
+
+        boolean isVarConfirmed();
     }
 
     private static class IJTInternal_Clash implements IJTInternal {
@@ -198,6 +200,11 @@ public class InferredJavaType {
         @Override
         public void confirmVarIfPossible() {
             // ignore.
+        }
+
+        @Override
+        public boolean isVarConfirmed() {
+            return false;
         }
 
         private void collapseTypeClash(boolean force) {
@@ -551,6 +558,14 @@ public class InferredJavaType {
             if (isDelegate) {
                 delegate.confirmVarIfPossible();
             }
+        }
+
+        @Override
+        public boolean isVarConfirmed() {
+            if (isDelegate) {
+                return delegate.isVarConfirmed();
+            }
+            return canBeVar == Troolean.TRUE;
         }
 
         public ClashState getClashState() {
@@ -1203,6 +1218,10 @@ public class InferredJavaType {
 
     public void confirmVarIfPossible() {
         value.confirmVarIfPossible();
+    }
+
+    public boolean isVarConfirmed() {
+        return value.isVarConfirmed();
     }
 
     public JavaTypeInstance getJavaTypeInstance() {

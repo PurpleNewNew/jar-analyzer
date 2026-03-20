@@ -2943,7 +2943,7 @@ public final class RuntimeFacades {
                     ? findMappedDecompiledLine(name, desc, lineNumberHint)
                     : null;
             if (anchorLine == null && lineNumberHint != null && lineNumberHint > 0 && mapping != null) {
-                anchorLine = findClosestMappedLine(mapping.getDecompiledToSource(), lineNumberHint);
+                anchorLine = findClosestMappedLine(mapping.getPresentationLineToSource(), lineNumberHint);
             }
             if (anchorLine == null && lineNumberHint != null && lineNumberHint > 0) {
                 anchorLine = lineNumberHint;
@@ -3045,7 +3045,7 @@ public final class RuntimeFacades {
             if (mapping == null) {
                 return null;
             }
-            return findClosestMappedLine(mapping.getDecompiledToSource(), sourceLineHint);
+            return findClosestMappedLine(mapping.getPresentationLineToSource(), sourceLineHint);
         }
 
         private CFRDecompileEngine.CfrLineMapping selectEditorLineMapping(String methodName,
@@ -3102,11 +3102,11 @@ public final class RuntimeFacades {
                 if (candidate == null) {
                     continue;
                 }
-                Integer candidateLine = findClosestMappedLine(candidate.getDecompiledToSource(), sourceLineHint);
+                Integer candidateLine = findClosestMappedLine(candidate.getPresentationLineToSource(), sourceLineHint);
                 if (candidateLine == null) {
                     continue;
                 }
-                Integer sourceLine = candidate.getDecompiledToSource().get(candidateLine);
+                Integer sourceLine = candidate.getPresentationLineToSource().get(candidateLine);
                 int distance = sourceLine == null
                         ? Integer.MAX_VALUE
                         : Math.abs(sourceLine - sourceLineHint);

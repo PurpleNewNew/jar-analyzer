@@ -1,10 +1,9 @@
 package org.benf.cfr.reader;
 
 import org.benf.cfr.reader.api.ClassFileSource;
-import org.benf.cfr.reader.apiunreleased.ClassFileSource2;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
-import org.benf.cfr.reader.state.ClassFileSourceImpl;
-import org.benf.cfr.reader.state.ClassFileSourceWrapper;
+import org.benf.cfr.reader.state.ClassFileSourceChained;
+import org.benf.cfr.reader.state.ClassFileSourceSupport;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.state.TypeUsageInformation;
 import org.benf.cfr.reader.util.AnalysisType;
@@ -34,7 +33,9 @@ public class PluginRunner {
     }
 
     public PluginRunner(Map<String, String> options, ClassFileSource classFileSource) {
-        this.dcCommonState = initDCState(options, classFileSource);
+        OptionsImpl parsedOptions = new OptionsImpl(options);
+        this.dcCommonState = new DCCommonState(parsedOptions,
+                ClassFileSourceChained.configureSource(classFileSource, parsedOptions, false));
     }
 
     public Options getOptions() {
@@ -51,7 +52,7 @@ public class PluginRunner {
 
     public List<String> addJarPath(String jarPath) {
         try {
-            List<JavaTypeInstance> types = dcCommonState.explicitlyLoadJar(jarPath, AnalysisType.JAR).get(0);
+            List<JavaTypeInstance> types = ClassFileSourceSupport.explicitlyLoadJar(dcCommonState, jarPath, AnalysisType.JAR).get(0);
             return Functional.map(types, new UnaryFunction<JavaTypeInstance, String>() {
                 @Override
                 public String invoke(JavaTypeInstance arg) {
@@ -118,13 +119,4 @@ public class PluginRunner {
             return e.toString();
         }
     }
-
-    private static DCCommonState initDCState(Map<String, String> optionsMap, ClassFileSource classFileSource) {
-        OptionsImpl options = new OptionsImpl(optionsMap);
-        ClassFileSource2 source = classFileSource == null ?
-                new ClassFileSourceImpl(options) :
-                new ClassFileSourceWrapper(classFileSource);
-        return new DCCommonState(options, source);
-    }
-
 }

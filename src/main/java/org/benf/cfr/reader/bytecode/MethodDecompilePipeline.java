@@ -18,116 +18,63 @@ final class MethodDecompilePipeline {
     private static final String FULLY_STRUCTURED_INPUT = "fully-structured";
     private static final String OUTPUT_STAGE = "output-stage";
 
-    private final InitialStructuringStage initialStructuringStage;
-    private final ControlFlowRecoveryStage controlFlowRecoveryStage;
-    private final VariablePreparationStage variablePreparationStage;
-    private final ModernSemanticsStage modernSemanticsStage;
-    private final VariableRecoveryStage variableRecoveryStage;
-    private final TypeConstraintStage typeConstraintStage;
-    private final OutputPolishStage outputPolishStage;
-    private final MethodStage variablePreparationMethodStage;
-    private final MethodStage modernSemanticsMethodStage;
-    private final MethodStage variableRecoveryMethodStage;
-    private final MethodStage typeConstraintMethodStage;
-    private final MethodStage outputMethodStage;
+    private final List<PipelineStagePlan> stages;
 
     MethodDecompilePipeline(MethodAnalysisContext context) {
         PatternSemanticsRewriter patternSemanticsRewriter = new PatternSemanticsRewriter(context.modernFeatures);
         StructureRecoveryPipeline structureRecoveryPipeline = new StructureRecoveryPipeline(patternSemanticsRewriter);
-        this.initialStructuringStage = new InitialStructuringStage(structureRecoveryPipeline);
-        this.controlFlowRecoveryStage = new ControlFlowRecoveryStage(structureRecoveryPipeline);
-        this.variablePreparationStage = new VariablePreparationStage();
-        this.modernSemanticsStage = new ModernSemanticsStage(structureRecoveryPipeline, patternSemanticsRewriter);
-        this.variableRecoveryStage = new VariableRecoveryStage();
-        this.typeConstraintStage = new TypeConstraintStage();
-        this.outputPolishStage = new OutputPolishStage(structureRecoveryPipeline);
-        this.variablePreparationMethodStage = new MethodStage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT) {
-            @Override
-            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-                variablePreparationStage.apply(block, context);
-            }
-        };
-        this.modernSemanticsMethodStage = new MethodStage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT) {
-            @Override
-            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-                modernSemanticsStage.apply(block, context);
-            }
-        };
-        this.variableRecoveryMethodStage = new MethodStage(VARIABLE_RECOVERY_STAGE, FULLY_STRUCTURED_INPUT) {
-            @Override
-            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-                variableRecoveryStage.apply(block, context);
-            }
-        };
-        this.typeConstraintMethodStage = new MethodStage(TYPE_CONSTRAINT_STAGE, FULLY_STRUCTURED_INPUT) {
-            @Override
-            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-                typeConstraintStage.apply(block, context);
-            }
-        };
-        this.outputMethodStage = new MethodStage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT) {
-            @Override
-            void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
-                outputPolishStage.apply(block, context);
-            }
-        };
+        InitialStructuringStage initialStructuringStage = new InitialStructuringStage(structureRecoveryPipeline);
+        ControlFlowRecoveryStage controlFlowRecoveryStage = new ControlFlowRecoveryStage(structureRecoveryPipeline);
+        VariablePreparationStage variablePreparationStage = new VariablePreparationStage();
+        ModernSemanticsStage modernSemanticsStage = new ModernSemanticsStage(structureRecoveryPipeline, patternSemanticsRewriter);
+        VariableRecoveryStage variableRecoveryStage = new VariableRecoveryStage();
+        TypeConstraintStage typeConstraintStage = new TypeConstraintStage();
+        OutputPolishStage outputPolishStage = new OutputPolishStage(structureRecoveryPipeline);
+        this.stages = List.of(
+                stage(INITIAL_STAGE, INITIAL_INPUT, false, false,
+                        (block, analysisContext) -> initialStructuringStage.apply(block, analysisContext)),
+                stage(CONTROL_FLOW_STAGE, CONTROL_FLOW_INPUT, false, true,
+                        (block, analysisContext) -> controlFlowRecoveryStage.apply(block, analysisContext)),
+                stage(VARIABLE_PREPARATION_STAGE, FULLY_STRUCTURED_INPUT, true, true,
+                        (block, analysisContext) -> variablePreparationStage.apply(block, analysisContext)),
+                stage(MODERN_SEMANTICS_STAGE, FULLY_STRUCTURED_INPUT, true, true,
+                        (block, analysisContext) -> modernSemanticsStage.apply(block, analysisContext)),
+                stage(VARIABLE_RECOVERY_STAGE, FULLY_STRUCTURED_INPUT, true, true,
+                        (block, analysisContext) -> variableRecoveryStage.apply(block, analysisContext)),
+                stage(TYPE_CONSTRAINT_STAGE, FULLY_STRUCTURED_INPUT, true, true,
+                        (block, analysisContext) -> typeConstraintStage.apply(block, analysisContext)),
+                stage(OUTPUT_STAGE, FULLY_STRUCTURED_INPUT, true, false,
+                        (block, analysisContext) -> outputPolishStage.apply(block, analysisContext))
+        );
     }
 
     Op04StructuredStatement analyse(List<Op03SimpleStatement> op03SimpleParseNodes, MethodAnalysisContext context) {
         Op04StructuredStatement block = Op03SimpleStatement.createInitialStructuredBlock(op03SimpleParseNodes);
-        runStage(INITIAL_STAGE, INITIAL_INPUT, block, context, () -> initialStructuringStage.apply(block, context));
-        runStage(CONTROL_FLOW_STAGE, CONTROL_FLOW_INPUT, block, context, () -> controlFlowRecoveryStage.apply(block, context));
-        if (!block.isFullyStructured()) {
-            return abortRemaining(block, context,
-                    variablePreparationMethodStage,
-                    modernSemanticsMethodStage,
-                    variableRecoveryMethodStage,
-                    typeConstraintMethodStage,
-                    outputMethodStage);
+        for (int idx = 0; idx < stages.size(); ++idx) {
+            PipelineStagePlan stage = stages.get(idx);
+            if (stage.requiresStructuredInput() && !block.isFullyStructured()) {
+                return abortRemaining(block, context, idx, false);
+            }
+            runStage(stage.stage(), stage.inputRequirement(), block, context,
+                    () -> stage.apply(block, context));
+            if (stage.abortRemainingWhenUnstructuredAfter() && !block.isFullyStructured()) {
+                return abortRemaining(block, context, idx + 1, true);
+            }
         }
-        if (!runStageRequiringStructure(variablePreparationMethodStage, block, context)) {
-            return abortRemaining(block, context,
-                    modernSemanticsMethodStage,
-                    variableRecoveryMethodStage,
-                    typeConstraintMethodStage,
-                    outputMethodStage);
-        }
-        if (!runStageRequiringStructure(modernSemanticsMethodStage, block, context)) {
-            return abortRemaining(block, context,
-                    variableRecoveryMethodStage,
-                    typeConstraintMethodStage,
-                    outputMethodStage);
-        }
-        if (!runStageRequiringStructure(variableRecoveryMethodStage, block, context)) {
-            return abortRemaining(block, context,
-                    typeConstraintMethodStage,
-                    outputMethodStage);
-        }
-        if (!runStageRequiringStructure(typeConstraintMethodStage, block, context)) {
-            return abortRemaining(block, context, outputMethodStage);
-        }
-        runStageRequiringStructure(outputMethodStage, block, context);
         return block;
-    }
-
-    private boolean runStageRequiringStructure(MethodStage methodStage,
-                                               Op04StructuredStatement block,
-                                               MethodAnalysisContext context) {
-        if (!block.isFullyStructured()) {
-            skipStage(methodStage.stage(), methodStage.inputRequirement(), block, context, "input-requirement-not-met");
-            return false;
-        }
-        runStage(methodStage.stage(), methodStage.inputRequirement(), block, context, () -> methodStage.apply(block, context));
-        return block.isFullyStructured();
     }
 
     private Op04StructuredStatement abortRemaining(Op04StructuredStatement block,
                                                    MethodAnalysisContext context,
-                                                   MethodStage... remainingStages) {
-        for (MethodStage remainingStage : remainingStages) {
+                                                   int startIndex,
+                                                   boolean addUnableToStructureComment) {
+        for (int idx = startIndex; idx < stages.size(); ++idx) {
+            PipelineStagePlan remainingStage = stages.get(idx);
             skipStage(remainingStage.stage(), remainingStage.inputRequirement(), block, context, "input-requirement-not-met");
         }
-        context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
+        if (addUnableToStructureComment) {
+            context.comments.addComment(DecompilerComment.UNABLE_TO_STRUCTURE);
+        }
         return block;
     }
 
@@ -174,23 +121,26 @@ final class MethodDecompilePipeline {
         );
     }
 
-    private abstract static class MethodStage {
-        private final String stage;
-        private final String inputRequirement;
+    private static PipelineStagePlan stage(String stage,
+                                           String inputRequirement,
+                                           boolean requiresStructuredInput,
+                                           boolean abortRemainingWhenUnstructuredAfter,
+                                           PipelineStageAction action) {
+        return new PipelineStagePlan(stage, inputRequirement, requiresStructuredInput, abortRemainingWhenUnstructuredAfter, action);
+    }
 
-        private MethodStage(String stage, String inputRequirement) {
-            this.stage = stage;
-            this.inputRequirement = inputRequirement;
+    @FunctionalInterface
+    private interface PipelineStageAction {
+        void apply(Op04StructuredStatement block, MethodAnalysisContext context);
+    }
+
+    private record PipelineStagePlan(String stage,
+                                     String inputRequirement,
+                                     boolean requiresStructuredInput,
+                                     boolean abortRemainingWhenUnstructuredAfter,
+                                     PipelineStageAction action) {
+        void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+            action.apply(block, context);
         }
-
-        private String stage() {
-            return stage;
-        }
-
-        private String inputRequirement() {
-            return inputRequirement;
-        }
-
-        abstract void apply(Op04StructuredStatement block, MethodAnalysisContext context);
     }
 }

@@ -65,6 +65,10 @@ final class CfrDecompilerRegressionSupport {
     }
 
     static String decompile(Path classFile) {
+        return decompile(classFile, Collections.<String, String>emptyMap());
+    }
+
+    static String decompile(Path classFile, Map<String, String> extraOptions) {
         StringBuilder sinkOutput = new StringBuilder();
         OutputSinkFactory sinkFactory = new OutputSinkFactory() {
             @Override
@@ -91,6 +95,7 @@ final class CfrDecompilerRegressionSupport {
         Map<String, String> options = new HashMap<String, String>();
         options.put("showversion", "false");
         options.put("silent", "true");
+        options.putAll(extraOptions);
         String currentClassPath = System.getProperty("java.class.path");
         if (currentClassPath != null && !currentClassPath.isBlank()) {
             options.put("extraclasspath", currentClassPath);

@@ -35,7 +35,7 @@ public class FileSummaryDumper implements SummaryDumper {
     }
 
     @Override
-    public void notify(String message) {
+    public synchronized void notify(String message) {
         try {
             writer.write(message + "\n");
         } catch (IOException e) {
@@ -44,7 +44,7 @@ public class FileSummaryDumper implements SummaryDumper {
     }
 
     @Override
-    public void notifyError(JavaTypeInstance controllingType, Method method, String error) {
+    public synchronized void notifyError(JavaTypeInstance controllingType, Method method, String error) {
         try {
             if (lastControllingType != controllingType) {
                 lastControllingType = controllingType;
@@ -82,7 +82,7 @@ public class FileSummaryDumper implements SummaryDumper {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         try {
             notifyAdditionalAtEnd();
             writer.close();

@@ -85,13 +85,14 @@ public interface SinkReturns {
 
         /**
          * @return
-         * Mapping from bytecode location in contained method to line number.
+         * Mapping from bytecode location in contained method to raw decompiler output line number.
          * Note that this is indexed by bytecode location, not by line number (as is found in javap output).
          * (multiple bytecodes may appear on the same line out of order).
          * and only applies to the method which is described by methodDescriptor.
          *
-         * Line numbers apply to the entire output file/text, and include all emitted
-         * comments etc.
+         * These line numbers only describe the text emitted by the decompiler sink itself.
+         * If a host embeds that text inside a larger document, prepends banners/comments, or otherwise
+         * offsets the output, that host is responsible for applying its own presentation-layer adjustment.
          */
         NavigableMap<Integer, Integer> getMappings();
 

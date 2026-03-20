@@ -1,5 +1,12 @@
 package org.benf.cfr.reader.bytecode;
 
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredReturn;
+
+import java.util.ArrayList;
 import java.util.List;
 
 public final class TypeRecoveryPasses {
@@ -88,28 +95,35 @@ public final class TypeRecoveryPasses {
             "Pushes ternary target type into both branch expressions before output."
     );
 
-    private static final List<StructuredPassEntry> PASSES = List.of(
-            FIELD_INITIALIZER_HINT,
-            INLINE_SYNTHETIC_CREATOR_HINT,
-            CAST_CHILD_HINT,
-            ASSIGNMENT_EXPRESSION_HINT,
-            DISPLAY_TYPE_STATIC_BINDER,
-            DISPLAY_TYPE_STATIC_RETURN,
-            DISPLAY_TYPE_MEMBER_BINDER,
-            DISPLAY_TYPE_MEMBER_RETURN,
-            ASSIGNMENT_TARGET_CONSTRAINT,
-            VARIABLE_ASSIGNMENT_CONSTRAINT,
-            RETURN_TARGET_CONSTRAINT,
-            NESTED_EXPRESSION_HINT,
-            LAMBDA_RETURN_TARGET_CONSTRAINT,
-            TERNARY_BRANCH_TARGET_CONSTRAINT
+    private static final List<TypeConstraintPlan> CONSTRAINT_SEQUENCE = List.of(
+            plan(
+                    ASSIGNMENT_TARGET_CONSTRAINT,
+                    StructuredAssignment.class,
+                    (statement, context) -> ((StructuredAssignment) statement).applyTargetExpressionConstraints()
+            ),
+            plan(
+                    VARIABLE_ASSIGNMENT_CONSTRAINT,
+                    StructuredAssignment.class,
+                    TypeRecoveryPasses::applyVariableAssignmentConstraint
+            ),
+            plan(
+                    RETURN_TARGET_CONSTRAINT,
+                    StructuredReturn.class,
+                    (statement, context) -> ((StructuredReturn) statement).applyTypeConstraints()
+            )
     );
+
+    private static final List<StructuredPassEntry> PASSES = buildPasses();
 
     private TypeRecoveryPasses() {
     }
 
     public static List<StructuredPassEntry> describePasses() {
         return PASSES;
+    }
+
+    static List<TypeConstraintPlan> constraintPlans() {
+        return CONSTRAINT_SEQUENCE;
     }
 
     private static StructuredPassEntry entry(String name,
@@ -122,5 +136,72 @@ public final class TypeRecoveryPasses {
                 inputRequirement,
                 StructuredPassDescriptor.of(name, outputPromise, true, false)
         );
+    }
+
+    private static List<StructuredPassEntry> buildPasses() {
+        ArrayList<StructuredPassEntry> passes = new ArrayList<StructuredPassEntry>();
+        passes.add(FIELD_INITIALIZER_HINT);
+        passes.add(INLINE_SYNTHETIC_CREATOR_HINT);
+        passes.add(CAST_CHILD_HINT);
+        passes.add(ASSIGNMENT_EXPRESSION_HINT);
+        passes.add(DISPLAY_TYPE_STATIC_BINDER);
+        passes.add(DISPLAY_TYPE_STATIC_RETURN);
+        passes.add(DISPLAY_TYPE_MEMBER_BINDER);
+        passes.add(DISPLAY_TYPE_MEMBER_RETURN);
+        for (TypeConstraintPlan constraintPlan : CONSTRAINT_SEQUENCE) {
+            passes.add(constraintPlan.pass());
+        }
+        passes.add(NESTED_EXPRESSION_HINT);
+        passes.add(LAMBDA_RETURN_TARGET_CONSTRAINT);
+        passes.add(TERNARY_BRANCH_TARGET_CONSTRAINT);
+        return List.copyOf(passes);
+    }
+
+    private static TypeConstraintPlan plan(StructuredPassEntry pass,
+                                           Class<? extends StructuredStatement> statementType,
+                                           TypeConstraintAction action) {
+        return new TypeConstraintPlan(pass, statementType, action);
+    }
+
+    private static void applyVariableAssignmentConstraint(StructuredStatement statement, MethodAnalysisContext context) {
+        StructuredAssignment assignment = (StructuredAssignment) statement;
+        if (!(assignment.getLvalue() instanceof LocalVariable)) {
+            return;
+        }
+        LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
+        StructuredAssignment.TypeConstraintEffect effect = assignment.applyTypeConstraints();
+        context.typeRecoveryTrace.record(
+                VARIABLE_ASSIGNMENT_CONSTRAINT,
+                "LocalVariable",
+                ExpressionTypeHintHelper.describeType(effect.getDisplayType()),
+                ExpressionTypeHintHelper.describeType(effect.getBeforeType()),
+                ExpressionTypeHintHelper.describeType(effect.getAfterType()),
+                "local=" + describeLocal(localVariable)
+                        + ", creator=" + effect.isCreator()
+                        + ", creatorTargetApplied=" + effect.isCreatorTargetApplied()
+                        + ", beforeCreation=" + ExpressionTypeHintHelper.describeType(effect.getBeforeCreationType())
+                        + ", afterCreation=" + ExpressionTypeHintHelper.describeType(effect.getAfterCreationType())
+        );
+    }
+
+    private static String describeLocal(LocalVariable localVariable) {
+        return localVariable.getName().getStringName();
+    }
+
+    @FunctionalInterface
+    interface TypeConstraintAction {
+        void apply(StructuredStatement statement, MethodAnalysisContext context);
+    }
+
+    record TypeConstraintPlan(StructuredPassEntry pass,
+                              Class<? extends StructuredStatement> statementType,
+                              TypeConstraintAction action) {
+        boolean supports(StructuredStatement statement) {
+            return statementType.isInstance(statement);
+        }
+
+        void apply(StructuredStatement statement, MethodAnalysisContext context) {
+            action.apply(statement, context);
+        }
     }
 }

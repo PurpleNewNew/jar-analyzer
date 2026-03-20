@@ -25,7 +25,6 @@ import java.util.Map;
 public class SwitchPatternRewriter implements StructuredStatementTransformer {
     private final Map<Op04StructuredStatement, LValue> patternLoopIndexes = new IdentityHashMap<Op04StructuredStatement, LValue>();
     private final SwitchPatternCasePlanner casePlanner = new SwitchPatternCasePlanner();
-    private final SwitchPatternCaseEmitter caseEmitter = new SwitchPatternCaseEmitter();
 
     public void rewrite(Op04StructuredStatement root) {
         root.transform(this, new StructuredScope());
@@ -57,7 +56,12 @@ public class SwitchPatternRewriter implements StructuredStatementTransformer {
 
         structuredSwitch.setSwitchOn(bootstrapMatch.getSelector());
         for (SwitchPatternCasePlanner.CaseRewritePlan plan : plans) {
-            caseEmitter.apply(plan);
+            if (plan.getRewrittenValues() != null) {
+                plan.getStructuredCase().setValues(plan.getRewrittenValues());
+            }
+            if (plan.getBodyBlock() != null && plan.getRewrittenStatements() != null) {
+                plan.getBodyBlock().replaceBlockStatements(plan.getRewrittenStatements());
+            }
         }
         if (patternLoop != null) {
             patternLoopIndexes.put(patternLoop.getContainer(), bootstrapMatch.getIndexLValue());

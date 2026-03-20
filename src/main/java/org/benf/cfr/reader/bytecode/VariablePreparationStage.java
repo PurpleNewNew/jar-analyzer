@@ -7,19 +7,14 @@ final class VariablePreparationStage {
         if (!block.isFullyStructured()) {
             return;
         }
-        StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
-        StructuredSemanticTransforms.discoverVariableScopes(
-                context.method,
-                block,
-                context.variableFactory,
-                context.options,
-                context.classFileVersion,
-                context.bytecodeMeta
-        );
-        context.variableRecoveryTrace.record(
-                VariableRecoveryPasses.DISCOVER_VARIABLE_SCOPES,
-                before,
-                StructureRecoverySnapshot.capture(block)
-        );
+        for (VariableRecoveryPasses.VariablePassPlan preparationPlan : VariableRecoveryPasses.preparationPlans()) {
+            StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
+            preparationPlan.apply(block, context);
+            context.variableRecoveryTrace.record(
+                    preparationPlan.pass(),
+                    before,
+                    StructureRecoverySnapshot.capture(block)
+            );
+        }
     }
 }

@@ -235,7 +235,7 @@ public class CFRDecompileEngine {
                 return null;
             }
             int prefixLines = countLines(CFR_PREFIX);
-            List<CfrLineMapping> builtMappings = buildLineMappings(lineMappings, prefixLines);
+            List<CfrLineMapping> builtMappings = buildPresentationLineMappings(lineMappings, prefixLines);
             result = CFR_PREFIX + result;
             codeCache.put(cacheKey, result);
             if (builtMappings == null) {
@@ -377,7 +377,8 @@ public class CFRDecompileEngine {
         return count;
     }
 
-    private static List<CfrLineMapping> buildLineMappings(List<SinkReturns.LineNumberMapping> mappings, int lineOffset) {
+    private static List<CfrLineMapping> buildPresentationLineMappings(List<SinkReturns.LineNumberMapping> mappings,
+                                                                      int presentationLineOffset) {
         if (mappings == null || mappings.isEmpty()) {
             return Collections.emptyList();
         }
@@ -386,40 +387,62 @@ public class CFRDecompileEngine {
             if (mapping == null) {
                 continue;
             }
-            // CFR exposes two coordinate systems keyed by the same bytecode offsets:
-            // getMappings() -> decompiled line numbers, getClassFileMappings() -> original class-file lines.
-            NavigableMap<Integer, Integer> offsetToDecompiled = mapping.getMappings();
-            NavigableMap<Integer, Integer> offsetToSource = mapping.getClassFileMappings();
-            if (offsetToDecompiled == null || offsetToDecompiled.isEmpty()
-                    || offsetToSource == null || offsetToSource.isEmpty()) {
-                continue;
-            }
-            NavigableMap<Integer, Integer> decompiledToSource = new TreeMap<>();
-            for (Map.Entry<Integer, Integer> entry : offsetToDecompiled.entrySet()) {
-                Integer offset = entry.getKey();
-                Integer decompiledLine = entry.getValue();
-                if (offset == null || decompiledLine == null) {
-                    continue;
-                }
-                Integer sourceLine = offsetToSource.get(offset);
-                if (sourceLine == null) {
-                    Map.Entry<Integer, Integer> floor = offsetToSource.floorEntry(offset);
-                    Map.Entry<Integer, Integer> ceil = offsetToSource.ceilingEntry(offset);
-                    sourceLine = pickClosestLine(offset, floor, ceil);
-                }
-                if (sourceLine == null) {
-                    continue;
-                }
-                int adjustedLine = decompiledLine + lineOffset;
-                if (!decompiledToSource.containsKey(adjustedLine)) {
-                    decompiledToSource.put(adjustedLine, sourceLine);
-                }
-            }
-            if (!decompiledToSource.isEmpty()) {
-                result.add(new CfrLineMapping(mapping.methodName(), mapping.methodDescriptor(), decompiledToSource));
+            NavigableMap<Integer, Integer> presentationLineToSource =
+                    buildPresentationLineMapping(mapping, presentationLineOffset);
+            if (!presentationLineToSource.isEmpty()) {
+                result.add(new CfrLineMapping(
+                        mapping.methodName(),
+                        mapping.methodDescriptor(),
+                        presentationLineToSource
+                ));
             }
         }
         return result;
+    }
+
+    private static NavigableMap<Integer, Integer> buildPresentationLineMapping(SinkReturns.LineNumberMapping mapping,
+                                                                               int presentationLineOffset) {
+        // CFR exposes two coordinate systems keyed by the same bytecode offsets:
+        // getMappings() -> raw sink line numbers, getClassFileMappings() -> original class-file lines.
+        NavigableMap<Integer, Integer> offsetToDecompiled = mapping.getMappings();
+        NavigableMap<Integer, Integer> offsetToSource = mapping.getClassFileMappings();
+        if (offsetToDecompiled == null || offsetToDecompiled.isEmpty()
+                || offsetToSource == null || offsetToSource.isEmpty()) {
+            return new TreeMap<>();
+        }
+        NavigableMap<Integer, Integer> rawSinkLineToSource = new TreeMap<>();
+        for (Map.Entry<Integer, Integer> entry : offsetToDecompiled.entrySet()) {
+            Integer offset = entry.getKey();
+            Integer rawSinkLine = entry.getValue();
+            if (offset == null || rawSinkLine == null) {
+                continue;
+            }
+            Integer sourceLine = offsetToSource.get(offset);
+            if (sourceLine == null) {
+                Map.Entry<Integer, Integer> floor = offsetToSource.floorEntry(offset);
+                Map.Entry<Integer, Integer> ceil = offsetToSource.ceilingEntry(offset);
+                sourceLine = pickClosestLine(offset, floor, ceil);
+            }
+            if (sourceLine == null) {
+                continue;
+            }
+            if (!rawSinkLineToSource.containsKey(rawSinkLine)) {
+                rawSinkLineToSource.put(rawSinkLine, sourceLine);
+            }
+        }
+        return applyPresentationLineOffset(rawSinkLineToSource, presentationLineOffset);
+    }
+
+    private static NavigableMap<Integer, Integer> applyPresentationLineOffset(NavigableMap<Integer, Integer> rawSinkLineToSource,
+                                                                              int presentationLineOffset) {
+        NavigableMap<Integer, Integer> presentationLineToSource = new TreeMap<>();
+        for (Map.Entry<Integer, Integer> entry : rawSinkLineToSource.entrySet()) {
+            int adjustedLine = entry.getKey() + presentationLineOffset;
+            if (!presentationLineToSource.containsKey(adjustedLine)) {
+                presentationLineToSource.put(adjustedLine, entry.getValue());
+            }
+        }
+        return presentationLineToSource;
     }
 
     private static Integer pickClosestLine(int offset,
@@ -628,14 +651,14 @@ public class CFRDecompileEngine {
     public static final class CfrLineMapping {
         private final String methodName;
         private final String methodDesc;
-        private final NavigableMap<Integer, Integer> decompiledToSource;
+        private final NavigableMap<Integer, Integer> presentationLineToSource;
 
         private CfrLineMapping(String methodName,
                                String methodDesc,
-                               NavigableMap<Integer, Integer> decompiledToSource) {
+                               NavigableMap<Integer, Integer> presentationLineToSource) {
             this.methodName = methodName;
             this.methodDesc = methodDesc;
-            this.decompiledToSource = decompiledToSource;
+            this.presentationLineToSource = presentationLineToSource;
         }
 
         public String getMethodName() {
@@ -646,8 +669,12 @@ public class CFRDecompileEngine {
             return methodDesc;
         }
 
+        public NavigableMap<Integer, Integer> getPresentationLineToSource() {
+            return presentationLineToSource;
+        }
+
         public NavigableMap<Integer, Integer> getDecompiledToSource() {
-            return decompiledToSource;
+            return presentationLineToSource;
         }
     }
 }

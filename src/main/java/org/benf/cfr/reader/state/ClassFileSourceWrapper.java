@@ -18,13 +18,20 @@ import java.util.Collections;
 public class ClassFileSourceWrapper implements ClassFileSource2 {
     private final ClassFileSource classFileSource;
 
+    public static ClassFileSource2 wrap(ClassFileSource classFileSource) {
+        return classFileSource instanceof ClassFileSource2 ? (ClassFileSource2) classFileSource : new ClassFileSourceWrapper(classFileSource);
+    }
+
     public ClassFileSourceWrapper(ClassFileSource classFileSource) {
         this.classFileSource = classFileSource;
     }
 
     @Override
     public JarContent addJarContent(String jarPath, AnalysisType type) {
-        Collection<String> classFiles = addJar(jarPath);
+        if (jarPath == null) {
+            return null;
+        }
+        Collection<String> classFiles = classFileSource.addJar(jarPath);
         if (classFiles == null) {
             return null;
         }
@@ -46,7 +53,8 @@ public class ClassFileSourceWrapper implements ClassFileSource2 {
 
     @Override
     public String getPossiblyRenamedPath(String path) {
-        return classFileSource.getPossiblyRenamedPath(path);
+        String renamedPath = classFileSource.getPossiblyRenamedPath(path);
+        return renamedPath == null ? path : renamedPath;
     }
 
     @Override

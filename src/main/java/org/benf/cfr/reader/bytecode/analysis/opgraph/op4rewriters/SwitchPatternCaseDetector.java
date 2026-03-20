@@ -34,7 +34,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 final class SwitchPatternCaseDetector {
-    SwitchPatternCasePlanSpec detect(SwitchPatternCaseContext context) {
+    SwitchPatternCasePlanner.PlanSpec detect(SwitchPatternCasePlanner.DetectionContext context) {
         PatternBinding patternBinding = findPatternBinding(
                 context.getStatements(),
                 context.getSelector(),
@@ -60,7 +60,7 @@ final class SwitchPatternCaseDetector {
             if (conditionalGuardPlan == null) {
                 return null;
             }
-            return SwitchPatternCasePlanSpec.guardedBinding(
+            return SwitchPatternCasePlanner.PlanSpec.guardedBinding(
                     context,
                     conditionalGuardPlan.binding,
                     conditionalGuardPlan.guard,
@@ -75,7 +75,7 @@ final class SwitchPatternCaseDetector {
                 context.getPatternLoop()
         );
         if (guardPlan != null) {
-            return SwitchPatternCasePlanSpec.guardedBinding(
+            return SwitchPatternCasePlanner.PlanSpec.guardedBinding(
                     context,
                     patternBinding.binding,
                     guardPlan.guard,
@@ -89,7 +89,7 @@ final class SwitchPatternCaseDetector {
                 patternBinding.binding
         );
         if (recordPatternPlan != null) {
-            return SwitchPatternCasePlanSpec.record(
+            return SwitchPatternCasePlanner.PlanSpec.record(
                     context,
                     patternBinding.binding,
                     recordPatternPlan.components,
@@ -105,7 +105,7 @@ final class SwitchPatternCaseDetector {
             rewrittenStatements.add(context.getStatements().get(x));
         }
         rewrittenStatements = simplifySyntheticYieldAlias(patternBinding.binding, rewrittenStatements);
-        return SwitchPatternCasePlanSpec.binding(context, patternBinding.binding, rewrittenStatements);
+        return SwitchPatternCasePlanner.PlanSpec.binding(context, patternBinding.binding, rewrittenStatements);
     }
 
     private PatternBinding findPatternBinding(List<Op04StructuredStatement> statements,

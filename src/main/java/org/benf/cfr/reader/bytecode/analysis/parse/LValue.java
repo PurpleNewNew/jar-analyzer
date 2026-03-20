@@ -63,6 +63,11 @@ public interface LValue extends DumpableWithPrecedence, DeepCloneable<LValue>, T
             }
             if (lValue instanceof LocalVariable) {
                 LocalVariable localVariable = (LocalVariable) lValue;
+                if (localVariable.isVar() || localVariable.getInferredJavaType().isVarConfirmed()) {
+                    d.print("var").separator(" ");
+                    lValue.dump(d, true);
+                    return d;
+                }
                 JavaTypeInstance customCreationJavaType = localVariable.getCustomCreationJavaType();
                 if (customCreationJavaType != null) {
                     JavaTypeInstance inferredType = lValue.getInferredJavaType().getJavaTypeInstance();

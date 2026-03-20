@@ -5,6 +5,7 @@ import org.benf.cfr.reader.apiunreleased.JarContent;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.util.AnalysisType;
+import org.benf.cfr.reader.util.ConfusedCFRException;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.junit.jupiter.api.Test;
 
@@ -13,8 +14,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DCCommonStateForkTest {
     @Test
@@ -30,7 +34,31 @@ class DCCommonStateForkTest {
         assertSame(original.getVersionCollisions(), worker.getVersionCollisions());
     }
 
-    private static final class NoopClassFileSource implements ClassFileSource2 {
+    @Test
+    void shouldTreatNullRenameAsIdentityPath() {
+        DCCommonState state = new DCCommonState(new OptionsImpl(Map.of()), new NullRenameClassFileSource());
+
+        assertEquals("a.b.Sample", assertDoesNotThrow(() -> state.getClassCache().getRefClassFor("a/b/Sample").getRawName()));
+    }
+
+    @Test
+    void shouldRejectNullJarContentWithDeterministicException() {
+        DCCommonState state = new DCCommonState(new OptionsImpl(Map.of()), new MissingJarClassFileSource());
+
+        ConfusedCFRException exception = assertThrows(ConfusedCFRException.class,
+                () -> ClassFileSourceSupport.explicitlyLoadJar(state, "missing.jar", AnalysisType.JAR));
+
+        assertEquals("Failed to load jar missing.jar", exception.getMessage());
+    }
+
+    @Test
+    void shouldTreatNullManifestEntriesAsEmptyJarMetadata() {
+        DCCommonState state = new DCCommonState(new OptionsImpl(Map.of()), new NullManifestJarClassFileSource());
+
+        assertDoesNotThrow(() -> ClassFileSourceSupport.explicitlyLoadJar(state, "demo.jar", AnalysisType.JAR));
+    }
+
+    private static class NoopClassFileSource implements ClassFileSource2 {
         @Override
         public void informAnalysisRelativePathDetail(String usePath, String classFilePath) {
         }
@@ -61,6 +89,42 @@ class DCCommonStateForkTest {
                 @Override
                 public Map<String, String> getManifestEntries() {
                     return Collections.emptyMap();
+                }
+
+                @Override
+                public AnalysisType getAnalysisType() {
+                    return analysisType;
+                }
+            };
+        }
+    }
+
+    private static final class NullRenameClassFileSource extends NoopClassFileSource {
+        @Override
+        public String getPossiblyRenamedPath(String path) {
+            return null;
+        }
+    }
+
+    private static final class MissingJarClassFileSource extends NoopClassFileSource {
+        @Override
+        public JarContent addJarContent(String jarPath, AnalysisType analysisType) {
+            return null;
+        }
+    }
+
+    private static final class NullManifestJarClassFileSource extends NoopClassFileSource {
+        @Override
+        public JarContent addJarContent(String jarPath, AnalysisType analysisType) {
+            return new JarContent() {
+                @Override
+                public Collection<String> getClassFiles() {
+                    return Collections.singletonList("demo/Sample.class");
+                }
+
+                @Override
+                public Map<String, String> getManifestEntries() {
+                    return null;
                 }
 
                 @Override
