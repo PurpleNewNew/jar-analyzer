@@ -15,7 +15,7 @@ final class SwitchPatternCaseContext {
     private final Block bodyBlock;
     private final List<Op04StructuredStatement> statements;
     private final Expression selector;
-    private final JavaTypeInstance expectedType;
+    private final JavaTypeInstance expectedPatternType;
     private final LValue indexLValue;
     private final StructuredWhile patternLoop;
 
@@ -23,14 +23,14 @@ final class SwitchPatternCaseContext {
                              Block bodyBlock,
                              List<Op04StructuredStatement> statements,
                              Expression selector,
-                             JavaTypeInstance expectedType,
+                             JavaTypeInstance expectedPatternType,
                              LValue indexLValue,
                              StructuredWhile patternLoop) {
         this.structuredCase = structuredCase;
         this.bodyBlock = bodyBlock;
         this.statements = statements;
         this.selector = selector;
-        this.expectedType = expectedType;
+        this.expectedPatternType = expectedPatternType;
         this.indexLValue = indexLValue;
         this.patternLoop = patternLoop;
     }
@@ -51,8 +51,8 @@ final class SwitchPatternCaseContext {
         return selector;
     }
 
-    JavaTypeInstance getExpectedType() {
-        return expectedType;
+    JavaTypeInstance getExpectedPatternType() {
+        return expectedPatternType;
     }
 
     LValue getIndexLValue() {

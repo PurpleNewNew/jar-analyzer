@@ -11,9 +11,17 @@ import me.n1ar4.jar.analyzer.config.ConfigFile;
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.ProjectRuntimeSnapshot;
 import me.n1ar4.jar.analyzer.core.facts.ClassFileEntity;
+import me.n1ar4.jar.analyzer.core.reference.ClassReference;
+import me.n1ar4.jar.analyzer.core.reference.MethodReference;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
 import me.n1ar4.jar.analyzer.engine.project.ProjectModel;
+import me.n1ar4.jar.analyzer.mcp.JarAnalyzerMcpTools;
+import me.n1ar4.jar.analyzer.mcp.McpTool;
+import me.n1ar4.jar.analyzer.mcp.McpToolCallContext;
+import me.n1ar4.jar.analyzer.mcp.McpToolRegistry;
+import me.n1ar4.jar.analyzer.mcp.McpToolResult;
+import me.n1ar4.jar.analyzer.mcp.backend.JarAnalyzerApiInvoker;
 import me.n1ar4.jar.analyzer.storage.neo4j.ActiveProjectContext;
 import me.n1ar4.jar.analyzer.storage.neo4j.Neo4jProjectStore;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +39,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CodeHandlerTest {
     private Path markerFile;
@@ -75,14 +85,61 @@ class CodeHandlerTest {
         assertEquals("class_not_found", body.getString("code"));
     }
 
+    @Test
+    void handleShouldNotGuessOverloadWhenDescMissing() throws Exception {
+        String className = OverloadedFixture.class.getName().replace('.', '/');
+        installReadyEngineForClass(OverloadedFixture.class, 1, Set.of(
+                methodRef(className, 1, "overloaded", "()V"),
+                methodRef(className, 1, "overloaded", "(Ljava/lang/String;)V")
+        ));
+
+        NanoHTTPD.Response response = new CodeHandler().handle(session(Map.of(
+                "class", className,
+                "method", "overloaded",
+                "jarId", "1"
+        )));
+
+        assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, response.getStatus());
+        JSONObject body = JSON.parseObject(readBody(response));
+        assertEquals("method_not_found", body.getString("code"));
+        assertTrue(body.getString("message").contains("descriptor required"));
+    }
+
+    @Test
+    void codeGetToolShouldForwardJarId() throws Exception {
+        String className = installReadyEngineForClass(CodeHandlerTest.class, 1);
+        McpToolRegistry registry = new McpToolRegistry();
+        JarAnalyzerMcpTools.registerAll(registry, new JarAnalyzerApiInvoker(null));
+        McpTool tool = registry.get("code_get");
+        assertNotNull(tool);
+        assertTrue(tool.getDefinition().toJSONString().contains("\"jarId\""));
+
+        JSONObject args = new JSONObject();
+        args.put("class", className);
+        args.put("method", "handleShouldReturnMethodNotFoundWhenExactMethodDoesNotMatch");
+        args.put("jarId", "2");
+
+        McpToolResult result = tool.getHandler().call(new McpToolCallContext(Map.of()), args);
+
+        assertTrue(result.isError());
+        assertTrue(result.getText().contains("class_not_found"));
+    }
+
     private String installReadyEngineForClass(Class<?> type, int jarId) throws Exception {
+        return installReadyEngineForClass(type, jarId, Set.of());
+    }
+
+    private String installReadyEngineForClass(Class<?> type,
+                                              int jarId,
+                                              Set<MethodReference> methods) throws Exception {
         String projectKey = ActiveProjectContext.getActiveProjectKey();
         Path projectHome = Neo4jProjectStore.getInstance().resolveProjectHome(projectKey);
         Files.createDirectories(projectHome);
         markerFile = projectHome.resolve("code-handler-ready.marker");
         Files.writeString(markerFile, "ok");
 
-        Path classPath = Path.of(type.getResource(type.getSimpleName() + ".class").toURI())
+        String resourceName = type.getName().substring(type.getPackageName().length() + 1) + ".class";
+        Path classPath = Path.of(type.getResource(resourceName).toURI())
                 .toAbsolutePath()
                 .normalize();
         String className = type.getName().replace('.', '/');
@@ -113,6 +170,9 @@ class CodeHandlerTest {
                 Set.of()
         ));
         DatabaseManager.saveClassFiles(Set.of(classFile(className, classPath, jarId)));
+        if (methods != null && !methods.isEmpty()) {
+            DatabaseManager.saveMethods(methods);
+        }
 
         ConfigFile config = new ConfigFile();
         config.setDbPath(projectHome.toString());
@@ -126,6 +186,20 @@ class CodeHandlerTest {
         entity.setJarId(jarId);
         entity.setPath(path);
         return entity;
+    }
+
+    private static MethodReference methodRef(String className, int jarId, String methodName, String methodDesc) {
+        return new MethodReference(
+                new ClassReference.Handle(className, jarId),
+                methodName,
+                methodDesc,
+                false,
+                Set.of(),
+                1,
+                1,
+                "test.jar",
+                jarId
+        );
     }
 
     private static NanoHTTPD.IHTTPSession session(Map<String, String> params) {
@@ -199,6 +273,14 @@ class CodeHandlerTest {
     private static String readBody(NanoHTTPD.Response response) throws Exception {
         try (InputStream in = response.getData()) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final class OverloadedFixture {
+        public void overloaded() {
+        }
+
+        public void overloaded(String value) {
         }
     }
 }

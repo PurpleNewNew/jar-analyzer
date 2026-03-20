@@ -7,10 +7,13 @@ import org.benf.cfr.reader.util.MiscConstants;
 import java.util.Map;
 
 public class IllegalIdentifierReplacement implements IllegalIdentifierDump {
-    private final Map<String, Integer> identifiers = MapFactory.newMap();
-    private final Map<String, String> classes = MapFactory.newMap();
     private static final Map<String, Boolean> known = MapFactory.newIdentityMap();
-    private int next = 0;
+    private static final ThreadLocal<State> state = new ThreadLocal<State>() {
+        @Override
+        protected State initialValue() {
+            return new State();
+        }
+    };
 
     private static final IllegalIdentifierReplacement instance = new IllegalIdentifierReplacement();
 
@@ -20,6 +23,14 @@ public class IllegalIdentifierReplacement implements IllegalIdentifierDump {
     }
 
     private IllegalIdentifierReplacement() {
+    }
+
+    private static State getState() {
+        return state.get();
+    }
+
+    public static void resetForCurrentThread() {
+        state.set(new State());
     }
 
     private String renamedIdent(Integer key) {
@@ -67,39 +78,47 @@ public class IllegalIdentifierReplacement implements IllegalIdentifierDump {
 
     @Override
     public String getLegalIdentifierFor(String identifier) {
-        Integer idx = identifiers.get(identifier);
+        State state = getState();
+        Integer idx = state.identifiers.get(identifier);
         if (idx != null) {
             if (idx == -1) return identifier;
             return renamedIdent(idx);
         }
         if (isIllegal(identifier)) {
-            idx = next++;
-            identifiers.put(identifier, idx);
+            idx = state.next++;
+            state.identifiers.put(identifier, idx);
             return renamedIdent(idx);
         } else {
-            identifiers.put(identifier, -1);
+            state.identifiers.put(identifier, -1);
             return identifier;
         }
     }
 
     @Override
     public String getLegalShortName(String shortName) {
-        String key = classes.get(shortName);
+        State state = getState();
+        String key = state.classes.get(shortName);
         if (key != null) {
             if (key.isEmpty()) return shortName;
             return key;
         }
         if (isIllegal(shortName)) {
             String testPrefix = "_" + shortName;
-            String replace = isIllegal(testPrefix) ? "CfrRenamed" + (classes.size()) : testPrefix;
-            classes.put(shortName, replace);
+            String replace = isIllegal(testPrefix) ? "CfrRenamed" + (state.classes.size()) : testPrefix;
+            state.classes.put(shortName, replace);
             return replace;
         } else {
-            classes.put(shortName, "");
+            state.classes.put(shortName, "");
             return shortName;
         }
     }
 
     public static IllegalIdentifierReplacement getInstance() { return instance; }
+
+    private static final class State {
+        private final Map<String, Integer> identifiers = MapFactory.newMap();
+        private final Map<String, String> classes = MapFactory.newMap();
+        private int next = 0;
+    }
 
 }

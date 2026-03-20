@@ -317,6 +317,7 @@ public final class JarAnalyzerMcpTools {
         McpToolSchemas.addString(code, "class", true, "Class name.");
         McpToolSchemas.addString(code, "method", true, "Method name.");
         McpToolSchemas.addString(code, "desc", false, "Method descriptor (optional).");
+        McpToolSchemas.addString(code, "jarId", false, "Jar ID filter (optional).");
         McpToolSchemas.addString(code, "full", false, "Include full class code (optional).");
         reg.add(new McpTool("code_get", code, (ctx, args) -> {
             String className = require(args, "class");
@@ -325,6 +326,7 @@ public final class JarAnalyzerMcpTools {
             params.put("class", className);
             params.put("method", methodName);
             addIf(params, "desc", args.getString("desc"));
+            addIf(params, "jarId", args.getString("jarId"));
             addIf(params, "full", args.getString("full"));
             return call(api, "/api/code", params);
         }));

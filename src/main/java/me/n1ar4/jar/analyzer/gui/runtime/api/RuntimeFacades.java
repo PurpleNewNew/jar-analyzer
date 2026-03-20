@@ -2459,6 +2459,10 @@ public final class RuntimeFacades {
     }
 
     private static final class DefaultEditorFacade implements EditorFacade {
+        private record EditorMethodSelection(String methodDesc,
+                                             Integer anchorLine) {
+        }
+
         @Override
         public EditorDocumentDto current() {
             return STATE.editorDocument;
@@ -2831,12 +2835,17 @@ public final class RuntimeFacades {
             String normalizedClass = normalizeClass(className);
             String jarName = STATE.editorDocument.jarName();
             int caretOffset = STATE.editorDocument.caretOffset();
+            String resolvedMethodDesc = safe(methodDesc);
             try {
-                Integer anchorLine = resolveEditorAnchorLine(
+                EditorMethodSelection selection = resolveEditorMethodSelection(
+                        normalizedClass,
+                        normalizedJarId,
                         safe(methodName),
                         safe(methodDesc),
                         lineNumberHint
                 );
+                resolvedMethodDesc = safe(selection.methodDesc()).trim();
+                Integer anchorLine = selection.anchorLine();
                 DecompiledMethodLocator.RangeHint rangeHint = anchorLine == null
                         ? null
                         : new DecompiledMethodLocator.RangeHint(anchorLine);
@@ -2844,11 +2853,38 @@ public final class RuntimeFacades {
                         STATE.editorDocument.content(),
                         normalizedClass,
                         safe(methodName),
-                        safe(methodDesc),
+                        resolvedMethodDesc,
                         rangeHint
                 );
                 if (jump != null) {
                     caretOffset = Math.max(0, jump.startOffset);
+                }
+                if (!isMethodTokenAtOffset(STATE.editorDocument.content(), safe(methodName), caretOffset)) {
+                    Integer signatureOffset = findMethodTokenOffsetByDescriptor(
+                            STATE.editorDocument.content(),
+                            safe(methodName),
+                            resolvedMethodDesc
+                    );
+                    if (signatureOffset != null) {
+                        caretOffset = Math.max(0, signatureOffset);
+                    } else {
+                        Integer fallbackLine = anchorLine;
+                        if (safe(methodDesc).trim().isEmpty()
+                                && lineNumberHint != null
+                                && lineNumberHint > 0) {
+                            fallbackLine = lineNumberHint;
+                        }
+                        if (fallbackLine != null) {
+                            Integer fallbackOffset = findMethodTokenOffsetNearLine(
+                                    STATE.editorDocument.content(),
+                                    safe(methodName),
+                                    fallbackLine
+                            );
+                            if (fallbackOffset != null) {
+                                caretOffset = Math.max(0, fallbackOffset);
+                            }
+                        }
+                    }
                 }
             } catch (Throwable ex) {
                 logger.debug("editor locate method failed: {}", ex.toString());
@@ -2859,7 +2895,7 @@ public final class RuntimeFacades {
             STATE.currentMethod = new MethodNavDto(
                     normalizedClass,
                     safe(methodName),
-                    safe(methodDesc),
+                    resolvedMethodDesc,
                     jarName,
                     normalizedJarId == null ? 0 : normalizedJarId
             );
@@ -2869,7 +2905,7 @@ public final class RuntimeFacades {
                     STATE.editorDocument.jarName(),
                     STATE.editorDocument.jarId(),
                     safe(methodName),
-                    safe(methodDesc),
+                    resolvedMethodDesc,
                     STATE.editorDocument.content(),
                     caretOffset,
                     "method opened"
@@ -2879,23 +2915,124 @@ public final class RuntimeFacades {
                 MethodView history = new MethodView();
                 history.setClassName(normalizedClass);
                 history.setMethodName(safe(methodName));
-                history.setMethodDesc(safe(methodDesc));
+                history.setMethodDesc(resolvedMethodDesc);
                 history.setJarName(jarName);
                 history.setJarId(normalizedJarId == null ? 0 : normalizedJarId);
                 engine.insertHistory(history);
             }
             if (recordNav) {
-                pushNavigation(normalizedClass, safe(methodName), safe(methodDesc), normalizedJarId);
+                pushNavigation(normalizedClass, safe(methodName), resolvedMethodDesc, normalizedJarId);
             }
         }
 
-        private Integer resolveEditorAnchorLine(String methodName,
-                                                String methodDesc,
-                                                Integer lineNumberHint) {
-            if (lineNumberHint == null || lineNumberHint <= 0) {
-                return null;
+        private EditorMethodSelection resolveEditorMethodSelection(String className,
+                                                                   Integer jarId,
+                                                                   String methodName,
+                                                                   String methodDesc,
+                                                                   Integer lineNumberHint) {
+            String name = safe(methodName).trim();
+            String desc = safe(methodDesc).trim();
+            if (desc.isEmpty()) {
+                desc = resolveMethodDescFromMetadata(className, jarId, name, lineNumberHint);
             }
-            return findMappedDecompiledLine(methodName, methodDesc, lineNumberHint);
+            CFRDecompileEngine.CfrLineMapping mapping = selectEditorLineMapping(name, desc, lineNumberHint);
+            if (mapping != null && desc.isEmpty()) {
+                desc = safe(mapping.getMethodDesc()).trim();
+            }
+            Integer anchorLine = lineNumberHint != null && lineNumberHint > 0
+                    ? findMappedDecompiledLine(name, desc, lineNumberHint)
+                    : null;
+            if (anchorLine == null && lineNumberHint != null && lineNumberHint > 0 && mapping != null) {
+                anchorLine = findClosestMappedLine(mapping.getDecompiledToSource(), lineNumberHint);
+            }
+            if (anchorLine == null && lineNumberHint != null && lineNumberHint > 0) {
+                anchorLine = lineNumberHint;
+            }
+            return new EditorMethodSelection(desc, anchorLine);
+        }
+
+        private String resolveMethodDescFromMetadata(String className,
+                                                     Integer jarId,
+                                                     String methodName,
+                                                     Integer lineNumberHint) {
+            CoreEngine engine = EngineContext.getEngine();
+            if (engine == null || !engine.isEnabled()) {
+                return "";
+            }
+            ArrayList<MethodView> methods = engine.getMethod(normalizeClass(className), methodName, null);
+            if (methods == null || methods.isEmpty()) {
+                return "";
+            }
+            String bestDesc = "";
+            int bestLineNumber = Integer.MIN_VALUE;
+            int bestDistance = Integer.MAX_VALUE;
+            boolean ambiguousBest = false;
+            boolean hasLineMatch = false;
+            String uniqueDesc = null;
+            boolean uniqueDescInitialized = false;
+            for (MethodView method : methods) {
+                if (method == null) {
+                    continue;
+                }
+                if (jarId != null && method.getJarId() != jarId) {
+                    continue;
+                }
+                String candidateDesc = safe(method.getMethodDesc()).trim();
+                if (candidateDesc.isEmpty()) {
+                    continue;
+                }
+                if (!uniqueDescInitialized) {
+                    uniqueDesc = candidateDesc;
+                    uniqueDescInitialized = true;
+                } else if (uniqueDesc != null && !uniqueDesc.equals(candidateDesc)) {
+                    uniqueDesc = null;
+                }
+                if (lineNumberHint == null || lineNumberHint <= 0 || method.getLineNumber() <= 0) {
+                    continue;
+                }
+                hasLineMatch = true;
+                int candidateLine = method.getLineNumber();
+                int distance = Math.abs(method.getLineNumber() - lineNumberHint);
+                if (bestDesc.isEmpty() || distance < bestDistance) {
+                    bestDesc = candidateDesc;
+                    bestLineNumber = candidateLine;
+                    bestDistance = distance;
+                    ambiguousBest = false;
+                    continue;
+                }
+                if (distance == bestDistance && !candidateDesc.equals(bestDesc)) {
+                    if (preferMethodLineForHint(candidateLine, bestLineNumber, lineNumberHint)) {
+                        bestDesc = candidateDesc;
+                        bestLineNumber = candidateLine;
+                        ambiguousBest = false;
+                    } else if (!preferMethodLineForHint(bestLineNumber, candidateLine, lineNumberHint)) {
+                        ambiguousBest = true;
+                    }
+                }
+            }
+            if (hasLineMatch && !bestDesc.isEmpty() && !ambiguousBest) {
+                return bestDesc;
+            }
+            if (!uniqueDescInitialized || uniqueDesc == null) {
+                return "";
+            }
+            return uniqueDesc;
+        }
+
+        private boolean preferMethodLineForHint(int candidateLine,
+                                                int currentBestLine,
+                                                int lineNumberHint) {
+            int candidateDelta = candidateLine - lineNumberHint;
+            int currentDelta = currentBestLine - lineNumberHint;
+            boolean candidateAfterHint = candidateDelta >= 0;
+            boolean currentAfterHint = currentDelta >= 0;
+            if (candidateAfterHint != currentAfterHint) {
+                return candidateAfterHint;
+            }
+            if (candidateAfterHint) {
+                return candidateDelta < currentDelta;
+            }
+            return candidateDelta > currentDelta;
         }
 
         private Integer findMappedDecompiledLine(String methodName,
@@ -2904,74 +3041,89 @@ public final class RuntimeFacades {
             if (sourceLineHint == null || sourceLineHint <= 0) {
                 return null;
             }
-            String name = safe(methodName).trim();
-            if (name.isEmpty()) {
+            CFRDecompileEngine.CfrLineMapping mapping = selectEditorLineMapping(methodName, methodDesc, sourceLineHint);
+            if (mapping == null) {
                 return null;
+            }
+            return findClosestMappedLine(mapping.getDecompiledToSource(), sourceLineHint);
+        }
+
+        private CFRDecompileEngine.CfrLineMapping selectEditorLineMapping(String methodName,
+                                                                          String methodDesc,
+                                                                          Integer sourceLineHint) {
+            List<CFRDecompileEngine.CfrLineMapping> candidates = collectEditorLineMappings(methodName, methodDesc);
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            if (candidates.size() == 1) {
+                return candidates.get(0);
             }
             String desc = safe(methodDesc).trim();
-            if (!desc.isEmpty()) {
-                return findMappedDecompiledLine(name, desc, sourceLineHint, true);
+            if (sourceLineHint == null || sourceLineHint <= 0) {
+                return desc.isEmpty() ? null : candidates.get(0);
             }
-            List<CFRDecompileEngine.CfrLineMapping> namedMappings = collectNamedLineMappings(name);
-            if (namedMappings.size() != 1) {
-                return null;
-            }
-            return findClosestMappedLine(namedMappings.get(0).getDecompiledToSource(), sourceLineHint);
+            return selectClosestMappedLine(candidates, sourceLineHint);
         }
 
-        private Integer findMappedDecompiledLine(String methodName,
-                                                 String methodDesc,
-                                                 int sourceLineHint,
-                                                 boolean requireDescriptor) {
-            List<CFRDecompileEngine.CfrLineMapping> mappings = STATE.editorLineMappings;
-            if (mappings == null || mappings.isEmpty()) {
-                return null;
-            }
-            Integer bestLine = null;
-            int bestDistance = Integer.MAX_VALUE;
-            for (CFRDecompileEngine.CfrLineMapping mapping : mappings) {
-                if (mapping == null) {
-                    continue;
-                }
-                if (!methodName.equals(safe(mapping.getMethodName()).trim())) {
-                    continue;
-                }
-                if (requireDescriptor && !methodDesc.equals(safe(mapping.getMethodDesc()).trim())) {
-                    continue;
-                }
-                Integer candidate = findClosestMappedLine(mapping.getDecompiledToSource(), sourceLineHint);
-                if (candidate == null) {
-                    continue;
-                }
-                Integer sourceLine = mapping.getDecompiledToSource().get(candidate);
-                int distance = sourceLine == null
-                        ? Integer.MAX_VALUE
-                        : Math.abs(sourceLine - sourceLineHint);
-                if (bestLine == null
-                        || distance < bestDistance
-                        || (distance == bestDistance && candidate < bestLine)) {
-                    bestLine = candidate;
-                    bestDistance = distance;
-                }
-            }
-            return bestLine;
-        }
-
-        private List<CFRDecompileEngine.CfrLineMapping> collectNamedLineMappings(String methodName) {
+        private List<CFRDecompileEngine.CfrLineMapping> collectEditorLineMappings(String methodName,
+                                                                                  String methodDesc) {
             List<CFRDecompileEngine.CfrLineMapping> mappings = STATE.editorLineMappings;
             if (mappings == null || mappings.isEmpty()) {
                 return List.of();
             }
-            List<CFRDecompileEngine.CfrLineMapping> out = new ArrayList<>();
+            String name = safe(methodName).trim();
+            if (name.isEmpty()) {
+                return List.of();
+            }
+            String desc = safe(methodDesc).trim();
+            List<CFRDecompileEngine.CfrLineMapping> candidates = new ArrayList<>();
             for (CFRDecompileEngine.CfrLineMapping mapping : mappings) {
                 if (mapping == null) {
                     continue;
                 }
-                if (methodName.equals(safe(mapping.getMethodName()).trim())) {
-                    out.add(mapping);
+                if (!name.equals(safe(mapping.getMethodName()).trim())) {
+                    continue;
+                }
+                if (!desc.isEmpty() && !desc.equals(safe(mapping.getMethodDesc()).trim())) {
+                    continue;
+                }
+                candidates.add(mapping);
+            }
+            return candidates;
+        }
+
+        private CFRDecompileEngine.CfrLineMapping selectClosestMappedLine(List<CFRDecompileEngine.CfrLineMapping> candidates,
+                                                                          int sourceLineHint) {
+            CFRDecompileEngine.CfrLineMapping bestMapping = null;
+            Integer bestLine = null;
+            int bestDistance = Integer.MAX_VALUE;
+            String bestDesc = "";
+            for (CFRDecompileEngine.CfrLineMapping candidate : candidates) {
+                if (candidate == null) {
+                    continue;
+                }
+                Integer candidateLine = findClosestMappedLine(candidate.getDecompiledToSource(), sourceLineHint);
+                if (candidateLine == null) {
+                    continue;
+                }
+                Integer sourceLine = candidate.getDecompiledToSource().get(candidateLine);
+                int distance = sourceLine == null
+                        ? Integer.MAX_VALUE
+                        : Math.abs(sourceLine - sourceLineHint);
+                String candidateDesc = safe(candidate.getMethodDesc()).trim();
+                if (bestMapping == null
+                        || distance < bestDistance
+                        || (distance == bestDistance && candidateLine < bestLine)
+                        || (distance == bestDistance
+                        && candidateLine.equals(bestLine)
+                        && candidateDesc.compareTo(bestDesc) < 0)) {
+                    bestMapping = candidate;
+                    bestLine = candidateLine;
+                    bestDistance = distance;
+                    bestDesc = candidateDesc;
                 }
             }
-            return out;
+            return bestMapping;
         }
 
         private Integer findClosestMappedLine(NavigableMap<Integer, Integer> decompiledToSource,
@@ -2994,6 +3146,169 @@ public final class RuntimeFacades {
                 }
             }
             return bestLine;
+        }
+
+        private boolean isMethodTokenAtOffset(String content,
+                                              String methodName,
+                                              int offset) {
+            String source = safe(content);
+            String name = safe(methodName).trim();
+            if (source.isEmpty() || name.isEmpty() || offset < 0 || offset >= source.length()) {
+                return false;
+            }
+            String token = name + "(";
+            return source.startsWith(token, offset);
+        }
+
+        private Integer findMethodTokenOffsetNearLine(String content,
+                                                      String methodName,
+                                                      int anchorLine) {
+            String source = safe(content);
+            String name = safe(methodName).trim();
+            if (source.isEmpty() || name.isEmpty() || anchorLine <= 0) {
+                return null;
+            }
+            List<Integer> lineStarts = new ArrayList<>();
+            lineStarts.add(0);
+            for (int i = 0; i < source.length(); i++) {
+                if (source.charAt(i) == '\n' && i + 1 < source.length()) {
+                    lineStarts.add(i + 1);
+                }
+            }
+            int totalLines = lineStarts.size();
+            if (totalLines == 0) {
+                return null;
+            }
+            int center = Math.min(Math.max(anchorLine, 1), totalLines);
+            Integer backward = findMethodTokenOffsetInLines(
+                    source,
+                    name,
+                    lineStarts,
+                    center,
+                    Math.max(1, center - 60),
+                    -1
+            );
+            if (backward != null) {
+                return backward;
+            }
+            return findMethodTokenOffsetInLines(
+                    source,
+                    name,
+                    lineStarts,
+                    center,
+                    Math.min(totalLines, center + 20),
+                    1
+            );
+        }
+
+        private Integer findMethodTokenOffsetByDescriptor(String content,
+                                                          String methodName,
+                                                          String methodDesc) {
+            String source = safe(content);
+            String name = safe(methodName).trim();
+            String desc = safe(methodDesc).trim();
+            if (source.isEmpty() || name.isEmpty() || desc.isEmpty()) {
+                return null;
+            }
+            List<String> expectedParams = descriptorParamTypes(desc);
+            if (expectedParams == null) {
+                return null;
+            }
+            String signaturePrefix = methodSignaturePrefix(name, expectedParams);
+            if (!signaturePrefix.isEmpty()) {
+                int exactIndex = source.indexOf(signaturePrefix);
+                if (exactIndex >= 0) {
+                    return exactIndex;
+                }
+            }
+            String compactSignaturePrefix = signaturePrefix.replace(", ", ",");
+            if (!compactSignaturePrefix.isEmpty()) {
+                int compactIndex = source.indexOf(compactSignaturePrefix);
+                if (compactIndex >= 0) {
+                    return compactIndex;
+                }
+            }
+            return null;
+        }
+
+        private String methodSignaturePrefix(String methodName, List<String> parameterTypes) {
+            String name = safe(methodName).trim();
+            if (name.isEmpty() || parameterTypes == null) {
+                return "";
+            }
+            return name + "(" + String.join(", ", parameterTypes);
+        }
+
+        private List<String> descriptorParamTypes(String methodDesc) {
+            try {
+                Type methodType = Type.getMethodType(methodDesc);
+                Type[] arguments = methodType.getArgumentTypes();
+                List<String> out = new ArrayList<>(arguments.length);
+                for (Type argument : arguments) {
+                    out.add(normalizeTypeName(argument));
+                }
+                return out;
+            } catch (IllegalArgumentException ex) {
+                return null;
+            }
+        }
+
+        private String normalizeTypeName(Type type) {
+            if (type == null) {
+                return "";
+            }
+            return switch (type.getSort()) {
+                case Type.VOID -> "void";
+                case Type.BOOLEAN -> "boolean";
+                case Type.CHAR -> "char";
+                case Type.BYTE -> "byte";
+                case Type.SHORT -> "short";
+                case Type.INT -> "int";
+                case Type.FLOAT -> "float";
+                case Type.LONG -> "long";
+                case Type.DOUBLE -> "double";
+                case Type.ARRAY -> normalizeTypeName(type.getElementType()) + "[]".repeat(type.getDimensions());
+                case Type.OBJECT -> normalizeTypeName(type.getClassName());
+                default -> normalizeTypeName(type.getDescriptor());
+            };
+        }
+
+        private String normalizeTypeName(String value) {
+            String text = safe(value).trim();
+            if (text.isEmpty()) {
+                return "";
+            }
+            int arrayDepth = 0;
+            while (text.endsWith("[]")) {
+                arrayDepth++;
+                text = text.substring(0, text.length() - 2);
+            }
+            int dot = text.lastIndexOf('.');
+            if (dot >= 0 && dot < text.length() - 1) {
+                text = text.substring(dot + 1);
+            }
+            return text + "[]".repeat(arrayDepth);
+        }
+
+        private Integer findMethodTokenOffsetInLines(String content,
+                                                     String methodName,
+                                                     List<Integer> lineStarts,
+                                                     int fromLine,
+                                                     int toLine,
+                                                     int step) {
+            String token = methodName + "(";
+            if (token.isBlank()) {
+                return null;
+            }
+            for (int line = fromLine; step > 0 ? line <= toLine : line >= toLine; line += step) {
+                int start = lineStarts.get(line - 1);
+                int end = line < lineStarts.size() ? lineStarts.get(line) - 1 : content.length();
+                int index = content.indexOf(token, start);
+                if (index >= 0 && index < end) {
+                    return index;
+                }
+            }
+            return null;
         }
 
         private void pushNavigation(String className, String methodName, String methodDesc, Integer jarId) {

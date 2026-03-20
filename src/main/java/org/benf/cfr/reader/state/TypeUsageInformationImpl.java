@@ -15,6 +15,7 @@ import org.benf.cfr.reader.util.functors.UnaryFunction;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.benf.cfr.reader.util.output.IllegalIdentifierDump;
+import org.benf.cfr.reader.util.output.IllegalIdentifierReplacement;
 import org.benf.cfr.reader.util.output.TypeContext;
 
 import java.util.*;
@@ -39,6 +40,9 @@ public class TypeUsageInformationImpl implements TypeUsageInformation {
     public TypeUsageInformationImpl(Options options, JavaRefTypeInstance analysisType, Set<JavaRefTypeInstance> usedRefTypes, Set<DetectedStaticImport> staticImports) {
         this.allowShorten = MiscUtils.mkRegexFilter(options.getOption(OptionsImpl.IMPORT_FILTER), true);
         this.analysisType = analysisType;
+        if (options.getOption(OptionsImpl.RENAME_ILLEGAL_IDENTS)) {
+            IllegalIdentifierReplacement.resetForCurrentThread();
+        }
         this.iid = IllegalIdentifierDump.Factory.getOrNull(options);
         this.staticImports = staticImports;
         initialiseFrom(usedRefTypes);

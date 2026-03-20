@@ -50,4 +50,31 @@ class PatternRecoveryRegressionTest {
         assertTrue(decompiled.contains("case null:"));
         assertTrue(Pattern.compile("switch \\([^\\n]*\\)").matcher(decompiled).find());
     }
+
+    @Test
+    void shouldRewriteMixedLiteralAndPatternTypeSwitch(@TempDir Path tempDir) throws IOException {
+        String source = ""
+                + "public class MixedConstantPatternSample {\n"
+                + "    static String test(String o) {\n"
+                + "        return switch (o) {\n"
+                + "            case \"x\", \"y\" -> \"literal\";\n"
+                + "            case String s -> s;\n"
+                + "        };\n"
+                + "    }\n"
+                + "}\n";
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "MixedConstantPatternSample",
+                source,
+                "--release", "21");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
+
+        assertFalse(decompiled.contains("SwitchBootstraps.typeSwitch"));
+        assertFalse(decompiled.contains("case 0, 1"));
+        assertTrue(decompiled.contains("case \"x\", \"y\"")
+                || (decompiled.contains("case \"x\":") && decompiled.contains("case \"y\":")));
+        assertTrue(Pattern.compile("case String \\w+").matcher(decompiled).find());
+        assertTrue(Pattern.compile("switch \\([^\\n]*\\)").matcher(decompiled).find());
+    }
 }

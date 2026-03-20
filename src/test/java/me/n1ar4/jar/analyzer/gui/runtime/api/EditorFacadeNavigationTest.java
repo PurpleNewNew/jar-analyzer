@@ -101,6 +101,35 @@ class EditorFacadeNavigationTest {
         EditorDocumentDto doc = RuntimeFacades.editor().current();
 
         assertNotNull(doc);
+        assertEquals("(Ljava/lang/String;)V", doc.methodDesc());
+        String content = safe(doc.content());
+        int wrong = content.indexOf("overloaded()");
+        assertTrue(doc.caretOffset() >= 0);
+        assertTrue(content.startsWith("overloaded(String", doc.caretOffset()),
+                "expected caret to land on overloaded(String...) but was: "
+                        + content.substring(
+                        Math.max(0, doc.caretOffset()),
+                        Math.min(content.length(), doc.caretOffset() + 40)
+                ));
+        assertFalse(doc.caretOffset() == wrong,
+                "line mapping should not land on the no-arg overload");
+        assertEquals("overloaded", doc.methodName());
+    }
+
+    @Test
+    void openMethodWithLineHintShouldInferDescriptorForOverloadWhenMissing() throws Exception {
+        bootstrapCallbackFixture();
+
+        RuntimeFacades.editor().openMethod(
+                "me/n1ar4/cb/ReflectionTarget",
+                "overloaded",
+                null,
+                null,
+                24
+        );
+        EditorDocumentDto doc = RuntimeFacades.editor().current();
+
+        assertNotNull(doc);
         String content = safe(doc.content());
         int wrong = content.indexOf("overloaded()");
         assertTrue(doc.caretOffset() >= 0);
@@ -132,7 +161,8 @@ class EditorFacadeNavigationTest {
         assertTrue(safe(after.content()).isBlank());
         assertTrue(safe(after.methodName()).isBlank());
         assertTrue(safe(after.methodDesc()).isBlank());
-        assertTrue(safe(after.statusText()).contains("editor reset"));
+        String status = safe(after.statusText());
+        assertTrue(status.contains("editor reset") || status.contains("编辑器已清空"));
     }
 
     private static void bootstrapCallbackFixture() throws Exception {

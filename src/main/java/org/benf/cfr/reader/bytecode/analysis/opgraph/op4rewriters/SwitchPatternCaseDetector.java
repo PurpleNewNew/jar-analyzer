@@ -22,6 +22,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssi
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredCatch;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionYield;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredIf;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredThrow;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredTry;
@@ -37,13 +38,22 @@ final class SwitchPatternCaseDetector {
         PatternBinding patternBinding = findPatternBinding(
                 context.getStatements(),
                 context.getSelector(),
-                context.getExpectedType()
+                context.getExpectedPatternType()
         );
+        if (patternBinding == null
+                && context.getPatternLoop() == null
+                && context.getExpectedPatternType().equals(context.getSelector().getInferredJavaType().getJavaTypeInstance())) {
+            patternBinding = findDirectSelectorBinding(
+                    context.getStatements(),
+                    context.getSelector(),
+                    context.getExpectedPatternType()
+            );
+        }
         if (patternBinding == null) {
             ConditionalGuardPlan conditionalGuardPlan = findConditionalGuardPlan(
                     context.getStatements(),
                     context.getSelector(),
-                    context.getExpectedType(),
+                    context.getExpectedPatternType(),
                     context.getIndexLValue(),
                     context.getPatternLoop()
             );
@@ -94,6 +104,7 @@ final class SwitchPatternCaseDetector {
             }
             rewrittenStatements.add(context.getStatements().get(x));
         }
+        rewrittenStatements = simplifySyntheticYieldAlias(patternBinding.binding, rewrittenStatements);
         return SwitchPatternCasePlanSpec.binding(context, patternBinding.binding, rewrittenStatements);
     }
 
@@ -121,6 +132,30 @@ final class SwitchPatternCaseDetector {
                 continue;
             }
             return new PatternBinding((LocalVariable) assignment.getLvalue(), x);
+        }
+        return null;
+    }
+
+    private PatternBinding findDirectSelectorBinding(List<Op04StructuredStatement> statements,
+                                                     Expression selector,
+                                                     JavaTypeInstance expectedType) {
+        for (int x = 0; x < statements.size(); ++x) {
+            StructuredStatement statement = statements.get(x).getStatement();
+            if (!(statement instanceof StructuredAssignment)) {
+                continue;
+            }
+            StructuredAssignment assignment = (StructuredAssignment) statement;
+            if (!(assignment.getLvalue() instanceof LocalVariable)) {
+                continue;
+            }
+            LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
+            if (!expectedType.equals(localVariable.getInferredJavaType().getJavaTypeInstance())) {
+                continue;
+            }
+            if (!selector.equals(CastExpression.removeImplicit(assignment.getRvalue()))) {
+                continue;
+            }
+            return new PatternBinding(localVariable, x);
         }
         return null;
     }
@@ -286,6 +321,46 @@ final class SwitchPatternCaseDetector {
             return -1;
         }
         return -1;
+    }
+
+    private LinkedList<Op04StructuredStatement> simplifySyntheticYieldAlias(LocalVariable binding,
+                                                                            LinkedList<Op04StructuredStatement> statements) {
+        int definitionIdx = nextMeaningfulIndex(statements, 0);
+        if (definitionIdx == -1) {
+            return statements;
+        }
+        int yieldIdx = nextMeaningfulIndex(statements, definitionIdx + 1);
+        if (yieldIdx == -1 || nextMeaningfulIndex(statements, yieldIdx + 1) != -1) {
+            return statements;
+        }
+        StructuredStatement definitionStatement = statements.get(definitionIdx).getStatement();
+        if (!(definitionStatement instanceof StructuredDefinition)) {
+            return statements;
+        }
+        if (!(((StructuredDefinition) definitionStatement).getLvalue() instanceof LocalVariable)) {
+            return statements;
+        }
+        LocalVariable synthetic = (LocalVariable) ((StructuredDefinition) definitionStatement).getLvalue();
+        StructuredStatement yieldStatement = statements.get(yieldIdx).getStatement();
+        if (!(yieldStatement instanceof StructuredExpressionYield)) {
+            return statements;
+        }
+        Expression yieldValue = ((StructuredExpressionYield) yieldStatement).getValue();
+        if (!(yieldValue instanceof LValueExpression)) {
+            return statements;
+        }
+        if (!synthetic.equals(((LValueExpression) yieldValue).getLValue())) {
+            return statements;
+        }
+        yieldStatement.rewriteExpressions(new SyntheticYieldBindingRewriter(synthetic, binding));
+        LinkedList<Op04StructuredStatement> simplified = ListFactory.newLinkedList();
+        for (int x = 0; x < statements.size(); ++x) {
+            if (x == definitionIdx) {
+                continue;
+            }
+            simplified.add(statements.get(x));
+        }
+        return simplified;
     }
 
     private boolean isBindingSetupStatement(StructuredStatement statement, LocalVariable binding) {
@@ -537,6 +612,28 @@ final class SwitchPatternCaseDetector {
                 failed = true;
             }
             return super.rewriteExpression(lValue, ssaIdentifiers, statementContainer, flags);
+        }
+    }
+
+    private static final class SyntheticYieldBindingRewriter extends AbstractExpressionRewriter {
+        private final LocalVariable synthetic;
+        private final LocalVariable binding;
+
+        private SyntheticYieldBindingRewriter(LocalVariable synthetic, LocalVariable binding) {
+            this.synthetic = synthetic;
+            this.binding = binding;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof LValueExpression
+                    && synthetic.equals(((LValueExpression) expression).getLValue())) {
+                return new LValueExpression(binding);
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
         }
     }
 }

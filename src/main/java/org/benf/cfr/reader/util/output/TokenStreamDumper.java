@@ -196,7 +196,7 @@ public class TokenStreamDumper extends AbstractDumper {
     @Override
     public Dumper comment(String s) {
         sink(COMMENT, s);
-        return this;
+        return newln();
     }
 
     @Override
@@ -384,7 +384,9 @@ public class TokenStreamDumper extends AbstractDumper {
 
     @Override
     public int getCurrentLine() {
-        return context.currentLine;
+        int res = context.currentLine;
+        if (context.pendingCR) res++;
+        return res;
     }
 
     @Override

@@ -24,9 +24,11 @@ public class ClassFileSourceWrapper implements ClassFileSource2 {
 
     @Override
     public JarContent addJarContent(String jarPath, AnalysisType type) {
-        return new JarContentImpl(
-            classFileSource.addJar(jarPath),
-                Collections.<String, String>emptyMap(), type);
+        Collection<String> classFiles = addJar(jarPath);
+        if (classFiles == null) {
+            return null;
+        }
+        return new JarContentImpl(classFiles, Collections.<String, String>emptyMap(), type);
     }
 
     @Override
@@ -36,6 +38,9 @@ public class ClassFileSourceWrapper implements ClassFileSource2 {
 
     @Override
     public Collection<String> addJar(String jarPath) {
+        if (jarPath == null) {
+            return null;
+        }
         return classFileSource.addJar(jarPath);
     }
 

@@ -5,40 +5,53 @@ import org.benf.cfr.reader.bytecode.analysis.parse.pattern.PatternFactory;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.Block;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredCase;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
+import org.benf.cfr.reader.util.collections.ListFactory;
 
 import java.util.LinkedList;
+import java.util.List;
 
 final class SwitchPatternCaseBuilder {
     SwitchPatternCasePlanner.CaseRewritePlan build(SwitchPatternCasePlanSpec spec) {
         StructuredCase structuredCase = spec.getStructuredCase();
         Block bodyBlock = spec.getBodyBlock();
         LinkedList<org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement> rewrittenStatements = spec.getRewrittenStatements();
-        Expression rewrittenValue;
+        List<Expression> rewrittenValues;
         switch (spec.getKind()) {
             case UNCHANGED:
-                rewrittenValue = null;
+                rewrittenValues = null;
                 bodyBlock = null;
                 rewrittenStatements = null;
                 break;
             case NULL_LITERAL:
-                rewrittenValue = Literal.NULL;
+                rewrittenValues = ListFactory.<Expression>newImmutableList(Literal.NULL);
+                bodyBlock = null;
+                rewrittenStatements = null;
+                break;
+            case EXPLICIT_VALUES:
+                rewrittenValues = spec.getExplicitValues();
                 bodyBlock = null;
                 rewrittenStatements = null;
                 break;
             case BINDING:
-                rewrittenValue = PatternFactory.caseLabel(PatternFactory.binding(spec.getBindingType(), spec.getBinding()));
+                rewrittenValues = ListFactory.<Expression>newImmutableList(
+                        PatternFactory.caseLabel(PatternFactory.binding(spec.getBindingType(), spec.getBinding()))
+                );
                 break;
             case GUARDED_BINDING:
-                rewrittenValue = PatternFactory.caseLabel(
-                        PatternFactory.guarded(
-                                PatternFactory.binding(spec.getBindingType(), spec.getBinding()),
-                                spec.getGuard()
+                rewrittenValues = ListFactory.<Expression>newImmutableList(
+                        PatternFactory.caseLabel(
+                                PatternFactory.guarded(
+                                        PatternFactory.binding(spec.getBindingType(), spec.getBinding()),
+                                        spec.getGuard()
+                                )
                         )
                 );
                 break;
             case RECORD:
-                rewrittenValue = PatternFactory.caseLabel(
-                        PatternFactory.record(spec.getBindingType(), spec.getRecordComponents())
+                rewrittenValues = ListFactory.<Expression>newImmutableList(
+                        PatternFactory.caseLabel(
+                                PatternFactory.record(spec.getBindingType(), spec.getRecordComponents())
+                        )
                 );
                 break;
             default:
@@ -47,7 +60,7 @@ final class SwitchPatternCaseBuilder {
         return new SwitchPatternCasePlanner.CaseRewritePlan(
                 structuredCase,
                 bodyBlock,
-                rewrittenValue,
+                rewrittenValues,
                 rewrittenStatements
         );
     }

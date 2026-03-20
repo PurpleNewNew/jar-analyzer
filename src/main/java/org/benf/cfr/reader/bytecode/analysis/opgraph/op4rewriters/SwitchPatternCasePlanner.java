@@ -11,8 +11,10 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComm
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredWhile;
 import org.benf.cfr.reader.util.collections.ListFactory;
 
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 
 final class SwitchPatternCasePlanner {
     private final SwitchPatternCaseDetector detector = new SwitchPatternCaseDetector();
@@ -25,7 +27,7 @@ final class SwitchPatternCasePlanner {
     List<CaseRewritePlan> planCases(Block switchBlock,
                                     SwitchPatternBootstrapMatch bootstrapMatch,
                                     StructuredWhile patternLoop) {
-        List<CaseRewritePlan> plans = ListFactory.newList();
+        List<StructuredCase> cases = ListFactory.newList();
         for (Op04StructuredStatement statement : switchBlock.getBlockStatements()) {
             StructuredStatement structuredStatement = statement.getStatement();
             if (structuredStatement instanceof StructuredComment || structuredStatement.isEffectivelyNOP()) {
@@ -34,9 +36,18 @@ final class SwitchPatternCasePlanner {
             if (!(structuredStatement instanceof StructuredCase)) {
                 return null;
             }
+            cases.add((StructuredCase) structuredStatement);
+        }
+        Set<Integer> unmatchedLabelIndexes = collectUnmatchedLabelIndexes(cases, bootstrapMatch);
+        if (unmatchedLabelIndexes == null) {
+            return null;
+        }
+        List<CaseRewritePlan> plans = ListFactory.newList();
+        for (StructuredCase structuredCase : cases) {
             SwitchPatternCasePlanSpec planSpec = detectPlan(
-                    (StructuredCase) structuredStatement,
+                    structuredCase,
                     bootstrapMatch,
+                    unmatchedLabelIndexes,
                     patternLoop
             );
             if (planSpec == null) {
@@ -49,22 +60,24 @@ final class SwitchPatternCasePlanner {
 
     private SwitchPatternCasePlanSpec detectPlan(StructuredCase structuredCase,
                                                  SwitchPatternBootstrapMatch match,
+                                                 Set<Integer> unmatchedLabelIndexes,
                                                  StructuredWhile patternLoop) {
         List<Expression> values = structuredCase.getValues();
-        if (values.isEmpty()) {
+        if (values.isEmpty() && unmatchedLabelIndexes.isEmpty()) {
             return SwitchPatternCasePlanSpec.unchanged(structuredCase);
         }
-        if (values.size() != 1) {
+        ResolvedLabels resolvedLabels = resolveLabels(values, match, unmatchedLabelIndexes, structuredCase.isDefault());
+        if (resolvedLabels == null) {
             return null;
         }
-        Integer caseIndex = getCaseIndex(values.get(0));
-        if (caseIndex == null) {
-            return null;
+        if (resolvedLabels.patternTypes.isEmpty()) {
+            if (resolvedLabels.explicitValues.size() == 1
+                    && resolvedLabels.explicitValues.get(0) == Literal.NULL) {
+                return SwitchPatternCasePlanSpec.nullLiteral(structuredCase);
+            }
+            return SwitchPatternCasePlanSpec.explicitValues(structuredCase, resolvedLabels.explicitValues);
         }
-        if (caseIndex == -1) {
-            return SwitchPatternCasePlanSpec.nullLiteral(structuredCase);
-        }
-        if (caseIndex < 0 || caseIndex >= match.getCaseTypes().size()) {
+        if (resolvedLabels.patternTypes.size() != 1 || !resolvedLabels.explicitValues.isEmpty()) {
             return null;
         }
         if (!(structuredCase.getBody().getStatement() instanceof Block)) {
@@ -76,11 +89,75 @@ final class SwitchPatternCasePlanner {
                 bodyBlock,
                 bodyBlock.getBlockStatements(),
                 match.getSelector(),
-                match.getCaseTypes().get(caseIndex),
+                resolvedLabels.patternTypes.get(0),
                 match.getIndexLValue(),
                 patternLoop
         );
         return detector.detect(context);
+    }
+
+    private Set<Integer> collectUnmatchedLabelIndexes(List<StructuredCase> structuredCases,
+                                                      SwitchPatternBootstrapMatch match) {
+        LinkedHashSet<Integer> unmatched = new LinkedHashSet<Integer>();
+        for (int x = 0; x < match.getCaseLabels().size(); ++x) {
+            unmatched.add(x);
+        }
+        for (StructuredCase structuredCase : structuredCases) {
+            for (Expression value : structuredCase.getValues()) {
+                Integer caseIndex = getCaseIndex(value);
+                if (caseIndex == null) {
+                    return null;
+                }
+                if (caseIndex >= 0) {
+                    if (caseIndex >= match.getCaseLabels().size()) {
+                        return null;
+                    }
+                    unmatched.remove(caseIndex);
+                }
+            }
+        }
+        return unmatched;
+    }
+
+    private ResolvedLabels resolveLabels(List<Expression> values,
+                                         SwitchPatternBootstrapMatch match,
+                                         Set<Integer> unmatchedLabelIndexes,
+                                         boolean defaultCase) {
+        List<Expression> explicitValues = ListFactory.newList();
+        List<org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance> patternTypes = ListFactory.newList();
+        if (values.isEmpty()) {
+            if (!defaultCase || unmatchedLabelIndexes.size() != 1) {
+                return null;
+            }
+            Integer only = unmatchedLabelIndexes.iterator().next();
+            appendResolvedLabel(match.getCaseLabels().get(only), explicitValues, patternTypes);
+            return new ResolvedLabels(explicitValues, patternTypes);
+        }
+        for (Expression value : values) {
+            Integer caseIndex = getCaseIndex(value);
+            if (caseIndex == null) {
+                return null;
+            }
+            if (caseIndex == -1) {
+                explicitValues.add(Literal.NULL);
+                continue;
+            }
+            if (caseIndex < 0 || caseIndex >= match.getCaseLabels().size()) {
+                return null;
+            }
+            appendResolvedLabel(match.getCaseLabels().get(caseIndex), explicitValues, patternTypes);
+        }
+        return new ResolvedLabels(explicitValues, patternTypes);
+    }
+
+    private void appendResolvedLabel(SwitchPatternBootstrapMatch.SwitchCaseLabel label,
+                                     List<Expression> explicitValues,
+                                     List<org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance> patternTypes) {
+        if (label.isPattern()) {
+            patternTypes.add(label.getPatternType());
+        } else {
+            explicitValues.add(label.getCaseExpression());
+        }
     }
 
     private Integer getCaseIndex(Expression expression) {
@@ -97,16 +174,16 @@ final class SwitchPatternCasePlanner {
     static final class CaseRewritePlan {
         private final StructuredCase structuredCase;
         private final Block bodyBlock;
-        private final Expression rewrittenValue;
+        private final List<Expression> rewrittenValues;
         private final LinkedList<Op04StructuredStatement> rewrittenStatements;
 
         CaseRewritePlan(StructuredCase structuredCase,
                         Block bodyBlock,
-                        Expression rewrittenValue,
+                        List<Expression> rewrittenValues,
                         LinkedList<Op04StructuredStatement> rewrittenStatements) {
             this.structuredCase = structuredCase;
             this.bodyBlock = bodyBlock;
-            this.rewrittenValue = rewrittenValue;
+            this.rewrittenValues = rewrittenValues;
             this.rewrittenStatements = rewrittenStatements;
         }
 
@@ -118,12 +195,23 @@ final class SwitchPatternCasePlanner {
             return bodyBlock;
         }
 
-        Expression getRewrittenValue() {
-            return rewrittenValue;
+        List<Expression> getRewrittenValues() {
+            return rewrittenValues;
         }
 
         LinkedList<Op04StructuredStatement> getRewrittenStatements() {
             return rewrittenStatements;
+        }
+    }
+
+    private static final class ResolvedLabels {
+        private final List<Expression> explicitValues;
+        private final List<org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance> patternTypes;
+
+        private ResolvedLabels(List<Expression> explicitValues,
+                               List<org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance> patternTypes) {
+            this.explicitValues = explicitValues;
+            this.patternTypes = patternTypes;
         }
     }
 }

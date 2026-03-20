@@ -15,6 +15,7 @@ final class SwitchPatternCasePlanSpec {
     enum Kind {
         UNCHANGED,
         NULL_LITERAL,
+        EXPLICIT_VALUES,
         BINDING,
         GUARDED_BINDING,
         RECORD
@@ -24,6 +25,7 @@ final class SwitchPatternCasePlanSpec {
     private final StructuredCase structuredCase;
     private final Block bodyBlock;
     private final LinkedList<Op04StructuredStatement> rewrittenStatements;
+    private final List<Expression> explicitValues;
     private final JavaTypeInstance bindingType;
     private final LocalVariable binding;
     private final Expression guard;
@@ -33,6 +35,7 @@ final class SwitchPatternCasePlanSpec {
                                       StructuredCase structuredCase,
                                       Block bodyBlock,
                                       LinkedList<Op04StructuredStatement> rewrittenStatements,
+                                      List<Expression> explicitValues,
                                       JavaTypeInstance bindingType,
                                       LocalVariable binding,
                                       Expression guard,
@@ -41,6 +44,7 @@ final class SwitchPatternCasePlanSpec {
         this.structuredCase = structuredCase;
         this.bodyBlock = bodyBlock;
         this.rewrittenStatements = rewrittenStatements;
+        this.explicitValues = explicitValues;
         this.bindingType = bindingType;
         this.binding = binding;
         this.guard = guard;
@@ -48,11 +52,25 @@ final class SwitchPatternCasePlanSpec {
     }
 
     static SwitchPatternCasePlanSpec unchanged(StructuredCase structuredCase) {
-        return new SwitchPatternCasePlanSpec(Kind.UNCHANGED, structuredCase, null, null, null, null, null, null);
+        return new SwitchPatternCasePlanSpec(Kind.UNCHANGED, structuredCase, null, null, null, null, null, null, null);
     }
 
     static SwitchPatternCasePlanSpec nullLiteral(StructuredCase structuredCase) {
-        return new SwitchPatternCasePlanSpec(Kind.NULL_LITERAL, structuredCase, null, null, null, null, null, null);
+        return new SwitchPatternCasePlanSpec(Kind.NULL_LITERAL, structuredCase, null, null, null, null, null, null, null);
+    }
+
+    static SwitchPatternCasePlanSpec explicitValues(StructuredCase structuredCase, List<Expression> explicitValues) {
+        return new SwitchPatternCasePlanSpec(
+                Kind.EXPLICIT_VALUES,
+                structuredCase,
+                null,
+                null,
+                explicitValues,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     static SwitchPatternCasePlanSpec binding(SwitchPatternCaseContext context,
@@ -63,6 +81,7 @@ final class SwitchPatternCasePlanSpec {
                 context.getStructuredCase(),
                 context.getBodyBlock(),
                 rewrittenStatements,
+                null,
                 binding.getInferredJavaType().getJavaTypeInstance(),
                 binding,
                 null,
@@ -79,6 +98,7 @@ final class SwitchPatternCasePlanSpec {
                 context.getStructuredCase(),
                 context.getBodyBlock(),
                 rewrittenStatements,
+                null,
                 binding.getInferredJavaType().getJavaTypeInstance(),
                 binding,
                 guard,
@@ -95,6 +115,7 @@ final class SwitchPatternCasePlanSpec {
                 context.getStructuredCase(),
                 context.getBodyBlock(),
                 rewrittenStatements,
+                null,
                 binding.getInferredJavaType().getJavaTypeInstance(),
                 binding,
                 null,
@@ -116,6 +137,10 @@ final class SwitchPatternCasePlanSpec {
 
     LinkedList<Op04StructuredStatement> getRewrittenStatements() {
         return rewrittenStatements;
+    }
+
+    List<Expression> getExplicitValues() {
+        return explicitValues;
     }
 
     JavaTypeInstance getBindingType() {

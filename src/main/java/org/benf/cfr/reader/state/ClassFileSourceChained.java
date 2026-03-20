@@ -57,11 +57,19 @@ public class ClassFileSourceChained implements ClassFileSource2 {
 
     @Override
     public Pair<byte[], String> getClassFileContent(String path) throws IOException {
+        IOException lastException = null;
         for (ClassFileSource2 source : sources) {
-            Pair<byte[], String> res = source.getClassFileContent(path);
-            if (res != null) {
-                return res;
+            try {
+                Pair<byte[], String> res = source.getClassFileContent(path);
+                if (res != null) {
+                    return res;
+                }
+            } catch (IOException e) {
+                lastException = e;
             }
+        }
+        if (lastException != null) {
+            throw lastException;
         }
         return null;
     }
