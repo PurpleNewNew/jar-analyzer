@@ -1,37 +1,26 @@
 package org.benf.cfr.reader.bytecode;
 
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-import org.benf.cfr.reader.util.getopt.OptionsImpl;
+
+import java.util.List;
 
 final class ModernSemanticsStage {
-    private final StructureRecoveryPipeline structureRecoveryPipeline;
-    private final PatternSemanticsRewriter patternSemanticsRewriter;
+    private final List<StructuredSemanticTransforms.ModernSemanticPlan> plans;
 
     ModernSemanticsStage(StructureRecoveryPipeline structureRecoveryPipeline,
                          PatternSemanticsRewriter patternSemanticsRewriter) {
-        this.structureRecoveryPipeline = structureRecoveryPipeline;
-        this.patternSemanticsRewriter = patternSemanticsRewriter;
+        this.plans = StructuredSemanticTransforms.modernSemanticPlans(structureRecoveryPipeline, patternSemanticsRewriter);
     }
 
     void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
         if (!block.isFullyStructured()) {
             return;
         }
-        StructuredSemanticTransforms.rewriteExplicitTypeUsages(block, context.anonymousClassUsage, context.modernFeatures);
-        if (context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion)) {
-            StructuredSemanticTransforms.removeEndResource(context.classFile, block);
+        for (StructuredSemanticTransforms.ModernSemanticPlan plan : plans) {
+            if (!plan.enabled(context)) {
+                continue;
+            }
+            plan.apply(block, context);
         }
-        patternSemanticsRewriter.rewrite(block, context.bytecodeMeta, context.structureRecoveryTrace);
-        if (context.modernFeatures.supportsSwitchExpressions()) {
-            StructuredSemanticTransforms.switchExpression(
-                    context.method,
-                    block,
-                    context.comments,
-                    context.modernFeatures.shouldEmitPreviewSwitchExpressionComment()
-            );
-        }
-        structureRecoveryPipeline.cleanupAfterModernSemantics(block, context);
-        StructuredSemanticTransforms.rewriteLambdas(context.commonState, context.method, block);
-        StructuredSemanticTransforms.removeRedundantIntersectionCasts(block);
     }
 }

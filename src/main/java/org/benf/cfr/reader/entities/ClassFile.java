@@ -4,8 +4,10 @@ import org.benf.cfr.reader.bytecode.CodeAnalyserWholeClass;
 import org.benf.cfr.reader.bytecode.ModernFeatureStrategy;
 import org.benf.cfr.reader.bytecode.StructuredClassTransforms;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.AbstractConstructorInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationAnonymousInner;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StaticVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Triplet;
@@ -40,9 +42,11 @@ import org.benf.cfr.reader.entities.attributes.TypeAnnotationEntryValue;
 import org.benf.cfr.reader.entities.attributes.TypeAnnotationTargetInfo;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumper;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperAnnotation;
+import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperEnum;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperInterface;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperModule;
 import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperNormal;
+import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperRecord;
 import org.benf.cfr.reader.entities.classfilehelpers.OverloadMethodSet;
 import org.benf.cfr.reader.entities.constantpool.ConstantPool;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryClass;
@@ -256,37 +260,7 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
         // Need to load inner classes asap so we can infer staticness before any analysis
         this.innerClassesByTypeInfo = new LinkedHashMap<JavaTypeInstance, Pair<InnerClassAttributeInfo, ClassFile>>();
 
-        boolean isInterface = accessFlags.contains(AccessFlag.ACC_INTERFACE);
-        boolean isAnnotation = accessFlags.contains(AccessFlag.ACC_ANNOTATION);
-        boolean isModule = accessFlags.contains(AccessFlag.ACC_MODULE);
-
-        /*
-         * Choose a default dump helper.  This may be overwritten.
-         */
-        if (isInterface) {
-            if (isAnnotation) {
-                dumpHelper = new ClassFileDumperAnnotation(dcCommonState);
-            } else {
-                dumpHelper = new ClassFileDumperInterface(dcCommonState);
-            }
-        } else {
-            if (isModule) {
-                if (!methods.isEmpty()) {
-                    // This shouldn't be possible, but I suspect someone might try it!
-                    addComment("Class file marked as module, but has methods! Treated as a class file");
-                    isModule = false;
-                }
-                if (null == attributes.getByName(AttributeModule.ATTRIBUTE_NAME)) {
-                    addComment("Class file marked as module, but no module attribute!");
-                    isModule = false;
-                }
-            }
-            if (isModule) {
-                dumpHelper = new ClassFileDumperModule(dcCommonState);
-            } else {
-                dumpHelper = new ClassFileDumperNormal(dcCommonState);
-            }
-        }
+        installDefaultDumpHelper(dcCommonState);
 
         /*
          *
@@ -450,8 +424,13 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
     }
 
     public List<JavaTypeInstance> getAllClassTypes() {
-        List<JavaTypeInstance> res = ListFactory.newList();
-        getAllClassTypes(res);
+        final List<JavaTypeInstance> res = ListFactory.newList();
+        forEachClassInTree(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                res.add(classFile.getClassType());
+            }
+        });
         return res;
     }
 
@@ -468,12 +447,13 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
         }
         collector.collectFrom(methods);
         if (fakeMethods != null) collector.collectFrom(fakeMethods);;
-        // Collect the types of all inner classes, then process recursively.
-        for (Map.Entry<JavaTypeInstance, Pair<InnerClassAttributeInfo, ClassFile>> innerClassByTypeInfo : innerClassesByTypeInfo.entrySet()) {
-            collector.collect(innerClassByTypeInfo.getKey());
-            ClassFile innerClassFile = innerClassByTypeInfo.getValue().getSecond();
-            innerClassFile.collectTypeUsages(collector);
-        }
+        forEachLoadedInnerClass(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile innerClassFile) {
+                collector.collect(innerClassFile.getClassType());
+                innerClassFile.collectTypeUsages(collector);
+            }
+        });
         collector.collectFrom(dumpHelper);
         collector.collectFromT(attributes.getByName(AttributeRuntimeVisibleAnnotations.ATTRIBUTE_NAME));
         collector.collectFromT(attributes.getByName(AttributeRuntimeInvisibleAnnotations.ATTRIBUTE_NAME));
@@ -482,19 +462,47 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
         }
     }
 
-    private void getAllClassTypes(List<JavaTypeInstance> tgt) {
-        tgt.add(getClassType());
-        for (Pair<InnerClassAttributeInfo, ClassFile> pair : innerClassesByTypeInfo.values()) {
-            pair.getSecond().getAllClassTypes(tgt);
-        }
+    public void rewriteAsRecord(DCCommonState state) {
+        this.dumpHelper = new ClassFileDumperRecord(state);
     }
 
-    public void setDumpHelper(ClassFileDumper dumpHelper) {
-        this.dumpHelper = dumpHelper;
+    public void rewriteAsEnum(DCCommonState state, List<Pair<StaticVariable, AbstractConstructorInvokation>> entries) {
+        this.dumpHelper = new ClassFileDumperEnum(state, entries);
     }
 
     public void markHiddenInnerClass() {
         hiddenInnerClass = true;
+    }
+
+    private void installDefaultDumpHelper(DCCommonState dcCommonState) {
+        this.dumpHelper = createDefaultDumpHelper(dcCommonState);
+    }
+
+    private ClassFileDumper createDefaultDumpHelper(DCCommonState dcCommonState) {
+        if (accessFlags.contains(AccessFlag.ACC_INTERFACE)) {
+            return accessFlags.contains(AccessFlag.ACC_ANNOTATION)
+                    ? new ClassFileDumperAnnotation(dcCommonState)
+                    : new ClassFileDumperInterface(dcCommonState);
+        }
+        if (isValidModuleClass()) {
+            return new ClassFileDumperModule(dcCommonState);
+        }
+        return new ClassFileDumperNormal(dcCommonState);
+    }
+
+    private boolean isValidModuleClass() {
+        if (!accessFlags.contains(AccessFlag.ACC_MODULE)) {
+            return false;
+        }
+        if (!methods.isEmpty()) {
+            addComment("Class file marked as module, but has methods! Treated as a class file");
+            return false;
+        }
+        if (attributes.getByName(AttributeModule.ATTRIBUTE_NAME) == null) {
+            addComment("Class file marked as module, but no module attribute!");
+            return false;
+        }
+        return true;
     }
 
     public ClassFileVersion getClassFileVersion() {
@@ -918,56 +926,67 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
         return state.getObfuscationMapping().getInnerClassInfo(getClassType());
     }
 
-    private void analyseInnerClassesPass1(DCCommonState state) {
-        if (innerClassesByTypeInfo == null) return;
+    private void forEachLoadedInnerClass(UnaryProcedure<ClassFile> procedure) {
+        if (innerClassesByTypeInfo.isEmpty()) return;
         for (Pair<InnerClassAttributeInfo, ClassFile> innerClassInfoClassFilePair : innerClassesByTypeInfo.values()) {
-            ClassFile classFile = innerClassInfoClassFilePair.getSecond();
-            classFile.analyseMid(state);
+            procedure.call(innerClassInfoClassFilePair.getSecond());
         }
     }
 
-    private void analysePassOuterFirst(UnaryProcedure<ClassFile> fn) {
+    private void forEachClassInTree(UnaryProcedure<ClassFile> procedure) {
+        procedure.call(this);
+        forEachLoadedInnerClass(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                classFile.forEachClassInTree(procedure);
+            }
+        });
+    }
+
+    private void analyseNestedClassesBeforeCurrentClass(final DCCommonState state) {
+        forEachLoadedInnerClass(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                classFile.analyseClassBody(state);
+            }
+        });
+    }
+
+    private void applyOuterFirstToClassTree(UnaryProcedure<ClassFile> fn) {
         try {
             fn.call(this);
         } catch (RuntimeException e) {
             addComment("Exception performing whole class analysis ignored.", e);
         }
-
-        if (innerClassesByTypeInfo == null) return;
-        for (Pair<InnerClassAttributeInfo, ClassFile> innerClassInfoClassFilePair : innerClassesByTypeInfo.values()) {
-            ClassFile classFile = innerClassInfoClassFilePair.getSecond();
-            classFile.analysePassOuterFirst(fn);
-        }
+        forEachLoadedInnerClass(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                classFile.applyOuterFirstToClassTree(fn);
+            }
+        });
     }
 
     public void analyseTop(final DCCommonState dcCommonState, final TypeUsageCollectingDumper typeUsageCollectingDumper) {
-        analyseMid(dcCommonState);
-        analysePassOuterFirst(new UnaryProcedure<ClassFile>() {
+        analyseClassBody(dcCommonState);
+        applyOuterFirstWholeClassAnalysis(dcCommonState, typeUsageCollectingDumper);
+    }
+
+    private void applyOuterFirstWholeClassAnalysis(final DCCommonState dcCommonState,
+                                                   final TypeUsageCollectingDumper typeUsageCollectingDumper) {
+        applyOuterFirstToClassTree(new UnaryProcedure<ClassFile>() {
             @Override
             public void call(ClassFile arg) {
-                CodeAnalyserWholeClass.wholeClassAnalysisPass2(arg, dcCommonState);
+                CodeAnalyserWholeClass.applyOuterFirstReferenceRewrites(arg, dcCommonState);
             }
         });
-        /*
-         * Perform a pass to determine what imports / classes etc we used / failed.
-         */
+
         this.dump(typeUsageCollectingDumper);
-        analysePassOuterFirst(new UnaryProcedure<ClassFile>() {
+        applyOuterFirstToClassTree(new UnaryProcedure<ClassFile>() {
             @Override
             public void call(ClassFile arg) {
-                CodeAnalyserWholeClass.wholeClassAnalysisPass3(arg, dcCommonState, typeUsageCollectingDumper);
+                CodeAnalyserWholeClass.applyPostTypeUsageRewrites(arg, dcCommonState, typeUsageCollectingDumper);
             }
         });
-        analysePassOuterFirst(new UnaryProcedure<ClassFile>() {
-            @Override
-            public void call(ClassFile arg) {
-                CodeAnalyserWholeClass.refreshLocalVariableMetadata(arg);
-            }
-        });
-        /*
-         * wholeClassAnalysisPass3 may force local declarations to be reprinted with refreshed metadata.
-         * Re-collect type usage after the refresh so final dumping sees the same type surface.
-         */
         this.dump(typeUsageCollectingDumper);
     }
 
@@ -1034,57 +1053,56 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
     }
 
 
-    private void analyseMid(DCCommonState state) {
+    private void analyseClassBody(DCCommonState state) {
         Options options = state.getOptions();
         if (this.begunAnalysis) {
             return;
         }
         this.begunAnalysis = true;
-        /*
-         * Analyse inner classes first, so we know if they're static when we reference them
-         * from the outer class.
-         */
         if (options.getOption(OptionsImpl.DECOMPILE_INNER_CLASSES)) {
-            analyseInnerClassesPass1(state);
+            analyseNestedClassesBeforeCurrentClass(state);
         }
+        analyseMethods(options);
+        applyInnerClassFirstWholeClassRewrites(state, options);
+    }
 
-        /*
-         * While we're going to consider the methods in order, analyse synthetic methods first
-         * so that we can tag them.
-         */
+    private void analyseMethods(Options options) {
         Pair<List<Method>, List<Method>> partition = Functional.partition(methods, new Predicate<Method>() {
             @Override
             public boolean test(Method x) {
                 return x.getAccessFlags().contains(AccessFlagMethod.ACC_SYNTHETIC);
             }
         });
-        // Analyse synthetic methods.
         for (Method method : partition.getFirst()) {
             method.analyse();
             analyseSyntheticTags(method, options);
         }
-        // Non synthetics.
         for (Method method : partition.getSecond()) {
             method.analyse();
         }
+    }
 
+    private void applyInnerClassFirstWholeClassRewrites(DCCommonState state, Options options) {
         try {
             if (options.getOption(OptionsImpl.OVERRIDES, classFileVersion)) {
                 analyseOverrides();
             }
-
-            CodeAnalyserWholeClass.wholeClassAnalysisPass1(this, state);
+            CodeAnalyserWholeClass.applyInnerClassFirstRewrites(this, state);
         } catch (RuntimeException e) {
             addComment(DecompilerComment.WHOLE_CLASS_EXCEPTION);
         }
-
     }
 
     public void releaseCode() {
         if (isInnerClass) return;
-        for (Method method : methods) {
-            method.releaseCode();
-        }
+        forEachClassInTree(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                for (Method method : classFile.methods) {
+                    method.releaseCode();
+                }
+            }
+        });
     }
 
     public JavaTypeInstance getClassType() {
@@ -1152,27 +1170,28 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
 
 
     public void dumpNamedInnerClasses(Dumper d) {
-        if (innerClassesByTypeInfo == null || innerClassesByTypeInfo.isEmpty()) return;
+        if (innerClassesByTypeInfo.isEmpty()) return;
 
-        for (Pair<InnerClassAttributeInfo, ClassFile> innerClassEntry : innerClassesByTypeInfo.values()) {
-            // catchy!
-            InnerClassInfo innerClassInfo = innerClassEntry.getFirst().getInnerClassInfo().getInnerClassHereInfo();
-            if (innerClassInfo.isSyntheticFriendClass()) {
-                continue;
+        forEachLoadedInnerClass(new UnaryProcedure<ClassFile>() {
+            @Override
+            public void call(ClassFile classFile) {
+                InnerClassInfo innerClassInfo = classFile.getClassType().getInnerClassHereInfo();
+                if (innerClassInfo.isSyntheticFriendClass()) {
+                    return;
+                }
+                if (innerClassInfo.isMethodScopedClass()) {
+                    return;
+                }
+                if (classFile.hiddenInnerClass) {
+                    return;
+                }
+                TypeUsageInformation typeUsageInformation = d.getTypeUsageInformation();
+                TypeUsageInformation innerclassTypeUsageInformation = new InnerClassTypeUsageInformation(typeUsageInformation, (JavaRefTypeInstance) classFile.getClassType());
+                d.newln();
+                Dumper d2 = d.withTypeUsageInformation(innerclassTypeUsageInformation);
+                classFile.dumpHelper.dump(classFile, ClassFileDumper.InnerClassDumpType.INNER_CLASS, d2);
             }
-            if (innerClassInfo.isMethodScopedClass()) {
-                continue;
-            }
-            ClassFile classFile = innerClassEntry.getSecond();
-            if (classFile.hiddenInnerClass) {
-                continue;
-            }
-            TypeUsageInformation typeUsageInformation = d.getTypeUsageInformation();
-            TypeUsageInformation innerclassTypeUsageInformation = new InnerClassTypeUsageInformation(typeUsageInformation, (JavaRefTypeInstance) classFile.getClassType());
-            d.newln();
-            Dumper d2 = d.withTypeUsageInformation(innerclassTypeUsageInformation);
-            classFile.dumpHelper.dump(classFile, ClassFileDumper.InnerClassDumpType.INNER_CLASS, d2);
-        }
+        });
     }
 
     @Override

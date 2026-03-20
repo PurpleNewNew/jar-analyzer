@@ -69,7 +69,7 @@ class ReturnRewriter {
                 success |= pushReturnBack(stm);
             }
         }
-        if (success) Op03Rewriters.replaceReturningIfs(statements, true);
+        if (success) replaceReturningIfs(statements, true);
     }
 
     private static boolean pushReturnBack(final Op03SimpleStatement returnStm) {

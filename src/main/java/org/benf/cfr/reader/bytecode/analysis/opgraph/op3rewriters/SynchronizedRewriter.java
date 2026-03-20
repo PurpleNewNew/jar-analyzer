@@ -48,7 +48,7 @@ class SynchronizedRewriter {
             effect = removeSynchronizedCatchBlock(catchStart, in) || effect;
         }
         if (effect) {
-            Op03Rewriters.removePointlessJumps(in);
+            PointlessJumps.normalizePointlessJumps(in);
         }
     }
 

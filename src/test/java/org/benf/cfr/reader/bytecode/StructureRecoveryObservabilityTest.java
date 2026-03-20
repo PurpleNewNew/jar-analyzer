@@ -44,7 +44,7 @@ class StructureRecoveryObservabilityTest {
         assertTrue(StructuredSemanticTransforms.describePasses().stream()
                 .anyMatch(entry -> "rewrite-lambdas".equals(entry.getDescriptor().getName())
                         && "modern-semantics".equals(entry.getStage())));
-        assertTrue(StructuredOutputTransforms.describePasses().stream()
+        assertTrue(StructuredSemanticTransforms.describeOutputPasses().stream()
                 .anyMatch(entry -> "apply-checker".equals(entry.getDescriptor().getName())
                         && "output-polish.validation-and-metadata".equals(entry.getStage())));
         assertTrue(VariableRecoveryPasses.describePasses().stream()

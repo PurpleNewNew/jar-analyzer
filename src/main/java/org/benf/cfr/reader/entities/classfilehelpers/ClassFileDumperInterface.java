@@ -55,25 +55,12 @@ public class ClassFileDumperInterface extends AbstractClassFileDumper {
             return d;
         }
 
-        if (!innerClass.isInnerClass()) {
-            dumpTopHeader(classFile, d, true);
-            dumpImports(d, classFile);
-        }
-
-        dumpComments(classFile, d);
-        dumpAnnotations(classFile, d);
+        dumpDeclarationPrelude(classFile, innerClass, d, true);
         dumpHeader(classFile, innerClass, d);
-        boolean first = true;
         d.separator("{").newln();
         d.indent(1);
-        // Horrid, but an interface can have fields....
-        List<ClassFileField> fields = classFile.getFields();
-        for (ClassFileField field : fields) {
-            field.dump(d, classFile);
-            first = false;
-        }
-        dumpMethods(classFile, d, first, false);
-        classFile.dumpNamedInnerClasses(d);
+        boolean first = dumpFields(classFile, d, true, false);
+        dumpMethodsAndInnerClasses(classFile, d, first, false);
         d.indent(-1);
         d.print("}").newln();
         return d;

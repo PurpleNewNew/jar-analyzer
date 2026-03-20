@@ -47,27 +47,12 @@ public class ClassFileDumperRecord extends AbstractClassFileDumper {
     public Dumper dump(ClassFile classFile, InnerClassDumpType innerClass, Dumper d) {
         if (!d.canEmitClass(classFile.getClassType())) return d;
 
-        if (!innerClass.isInnerClass()) {
-            dumpTopHeader(classFile, d, true);
-            dumpImports(d, classFile);
-        }
-
-        dumpComments(classFile, d);
-        dumpAnnotations(classFile, d);
+        dumpDeclarationPrelude(classFile, innerClass, d, true);
         dumpHeader(classFile, innerClass, d);
         d.separator("{").newln();
         d.indent(1);
-        boolean first = true;
-
-        List<ClassFileField> fields = classFile.getFields();
-        for (ClassFileField field : fields) {
-            if (!field.shouldNotDisplay()) {
-                field.dump(d, classFile);
-                first = false;
-            }
-        }
-        dumpMethods(classFile, d, first, true);
-        classFile.dumpNamedInnerClasses(d);
+        boolean first = dumpFields(classFile, d, true, true);
+        dumpMethodsAndInnerClasses(classFile, d, first, true);
         d.indent(-1);
         d.separator("}").newln();
 

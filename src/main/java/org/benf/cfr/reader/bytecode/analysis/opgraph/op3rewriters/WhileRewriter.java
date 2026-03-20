@@ -23,6 +23,10 @@ import java.util.List;
 import java.util.Set;
 
 class WhileRewriter {
+    static void normalizeLoopShapes(Options options, List<Op03SimpleStatement> statements) {
+        rewriteDoWhileTruePredAsWhile(statements);
+        rewriteWhilesAsFors(options, statements);
+    }
 
     private static void rewriteDoWhileTruePredAsWhile(Op03SimpleStatement end, List<Op03SimpleStatement> statements) {
         WhileStatement whileStatement = (WhileStatement) end.getStatement();

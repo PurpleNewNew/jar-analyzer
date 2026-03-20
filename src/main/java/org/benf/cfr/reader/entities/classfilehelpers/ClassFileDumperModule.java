@@ -23,10 +23,7 @@ public class ClassFileDumperModule extends AbstractClassFileDumper {
 
     @Override
     public Dumper dump(ClassFile classFile, InnerClassDumpType innerClass, Dumper d) {
-        dumpTopHeader(classFile, d, false);
-        dumpImports(d, classFile);
-        dumpComments(classFile, d);
-        dumpAnnotations(classFile, d);
+        dumpDeclarationPrelude(classFile, innerClass, d, false);
 
         AttributeModule module = classFile.getAttributes().getByName(AttributeModule.ATTRIBUTE_NAME);
         ConstantPool cp = module.getCp();

@@ -1,5 +1,6 @@
 package org.benf.cfr.reader.entities;
 
+import org.benf.cfr.reader.bytecode.AnalysisResult;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.variables.Ident;
@@ -198,7 +199,7 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
         collector.collectFromT(attributes.getByName(AttributeAnnotationDefault.ATTRIBUTE_NAME));
         if (codeAttribute != null) {
             codeAttribute.collectTypeUsages(collector);
-            codeAttribute.analyse().collectTypeUsages(collector);
+            requireAnalysisResult().getCode().collectTypeUsages(collector);
         }
         collector.collect(localClasses.keySet());
         collector.collectFromT(attributes.getByName(AttributeExceptions.ATTRIBUTE_NAME));
@@ -525,12 +526,14 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
     }
 
     public Op04StructuredStatement getAnalysis() {
-        if (codeAttribute == null) throw new ConfusedCFRException("No code in this method to analyze");
-        Op04StructuredStatement analysis = codeAttribute.analyse();
-        return analysis;
+        return requireAnalysisResult().getCode();
     }
 
-    public org.benf.cfr.reader.bytecode.AnalysisResult getAnalysisResult() {
+    public AnalysisResult getAnalysisResult() {
+        return requireAnalysisResult();
+    }
+
+    private AnalysisResult requireAnalysisResult() {
         if (codeAttribute == null) throw new ConfusedCFRException("No code in this method to analyze");
         return codeAttribute.analyseResult();
     }
@@ -542,7 +545,7 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
     void analyse() {
         try {
             if (codeAttribute != null) {
-                codeAttribute.analyse();
+                requireAnalysisResult();
             }
             if (!methodPrototype.parametersComputed()) {
                 /*
@@ -610,7 +613,7 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
     public void dump(Dumper d, boolean asClass) {
         if (codeAttribute != null) {
             // force analysis so we have comments.
-            codeAttribute.analyse();
+            requireAnalysisResult();
         }
         dumpComments(d);
         dumpSignatureText(asClass, d);

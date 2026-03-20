@@ -43,6 +43,21 @@ public class ConditionalRewriter {
         }
     }
 
+    public static void classifyAndIdentifyNonjumpingConditionals(List<Op03SimpleStatement> statements,
+                                                                 BlockIdentifierFactory blockIdentifierFactory,
+                                                                 Options options,
+                                                                 boolean aggressiveAnonymousBlocks) {
+        ClassifyGotos.classifyGotos(statements);
+        if (options.getOption(OptionsImpl.LABELLED_BLOCKS)) {
+            ClassifyGotos.classifyAnonymousBlockGotos(statements, aggressiveAnonymousBlocks);
+        }
+        identifyNonjumpingConditionals(statements, blockIdentifierFactory, options);
+    }
+
+    public static void classifyAnonymousBlockGotos(List<Op03SimpleStatement> statements, boolean aggressive) {
+        ClassifyGotos.classifyAnonymousBlockGotos(statements, aggressive);
+    }
+
     public static void identifyNonjumpingConditionals(List<Op03SimpleStatement> statements, BlockIdentifierFactory blockIdentifierFactory, Options options) {
         boolean success;
         Set<Op03SimpleStatement> ignoreTheseJumps = SetFactory.newSet();

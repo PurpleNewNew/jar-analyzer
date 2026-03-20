@@ -42,7 +42,15 @@ public class NegativeJumps {
      *
      * RequireDirectAfter - y MUST equal x+1.
      */
-    public static void rewriteNegativeJumps(List<Op03SimpleStatement> statements, boolean requireChainedConditional) {
+    public static boolean normalizeNegativeJumps(List<Op03SimpleStatement> statements, boolean requireChainedConditional) {
+        boolean changed = false;
+        while (rewriteNegativeJumpsPass(statements, requireChainedConditional)) {
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static boolean rewriteNegativeJumpsPass(List<Op03SimpleStatement> statements, boolean requireChainedConditional) {
         List<Op03SimpleStatement> removeThese = ListFactory.newList();
         for (int x = 0; x < statements.size() - 2; ++x) {
             Op03SimpleStatement aStatement = statements.get(x);
@@ -85,7 +93,11 @@ public class NegativeJumps {
                 }
             }
         }
+        if (removeThese.isEmpty()) {
+            return false;
+        }
         statements.removeAll(removeThese);
+        return true;
     }
 
 }

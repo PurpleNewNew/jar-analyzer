@@ -87,7 +87,7 @@ public class EclipseLoops {
         }
 
         if (effect) {
-            Op03Rewriters.removePointlessJumps(statements);
+            PointlessJumps.normalizePointlessJumps(statements);
         }
     }
 

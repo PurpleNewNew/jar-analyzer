@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 public class BreakRewriter {
-    public static void rewriteBreakStatements(List<Op03SimpleStatement> statements) {
+    public static void classifyLoopExits(List<Op03SimpleStatement> statements) {
         Cleaner.reindexInPlace(statements);
         test:
         for (Op03SimpleStatement statement : statements) {

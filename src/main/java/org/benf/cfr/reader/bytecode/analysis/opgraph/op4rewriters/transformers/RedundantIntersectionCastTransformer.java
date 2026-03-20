@@ -1,6 +1,5 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers;
 
-import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
@@ -13,11 +12,6 @@ import org.benf.cfr.reader.bytecode.analysis.types.JavaIntersectionTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 
 public class RedundantIntersectionCastTransformer extends AbstractExpressionRewriter implements StructuredStatementTransformer {
-
-    public void transform(Op04StructuredStatement root) {
-        StructuredScope structuredScope = new StructuredScope();
-        root.transform(this, structuredScope);
-    }
 
     @Override
     public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {

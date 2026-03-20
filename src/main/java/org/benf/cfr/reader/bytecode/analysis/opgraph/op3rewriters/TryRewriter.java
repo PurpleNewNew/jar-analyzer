@@ -2,6 +2,7 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph.op3rewriters;
 
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.InstrIndex;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03Blocks;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op03SimpleStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Statement;
 import org.benf.cfr.reader.bytecode.analysis.parse.statement.*;
@@ -22,6 +23,19 @@ import java.util.List;
 import java.util.Set;
 
 class TryRewriter {
+    static void normalizeTryBounds(DCCommonState dcCommonState, List<Op03SimpleStatement> statements) {
+        extendTryBlocks(dcCommonState, statements);
+        combineTryCatchEnds(statements);
+    }
+
+    static List<Op03SimpleStatement> normalizeTopSortedTryBounds(DCCommonState dcCommonState,
+                                                                 List<Op03SimpleStatement> statements) {
+        extendTryBlocks(dcCommonState, statements);
+        statements = Op03Blocks.combineTryBlocks(statements);
+        combineTryCatchEnds(statements);
+        rewriteTryBackJumps(statements);
+        return statements;
+    }
 
     /*
      * This is a terrible order cheat.

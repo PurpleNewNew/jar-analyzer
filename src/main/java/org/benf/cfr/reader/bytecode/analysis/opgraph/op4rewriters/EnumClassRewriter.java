@@ -22,7 +22,6 @@ import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.*;
-import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperEnum;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.*;
 import org.benf.cfr.reader.util.collections.Functional;
@@ -150,7 +149,7 @@ public class EnumClassRewriter {
         for (Map.Entry<StaticVariable, MatchedEnumEntry> entry : entryMap.entrySet()) {
             entries.add(Pair.<StaticVariable, AbstractConstructorInvokation>make(entry.getKey(), entry.getValue().getData()));
         }
-        classFile.setDumpHelper(new ClassFileDumperEnum(state, entries));
+        classFile.rewriteAsEnum(state, entries);
 
         /*
          * Check for illegal identifiers - if there are any, either flag it, or rename.

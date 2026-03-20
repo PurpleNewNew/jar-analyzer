@@ -31,7 +31,7 @@ import static org.benf.cfr.reader.util.collections.SetUtil.getSingle;
 
 public class Op03Blocks {
 
-    private static List<Block3> doTopSort(List<Block3> in) {
+    private static List<Block3> topologicallyOrderBlocksOnce(List<Block3> in) {
         /*
          * Topological sort, preferring earlier.
          *
@@ -365,7 +365,7 @@ public class Op03Blocks {
      *
      * If these are working, we're probably quite happy!
      */
-    private static boolean detectMoves(List<Block3> blocks, Options options) {
+    private static boolean addLoopReorderDependencies(List<Block3> blocks, Options options) {
         Map<Op03SimpleStatement, Block3> opLocations = MapFactory.newIdentityMap();
         Map<Block3, Integer> idxLut = MapFactory.newIdentityMap();
         for (int i = 0, len = blocks.size(); i < len; ++i) {
@@ -476,7 +476,7 @@ public class Op03Blocks {
         return effect;
     }
 
-    private static void stripTryBlockAliases(List<Op03SimpleStatement> out, Map<BlockIdentifier, BlockIdentifier> tryBlockAliases) {
+    private static void collapseTryBlockAliases(List<Op03SimpleStatement> out, Map<BlockIdentifier, BlockIdentifier> tryBlockAliases) {
         Map<BlockIdentifier, Op03SimpleStatement> tries = MapFactory.newMap();
         Set<Op03SimpleStatement> remove = SetFactory.newOrderedSet();
         Set<BlockIdentifier> blocksToRemove = SetFactory.newOrderedSet();
@@ -567,7 +567,7 @@ public class Op03Blocks {
 
     public static List<Op03SimpleStatement> combineTryBlocks(final List<Op03SimpleStatement> statements) {
         Map<BlockIdentifier, BlockIdentifier> tryBlockAliases = getTryBlockAliases(statements);
-        stripTryBlockAliases(statements, tryBlockAliases);
+        collapseTryBlockAliases(statements, tryBlockAliases);
         return Cleaner.removeUnreachableCode(statements, true);
     }
 
@@ -594,7 +594,7 @@ public class Op03Blocks {
     }
 
 
-    private static void sanitiseBlocks(List<Block3> blocks) {
+    private static void removeSelfDependencies(List<Block3> blocks) {
         for (Block3 block : blocks) {
             block.sources.remove(block);
             block.targets.remove(block);
@@ -619,7 +619,7 @@ public class Op03Blocks {
      *
      * THIS COULD PROBABLY BE REFACTORED TO REDUCE DUPLICATE CODE.
      */
-    private static List<Block3> invertJoinZeroTargetJumps(List<Block3> blocks) {
+    private static List<Block3> foldDanglingConditionalTargetBlocks(List<Block3> blocks) {
         final Map<Op03SimpleStatement, Block3> seenPrevBlock = MapFactory.newMap();
         boolean effect = false;
         for (int x = 0, len = blocks.size(); x < len; ++x) {
@@ -684,13 +684,57 @@ public class Op03Blocks {
         return blocks;
     }
 
-    private static List<Block3> combineNeighbouringBlocks(List<Block3> blocks) {
+    private static List<Block3> normalizeNeighbouringBlocks(List<Block3> blocks) {
         boolean reloop;
         do {
-            blocks = combineNeighbouringBlocksPass1(blocks);
+            Block3 curr = blocks.get(0);
+            int curridx = 0;
+
+            for (int i = 1, len = blocks.size(); i < len; ++i) {
+                Block3 next = blocks.get(i);
+                if (next == null) continue;
+                if (next.sources.size() == 1 && getSingle(next.sources) == curr &&
+                        next.getStart().getSources().contains(curr.getEnd())) {
+                    if (canCombineBlockSets(curr, next)) {
+                        Op03SimpleStatement lastCurr = curr.getEnd();
+                        Op03SimpleStatement firstNext = next.getStart();
+                        if (lastCurr.getStatement().getClass() == GotoStatement.class && !lastCurr.getTargets().isEmpty() && lastCurr.getTargets().get(0) == firstNext) {
+                            lastCurr.nopOut();
+                        }
+
+                        curr.content.addAll(next.content);
+                        curr.targets.remove(next);
+                        for (Block3 target : next.targets) {
+                            target.sources.remove(next);
+                            target.sources.add(curr);
+                        }
+                        next.sources.clear();
+                        curr.targets.addAll(next.targets);
+                        next.targets.clear();
+                        curr.sources.remove(curr);
+                        curr.targets.remove(curr);
+                        blocks.set(i, null);
+                        for (int j = curridx - 1; j >= 0; j--) {
+                            Block3 tmp = blocks.get(j);
+                            if (tmp != null) {
+                                curr = tmp;
+                                curridx = j;
+                                i = j;
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                }
+                curr = next;
+                curridx = i;
+            }
+            for (Block3 block : blocks) {
+                if (block != null) block.resetSources();
+            }
+            blocks = Functional.filter(blocks, new Functional.NotNull<Block3>());
             reloop = moveSingleOutOrderBlocks(blocks);
         } while (reloop);
-        // Now try to see if we can move single blocks into place.
         return blocks;
     }
 
@@ -698,7 +742,7 @@ public class Op03Blocks {
      * We're looking for a very specific feature here - a case statement which jumps BACK immediately, to something which has NO
      * OTHER source.  This won't get very many exemplars.
      */
-    private static List<Block3> combineSingleCaseBackBlock(List<Block3> blocks) {
+    private static List<Block3> mergeSingleCaseBackBlock(List<Block3> blocks) {
         IdentityHashMap<Block3, Integer> idx = new IdentityHashMap<Block3, Integer>();
 
         boolean effect = false;
@@ -811,7 +855,7 @@ public class Op03Blocks {
                     int curridx = blocks.indexOf(source);
                     blocks.add(curridx+1, block);
                     block.startIndex = source.startIndex.justAfter();
-                    patch(source, block);
+                    patchFallThroughGap(source, block);
 
                     effect = true;
                 }
@@ -820,173 +864,145 @@ public class Op03Blocks {
         return effect;
     }
 
-    private static List<Block3> combineNeighbouringBlocksPass1(final List<Block3> blocks) {
-        Block3 curr = blocks.get(0);
-        int curridx = 0;
-
-        for (int i=1, len=blocks.size(); i<len; ++i) {
-            Block3 next = blocks.get(i);
-            if (next == null) continue;
-            // This pass is too aggressive - this means we will roll both sides of a conditional together, and
-            // won't be able to reorder them...
-            if (next.sources.size() == 1 && getSingle(next.sources) == curr &&
-                next.getStart().getSources().contains(curr.getEnd())) {
-                if (canCombineBlockSets(curr,next)) {
-                    // If the last of curr is an explicit goto the start of next, cull it.
-                    Op03SimpleStatement lastCurr = curr.getEnd();
-                    Op03SimpleStatement firstNext = next.getStart();
-                    if (lastCurr.getStatement().getClass() == GotoStatement.class && !lastCurr.getTargets().isEmpty() && lastCurr.getTargets().get(0) == firstNext) {
-                        lastCurr.nopOut();
-                    }
-
-                    // Merge, and repeat.
-                    curr.content.addAll(next.content);
-                    curr.targets.remove(next);
-                    for (Block3 target : next.targets) {
-                        target.sources.remove(next);
-                        target.sources.add(curr);
-                    }
-                    next.sources.clear();
-                    curr.targets.addAll(next.targets);
-                    next.targets.clear();
-                    curr.sources.remove(curr);
-                    curr.targets.remove(curr);
-                    blocks.set(i, null);
-                    // Try to rewind current to the last block before it, as we may be able to merge with predencessor
-                    // now.
-                    for (int j=curridx-1;j>=0;j--) {
-                        Block3 tmp = blocks.get(j);
-                        if (tmp != null) {
-                            curr = tmp;
-                            curridx = j;
-                            i = j;
-                            break;
-                        }
-                    }
-                    continue;
-                }
-            }
-            // couldn't merge, emit and consider.
-            curr = next;
-            curridx = i;
-        }
-        for (Block3 block : blocks) {
-            if (block != null) block.resetSources();
-        }
-        return Functional.filter(blocks, new Functional.NotNull<Block3>());
+    public static List<Op03SimpleStatement> topologicalSort(final List<Op03SimpleStatement> statements, final DecompilerComments comments, final Options options) {
+        Map<BlockIdentifier, BlockIdentifier> tryBlockAliases = getTryBlockAliases(statements);
+        List<Block3> blocks = prepareBlocksForTopSort(statements, options, tryBlockAliases);
+        blocks = topologicallyOrderBlocks(blocks, options);
+        return emitTopSortedStatements(blocks, tryBlockAliases, comments, options);
     }
 
-    public static List<Op03SimpleStatement> topologicalSort(final List<Op03SimpleStatement> statements, final DecompilerComments comments, final Options options) {
-
+    private static List<Block3> prepareBlocksForTopSort(List<Op03SimpleStatement> statements,
+                                                        Options options,
+                                                        Map<BlockIdentifier, BlockIdentifier> tryBlockAliases) {
         List<Block3> blocks = buildBasicBlocks(statements);
-
         apply0TargetBlockHeuristic(blocks);
-
-        Map<BlockIdentifier, BlockIdentifier> tryBlockAliases = getTryBlockAliases(statements);
         applyKnownBlocksHeuristic(blocks, tryBlockAliases);
-
-        sanitiseBlocks(blocks);
-        blocks = invertJoinZeroTargetJumps(blocks);
-        blocks = combineNeighbouringBlocks(blocks);
-
-        // Case statements can vector BACK to blocks which are tricky to move if we rely on a general
-        // reachability ordering criteria.
-        // see bb/xh.class
-        blocks = combineSingleCaseBackBlock(blocks);
+        blocks = normalizeBlockAdjacencyHeuristics(blocks);
 
         if (options.getOption(OptionsImpl.FORCE_TOPSORT_EXTRA) == Troolean.TRUE) {
             blocks = addTryEndDependencies(blocks);
         }
+        return blocks;
+    }
 
-        blocks = doTopSort(blocks);
+    private static List<Block3> normalizeBlockAdjacencyHeuristics(List<Block3> blocks) {
+        removeSelfDependencies(blocks);
+        blocks = foldDanglingConditionalTargetBlocks(blocks);
+        blocks = normalizeNeighbouringBlocks(blocks);
+        blocks = mergeSingleCaseBackBlock(blocks);
+        return blocks;
+    }
 
-        /*
-         * A (very) cheap version of location based loop discovery, where we find blocks which appear to have
-         * been moved out of order.  I'm SURE this isn't the right way to do it, however it stops us pessimising
-         * some very odd cases.  :(
-         */
-        boolean redo = false;
-        redo = detectMoves(blocks, options);
+    private static List<Block3> topologicallyOrderBlocks(List<Block3> blocks, Options options) {
+        blocks = topologicallyOrderBlocksOnce(blocks);
+        if (addSecondaryOrderingDependencies(blocks, options)) {
+            blocks = reorderBlocks(blocks);
+        }
+        return blocks;
+    }
+
+    private static boolean addSecondaryOrderingDependencies(List<Block3> blocks, Options options) {
+        boolean changed = addLoopReorderDependencies(blocks, options);
         if (options.getOption(OptionsImpl.FORCE_TOPSORT_NOPULL) != Troolean.TRUE) {
-            redo = addCatchEndDependencies(blocks) || redo;
+            changed = addCatchEndDependencies(blocks) || changed;
         }
-        if (redo) {
-            Collections.sort(blocks);
-            blocks = doTopSort(blocks);
-        }
+        return changed;
+    }
 
-        /*
-         * Now, we have to patch up with gotos anywhere that we've changed the original ordering.
-         * NB. This is the first destructive change.
-         */
-        for (int i = 0, len = blocks.size(); i < len - 1; ++i) {
-            Block3 thisBlock = blocks.get(i);
-            Block3 nextBlock = blocks.get(i + 1);
-            patch(thisBlock, nextBlock);
-        }
-        // And a final patch on the last block if it ends in a non goto back jump
-        patch(blocks.get(blocks.size() - 1), null);
+    private static List<Block3> reorderBlocks(List<Block3> blocks) {
+        Collections.sort(blocks);
+        return topologicallyOrderBlocksOnce(blocks);
+    }
 
-        /*
-         * Now go through, and emit the content, in order.
-         */
+    private static List<Op03SimpleStatement> emitTopSortedStatements(List<Block3> blocks,
+                                                                     Map<BlockIdentifier, BlockIdentifier> tryBlockAliases,
+                                                                     DecompilerComments comments,
+                                                                     Options options) {
+        patchBlockFallThroughs(blocks);
         List<Op03SimpleStatement> outStatements = ListFactory.newList();
         for (Block3 outBlock : blocks) {
             outStatements.addAll(outBlock.getContent());
         }
 
         Cleaner.reindexInPlace(outStatements);
+        outStatements = normalizeConditionalTargets(outStatements);
+        return finalizeTopSortedStatements(outStatements, tryBlockAliases, comments, options);
+    }
 
-        /*
-         * Patch up conditionals.
-         */
+    private static void patchBlockFallThroughs(List<Block3> blocks) {
+        for (int i = 0, len = blocks.size(); i < len - 1; ++i) {
+            Block3 thisBlock = blocks.get(i);
+            Block3 nextBlock = blocks.get(i + 1);
+            patchFallThroughGap(thisBlock, nextBlock);
+        }
+        patchFallThroughGap(blocks.get(blocks.size() - 1), null);
+    }
+
+    private static List<Op03SimpleStatement> normalizeConditionalTargets(List<Op03SimpleStatement> outStatements) {
         boolean patched = false;
         for (int x = 0, origLen = outStatements.size() - 1; x < origLen; ++x) {
             Op03SimpleStatement stm = outStatements.get(x);
-            if (stm.getStatement().getClass() == IfStatement.class) {
-                List<Op03SimpleStatement> targets = stm.getTargets();
-                Op03SimpleStatement next = outStatements.get(x + 1);
-                if (targets.get(0) == next) {
-                    // Nothing.
-                    MiscUtils.handyBreakPoint();
-                } else if (targets.get(1) == next) {
-                    IfStatement ifStatement = (IfStatement) stm.getStatement();
-                    ifStatement.setCondition(ifStatement.getCondition().getNegated().simplify());
-                    Op03SimpleStatement a = targets.get(0);
-                    Op03SimpleStatement b = targets.get(1);
-                    targets.set(0, b);
-                    targets.set(1, a);
-                } else {
-                    patched = true;
-                    // Oh great.  Something's got very interesting. We need to add ANOTHER goto.
-                    Op03SimpleStatement extra = new Op03SimpleStatement(stm.getBlockIdentifiers(), new GotoStatement(BytecodeLoc.TODO), stm.getSSAIdentifiers(), stm.getIndex().justAfter());
-                    Op03SimpleStatement target0 = targets.get(0);
-                    extra.addSource(stm);
-                    extra.addTarget(target0);
-                    stm.replaceTarget(target0, extra);
-                    target0.replaceSource(stm, extra);
-                    outStatements.add(extra);
-                }
+            if (stm.getStatement().getClass() == IfStatement.class &&
+                    normalizeConditionalTarget(stm, outStatements.get(x + 1), outStatements)) {
+                patched = true;
             }
         }
-
         if (patched) {
             outStatements = Cleaner.sortAndRenumber(outStatements);
         }
+        return outStatements;
+    }
 
-        stripTryBlockAliases(outStatements, tryBlockAliases);
-
-        /*
-         * Strip illegal try backjumps - note that if this has effect, it may change the semantics of the outputted code
-         * so we must warn.
-         */
-        if (options.getOption(OptionsImpl.ALLOW_CORRECTING)) {
-            if (stripBackExceptions(outStatements)) {
-                comments.addComment(DecompilerComment.TRY_BACKEDGE_REMOVED);
-            }
+    private static boolean normalizeConditionalTarget(Op03SimpleStatement statement,
+                                                      Op03SimpleStatement next,
+                                                      List<Op03SimpleStatement> outStatements) {
+        List<Op03SimpleStatement> targets = statement.getTargets();
+        if (targets.get(0) == next) {
+            return false;
         }
+        if (targets.get(1) == next) {
+            flipConditionalFallThrough((IfStatement) statement.getStatement(), targets);
+            return false;
+        }
+        insertExplicitConditionalFallThrough(statement, targets.get(0), outStatements);
+        return true;
+    }
 
+    private static void flipConditionalFallThrough(IfStatement ifStatement, List<Op03SimpleStatement> targets) {
+        ifStatement.setCondition(ifStatement.getCondition().getNegated().simplify());
+        Op03SimpleStatement a = targets.get(0);
+        Op03SimpleStatement b = targets.get(1);
+        targets.set(0, b);
+        targets.set(1, a);
+    }
+
+    private static void insertExplicitConditionalFallThrough(Op03SimpleStatement statement,
+                                                             Op03SimpleStatement fallThroughTarget,
+                                                             List<Op03SimpleStatement> outStatements) {
+        Op03SimpleStatement extra = new Op03SimpleStatement(statement.getBlockIdentifiers(), new GotoStatement(BytecodeLoc.TODO), statement.getSSAIdentifiers(), statement.getIndex().justAfter());
+        extra.addSource(statement);
+        extra.addTarget(fallThroughTarget);
+        statement.replaceTarget(fallThroughTarget, extra);
+        fallThroughTarget.replaceSource(statement, extra);
+        outStatements.add(extra);
+    }
+
+    private static List<Op03SimpleStatement> finalizeTopSortedStatements(List<Op03SimpleStatement> outStatements,
+                                                                         Map<BlockIdentifier, BlockIdentifier> tryBlockAliases,
+                                                                         DecompilerComments comments,
+                                                                         Options options) {
+        finalizeTryArtifacts(outStatements, tryBlockAliases, comments, options);
         return Cleaner.removeUnreachableCode(outStatements, true);
+    }
+
+    private static void finalizeTryArtifacts(List<Op03SimpleStatement> outStatements,
+                                             Map<BlockIdentifier, BlockIdentifier> tryBlockAliases,
+                                             DecompilerComments comments,
+                                             Options options) {
+        collapseTryBlockAliases(outStatements, tryBlockAliases);
+        if (options.getOption(OptionsImpl.ALLOW_CORRECTING) && removeIllegalTryBackEdges(outStatements)) {
+            comments.addComment(DecompilerComment.TRY_BACKEDGE_REMOVED);
+        }
     }
 
     private static boolean addCatchEndDependencies(List<Block3> blocks) {
@@ -1091,7 +1107,7 @@ public class Op03Blocks {
         return blocks;
     }
 
-    private static boolean stripBackExceptions(List<Op03SimpleStatement> statements) {
+    private static boolean removeIllegalTryBackEdges(List<Op03SimpleStatement> statements) {
         boolean res = false;
         List<Op03SimpleStatement> tryStatements = Functional.filter(statements, new ExactTypeFilter<TryStatement>(TryStatement.class));
         for (Op03SimpleStatement statement : tryStatements) {
@@ -1125,7 +1141,7 @@ public class Op03Blocks {
         return res;
     }
 
-    private static void patch(Block3 a, Block3 b) {
+    private static void patchFallThroughGap(Block3 a, Block3 b) {
         /*
          * Look at the last statement of a - does it expect to continue on to the next
          * statement, which may now have moved?

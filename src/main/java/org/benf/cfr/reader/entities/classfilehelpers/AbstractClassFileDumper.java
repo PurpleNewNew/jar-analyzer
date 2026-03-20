@@ -6,6 +6,7 @@ import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.entities.AccessFlag;
 import org.benf.cfr.reader.entities.ClassFile;
+import org.benf.cfr.reader.entities.ClassFileField;
 import org.benf.cfr.reader.entities.Method;
 import org.benf.cfr.reader.entities.FakeMethod;
 import org.benf.cfr.reader.entities.attributes.AttributeMap;
@@ -197,6 +198,27 @@ abstract class AbstractClassFileDumper implements ClassFileDumper {
         }
     }
 
+    void dumpDeclarationPrelude(ClassFile classFile, InnerClassDumpType innerClass, Dumper d, boolean showPackage) {
+        if (!innerClass.isInnerClass()) {
+            dumpTopHeader(classFile, d, showPackage);
+            dumpImports(d, classFile);
+        }
+        dumpComments(classFile, d);
+        dumpAnnotations(classFile, d);
+    }
+
+    boolean dumpFields(ClassFile classFile, Dumper d, boolean first, boolean skipHiddenFields) {
+        List<ClassFileField> fields = classFile.getFields();
+        for (ClassFileField field : fields) {
+            if (skipHiddenFields && field.shouldNotDisplay()) {
+                continue;
+            }
+            field.dump(d, classFile);
+            first = false;
+        }
+        return first;
+    }
+
     void dumpMethods(ClassFile classFile, Dumper d, boolean first, boolean asClass) {
         List<Method> methods = classFile.getMethods();
         if (!methods.isEmpty()) {
@@ -224,6 +246,11 @@ abstract class AbstractClassFileDumper implements ClassFileDumper {
                 method.dump(d);
             }
         }
+    }
+
+    void dumpMethodsAndInnerClasses(ClassFile classFile, Dumper d, boolean first, boolean asClass) {
+        dumpMethods(classFile, d, first, asClass);
+        classFile.dumpNamedInnerClasses(d);
     }
 
     void dumpComments(ClassFile classFile, Dumper d) {

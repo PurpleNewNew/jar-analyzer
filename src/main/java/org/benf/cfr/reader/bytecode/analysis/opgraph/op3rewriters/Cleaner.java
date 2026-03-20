@@ -16,6 +16,16 @@ import java.util.List;
 import java.util.Set;
 
 public class Cleaner {
+    public static List<Op03SimpleStatement> removeDetachedStatements(List<Op03SimpleStatement> statements) {
+        List<Op03SimpleStatement> result = ListFactory.newList();
+        for (Op03SimpleStatement statement : statements) {
+            if (!(statement.getSources().isEmpty() && statement.getTargets().isEmpty())) {
+                result.add(statement);
+            }
+        }
+        return result;
+    }
+
     public static List<Op03SimpleStatement> removeUnreachableCode(final List<Op03SimpleStatement> statements, final boolean checkBackJumps) {
         final Set<Op03SimpleStatement> reachable = SetFactory.newSet();
         reachable.add(statements.get(0));
@@ -71,6 +81,10 @@ public class Cleaner {
         return result;
     }
 
+    public static List<Op03SimpleStatement> removeUnreachableAndSort(List<Op03SimpleStatement> statements, boolean checkBackJumps) {
+        return sortAndRenumber(removeUnreachableCode(statements, checkBackJumps));
+    }
+
     /*
 * Filter out nops (where appropriate) and renumber.  For display purposes.
 */
@@ -108,23 +122,23 @@ public class Cleaner {
     }
 
     public static void reindexInPlace(List<Op03SimpleStatement> statements) {
+        relinkInPlace(statements, true);
+    }
+
+    public static void reLinkInPlace(List<Op03SimpleStatement> statements) {
+        relinkInPlace(statements, false);
+    }
+
+    private static void relinkInPlace(List<Op03SimpleStatement> statements, boolean reindex) {
         int newIndex = 0;
         Op03SimpleStatement prev = null;
         for (Op03SimpleStatement statement : statements) {
             statement.setLinearlyPrevious(prev);
             statement.setLinearlyNext(null);
             if (prev != null) prev.setLinearlyNext(statement);
-            statement.setIndex(new InstrIndex(newIndex++));
-            prev = statement;
-        }
-    }
-
-    public static void reLinkInPlace(List<Op03SimpleStatement> statements) {
-        Op03SimpleStatement prev = null;
-        for (Op03SimpleStatement statement : statements) {
-            statement.setLinearlyPrevious(prev);
-            statement.setLinearlyNext(null);
-            if (prev != null) prev.setLinearlyNext(statement);
+            if (reindex) {
+                statement.setIndex(new InstrIndex(newIndex++));
+            }
             prev = statement;
         }
     }

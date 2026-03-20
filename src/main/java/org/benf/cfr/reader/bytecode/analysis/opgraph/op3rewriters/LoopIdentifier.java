@@ -38,7 +38,7 @@ public class LoopIdentifier {
     // Identify distinct set of backjumps (b1,b2), which jump back to somewhere (p) which has a forward
     // jump to somewhere which is NOT a /DIRECT/ parent of the backjumps (i.e. has to go through p)
     // p must be a direct parent of all of (b1,b2)
-    public static void identifyLoops1(Method method, List<Op03SimpleStatement> statements, BlockIdentifierFactory blockIdentifierFactory) {
+    public static void identifyLoops(Method method, List<Op03SimpleStatement> statements, BlockIdentifierFactory blockIdentifierFactory) {
         // Find back references.
         // Verify that they belong to jump instructions (otherwise something has gone wrong)
         // (if, goto).

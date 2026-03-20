@@ -35,7 +35,6 @@ import org.benf.cfr.reader.entities.AccessFlagMethod;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.ClassFileField;
 import org.benf.cfr.reader.entities.Method;
-import org.benf.cfr.reader.entities.classfilehelpers.ClassFileDumperRecord;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryMethodHandle;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.util.MiscConstants;
@@ -148,7 +147,7 @@ public class RecordRewriter {
         }
 
         hideDefaultUtilityMethods(classFile, thisType, instances);
-        classFile.setDumpHelper(new ClassFileDumperRecord(state));
+        classFile.rewriteAsRecord(state);
         return true;
     }
 

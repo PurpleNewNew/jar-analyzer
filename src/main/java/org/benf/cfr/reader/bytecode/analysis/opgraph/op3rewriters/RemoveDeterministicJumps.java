@@ -330,8 +330,7 @@ public class RemoveDeterministicJumps {
             // Note - we can't have another go with return back yet, as it would break ternary discovery.
         }
 
-
-        if (success) Op03Rewriters.replaceReturningIfs(statements, true);
+        if (success) ReturnRewriter.replaceReturningIfs(statements, true);
     }
 
 }

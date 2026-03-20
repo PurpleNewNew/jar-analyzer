@@ -35,29 +35,25 @@ public class PushThroughGoto {
      * We only do this for linear statements, we'd need a structured transform to do something better.
      * (at op4 stage).
      */
-    public static List<Op03SimpleStatement> pushThroughGoto(List<Op03SimpleStatement> statements) {
+    public static List<Op03SimpleStatement> normalizeByPushingThroughGotos(List<Op03SimpleStatement> statements) {
         List<Op03SimpleStatement> pathtests = Functional.filter(statements, new ExactTypeFilter<GotoStatement>(GotoStatement.class));
         boolean success = false;
         for (Op03SimpleStatement gotostm : pathtests) {
             if (gotostm.getTargets().get(0).getIndex().isBackJumpTo(gotostm)) {
-                if (pushThroughGoto(gotostm, statements)) {
+                if (pushThroughSingleGoto(gotostm, statements)) {
                     success = true;
                 }
             }
         }
         if (success) {
             statements = Cleaner.sortAndRenumber(statements);
-            // This is being done twice deliberately.  Should rewrite rewriteNegativeJumps to iterate.
-            // in practice 2ce is fine.
-            // see /com/db4o/internal/btree/BTreeNode.class
-            Op03Rewriters.rewriteNegativeJumps(statements, false);
-            Op03Rewriters.rewriteNegativeJumps(statements, false);
+            NegativeJumps.normalizeNegativeJumps(statements, false);
         }
         return statements;
     }
 
 
-    private static boolean pushThroughGoto(Op03SimpleStatement forwardGoto, List<Op03SimpleStatement> statements) {
+    private static boolean pushThroughSingleGoto(Op03SimpleStatement forwardGoto, List<Op03SimpleStatement> statements) {
 
         if (forwardGoto.getSources().size() != 1) return false;
 

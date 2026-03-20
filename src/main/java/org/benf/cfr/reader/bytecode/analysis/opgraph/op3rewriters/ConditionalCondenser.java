@@ -12,6 +12,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterF
 import org.benf.cfr.reader.bytecode.analysis.parse.statement.AbstractAssignment;
 import org.benf.cfr.reader.bytecode.analysis.parse.statement.IfStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.statement.Nop;
+import org.benf.cfr.reader.bytecode.analysis.parse.utils.BlockIdentifierFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueAssignmentExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollectorSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -227,6 +228,47 @@ public class ConditionalCondenser {
         for (Op03SimpleStatement statement : ifStatements) {
             c.collapseAssignmentsIntoConditional(statement);
         }
+    }
+
+    public static List<Op03SimpleStatement> condenseConditionalsUntilStable(List<Op03SimpleStatement> statements,
+                                                                            Options options,
+                                                                            ClassFileVersion classFileVersion) {
+        boolean reloop;
+        do {
+            NegativeJumps.normalizeNegativeJumps(statements, true);
+            collapseAssignmentsIntoConditionals(statements, options, classFileVersion);
+            AnonymousArray.resugarAnonymousArrays(statements);
+            reloop = CondenseConditionals.condenseConditionals(statements);
+            reloop = reloop | CondenseConditionals.condenseConditionals2(statements);
+            reloop = reloop | DupAssigns.normalizeDupAssigns(statements);
+            if (reloop) {
+                LValueProp.condenseLValues(statements);
+            }
+            statements = Cleaner.removeUnreachableCode(statements, true);
+        } while (reloop);
+        return statements;
+    }
+
+    public static List<Op03SimpleStatement> recoverConditionalsAfterDeassignment(List<Op03SimpleStatement> statements,
+                                                                                 BlockIdentifierFactory blockIdentifierFactory,
+                                                                                 Options options,
+                                                                                 ClassFileVersion classFileVersion) {
+        boolean reloop;
+        do {
+            collapseAssignmentsIntoConditionals(statements, options, classFileVersion);
+            reloop = CondenseConditionals.condenseConditionals(statements);
+            reloop = reloop | CondenseConditionals.condenseConditionals2(statements);
+            if (reloop) {
+                LValueProp.condenseLValues(statements);
+            }
+            statements = Cleaner.removeUnreachableCode(statements, true);
+        } while (reloop);
+
+        PointlessJumps.normalizePointlessJumps(statements);
+        BreakRewriter.classifyLoopExits(statements);
+        ConditionalRewriter.classifyAndIdentifyNonjumpingConditionals(statements, blockIdentifierFactory, options, true);
+        LValueProp.condenseLValues(statements);
+        return Cleaner.sortAndRenumber(statements);
     }
 
 }

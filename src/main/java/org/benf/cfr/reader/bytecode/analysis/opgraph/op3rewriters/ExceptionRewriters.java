@@ -26,6 +26,13 @@ import org.benf.cfr.reader.util.functors.UnaryFunction;
 import java.util.*;
 
 public class ExceptionRewriters {
+    public static List<Op03SimpleStatement> prepareCatchBlocks(List<Op03SimpleStatement> statements,
+                                                               BlockIdentifierFactory blockIdentifierFactory) {
+        statements = eliminateCatchTemporaries(statements);
+        identifyCatchBlocks(statements, blockIdentifierFactory);
+        combineTryCatchBlocks(statements);
+        return statements;
+    }
 
     static List<Op03SimpleStatement> eliminateCatchTemporaries(List<Op03SimpleStatement> statements) {
         List<Op03SimpleStatement> catches = Functional.filter(statements, new TypeFilter<CatchStatement>(CatchStatement.class));

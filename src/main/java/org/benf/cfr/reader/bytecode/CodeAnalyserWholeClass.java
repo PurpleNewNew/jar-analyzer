@@ -20,7 +20,9 @@ import org.benf.cfr.reader.util.*;
 import org.benf.cfr.reader.util.collections.Functional;
 import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.collections.SetFactory;
+import org.benf.cfr.reader.util.functors.BinaryProcedure;
 import org.benf.cfr.reader.util.functors.Predicate;
+import org.benf.cfr.reader.util.functors.UnaryProcedure;
 import org.benf.cfr.reader.util.functors.UnaryFunction;
 import org.benf.cfr.reader.util.getopt.Options;
 import org.benf.cfr.reader.util.getopt.OptionsImpl;
@@ -36,74 +38,25 @@ public class CodeAnalyserWholeClass {
     /*
      * This pass is performed INNER CLASS FIRST.
      */
-    public static void wholeClassAnalysisPass1(ClassFile classFile, DCCommonState state) {
+    public static void applyInnerClassFirstRewrites(ClassFile classFile, DCCommonState state) {
         Options options = state.getOptions();
-
-        /*
-         * Whole class analysis / transformation - i.e. if it's an enum class, we will need to rewrite
-         * several methods.
-         */
-        EnumClassRewriter.rewriteEnumClass(classFile, state);
-
-        /* Remove generics which 'don't belong here' - i.e. ones which we brought in for analysis, but have
-         * ended up in the body of the code.
-         *
-         * (sign of this would be Map<K,V> etc hanging around).
-         */
-        if (options.getOption(OptionsImpl.REMOVE_BAD_GENERICS)) {
-            removeIllegalGenerics(classFile, options);
-        }
-
-        if (options.getOption(OptionsImpl.SUGAR_ASSERTS)) {
-            resugarAsserts(classFile, options);
-        }
-
-        tidyAnonymousConstructors(classFile);
-
-        if (options.getOption(OptionsImpl.LIFT_CONSTRUCTOR_INIT)) {
-            liftStaticInitialisers(classFile);
-            liftNonStaticInitialisers(classFile);
-        }
-
-        if (options.getOption(OptionsImpl.JAVA_4_CLASS_OBJECTS, classFile.getClassFileVersion())) {
-            resugarJava14classObjects(classFile, state);
-        }
-
-        if (options.getOption(OptionsImpl.REMOVE_BOILERPLATE)) {
-            removeBoilerplateMethods(classFile);
-        }
-
-        if (options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
-            if (classFile.isInnerClass()) {
-                removeInnerClassOuterThis(classFile);
-            }
-            // Synthetic constructor friends can exist on OUTER classes, when an inner makes a call out.
-            removeInnerClassSyntheticConstructorFriends(classFile);
-        }
-
-        if (options.getOption(OptionsImpl.SUGAR_RETRO_LAMBDA)) {
-            resugarRetroLambda(classFile, state);
-        }
-        ModernClassFeatureRewriter.rewrite(classFile, state);
+        applyEarlyClassStructureRewrites(classFile, state, options);
+        applyInitializerLiftingAndLegacyResugaring(classFile, state, options);
+        applySyntheticCleanupAndModernClassRewrites(classFile, state, options);
     }
 
-    public static void refreshLocalVariableMetadata(ClassFile classFile) {
-        for (Method method : classFile.getMethods()) {
-            if (!method.hasCodeAttribute()) {
-                continue;
+    private static void refreshLocalVariableMetadata(ClassFile classFile) {
+        forEachStructuredMethod(classFile, new BinaryProcedure<Method, AnalysisResult>() {
+            @Override
+            public void call(Method method, AnalysisResult analysisResult) {
+                StructuredSemanticTransforms.applyLocalVariableMetadata(
+                        method.getCodeAttribute(),
+                        analysisResult.getCode(),
+                        analysisResult.getLutByOffset(),
+                        analysisResult.getComments()
+                );
             }
-            AnalysisResult analysisResult = method.getAnalysisResult();
-            Op04StructuredStatement code = analysisResult.getCode();
-            if (code == null || !code.isFullyStructured()) {
-                continue;
-            }
-            StructuredSemanticTransforms.applyLocalVariableMetadata(
-                    method.getCodeAttribute(),
-                    code,
-                    analysisResult.getLutByOffset(),
-                    analysisResult.getComments()
-            );
-        }
+        });
     }
 
     private static void resugarRetroLambda(ClassFile classFile, DCCommonState state) {
@@ -111,30 +64,30 @@ public class CodeAnalyserWholeClass {
     }
 
     private static void removeRedundantSupers(ClassFile classFile) {
-        for (Method method : classFile.getConstructors()) {
-            if (method.hasCodeAttribute()) {
-                Op04StructuredStatement code = method.getAnalysis();
-                StructuredOutputTransforms.removeConstructorBoilerplate(code);
+        forEachConstructorWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
+                StructuredSemanticTransforms.removeConstructorBoilerplate(method.getAnalysis());
             }
-        }
+        });
     }
 
     private static void replaceNestedSyntheticOuterRefs(ClassFile classFile) {
-        for (Method method : classFile.getMethods()) {
-            if (method.hasCodeAttribute()) {
-                Op04StructuredStatement code = method.getAnalysis();
-                StructuredClassTransforms.replaceNestedSyntheticOuterRefs(code);
+        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
+                StructuredClassTransforms.replaceNestedSyntheticOuterRefs(method.getAnalysis());
             }
-        }
+        });
     }
 
     private static void inlineAccessors(DCCommonState state, ClassFile classFile) {
-        for (Method method : classFile.getMethods()) {
-            if (method.hasCodeAttribute()) {
-                Op04StructuredStatement code = method.getAnalysis();
-                StructuredClassTransforms.inlineSyntheticAccessors(state, method, code);
+        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
+                StructuredClassTransforms.inlineSyntheticAccessors(state, method, method.getAnalysis());
             }
-        }
+        });
     }
 
     private static void renameAnonymousScopeHidingVariables(ClassFile classFile, ClassCache classCache) {
@@ -151,12 +104,9 @@ public class CodeAnalyserWholeClass {
         );
 
 
-        for (Method method : classFile.getMethods()) {
-            if (method.hasCodeAttribute()) {
-                /*
-                 * Construct a renamer - gather names from prototype and from locals assigned in the code.
-                 * Make sure that they don't hide the outer variable.
-                 */
+        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
                 ScopeHidingVariableRewriter rewriter = new ScopeHidingVariableRewriter(
                         fields,
                         method,
@@ -165,7 +115,7 @@ public class CodeAnalyserWholeClass {
                 );
                 rewriter.rewrite(method.getAnalysis());
             }
-        }
+        });
     }
 
     /*
@@ -174,25 +124,27 @@ public class CodeAnalyserWholeClass {
     private static void fixInnerClassConstructorSyntheticOuterArgs(ClassFile classFile) {
         if (classFile.isInnerClass()) {
             Set<MethodPrototype> processed = SetFactory.newSet();
-            for (Method method : classFile.getConstructors()) {
-                StructuredClassTransforms.fixInnerClassConstructorSyntheticOuterArgs(
-                        classFile,
-                        method,
-                        method.getAnalysis(),
-                        processed
-                );
-            }
+            forEachConstructorWithCode(classFile, new UnaryProcedure<Method>() {
+                @Override
+                public void call(Method method) {
+                    StructuredClassTransforms.fixInnerClassConstructorSyntheticOuterArgs(
+                            classFile,
+                            method,
+                            method.getAnalysis(),
+                            processed
+                    );
+                }
+            });
         }
     }
 
     private static void tidyAnonymousConstructors(ClassFile classFile) {
-        for (Method method : classFile.getMethods()) {
-            if (method.hasCodeAttribute()) {
-                Op04StructuredStatement code = method.getAnalysis();
-                StructuredClassTransforms.tidyAnonymousConstructors(code);
-                //code.
+        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
+                StructuredClassTransforms.tidyAnonymousConstructors(method.getAnalysis());
             }
-        }
+        });
     }
 
     /*
@@ -434,14 +386,14 @@ public class CodeAnalyserWholeClass {
     private static void relinkConstantStrings(ClassFile classFile, DCCommonState state) {
         Map<String, Expression> rewrites = ConstantLinks.getLocalStringConstants(classFile, state);
         if (rewrites == null || rewrites.isEmpty()) return;
-        Op04Rewriter rewriter = new LocalInlinedStringConstantRewriter(rewrites);
+        final Op04Rewriter rewriter = new LocalInlinedStringConstantRewriter(rewrites);
 
-        for (Method m : classFile.getMethods()) {
-            if (!m.hasCodeAttribute()) continue;
-            Op04StructuredStatement code = m.getAnalysis();
-            if (!code.isFullyStructured()) continue;
-            rewriter.rewrite(code);
-        }
+        forEachStructuredMethod(classFile, new BinaryProcedure<Method, AnalysisResult>() {
+            @Override
+            public void call(Method method, AnalysisResult analysisResult) {
+                rewriter.rewrite(analysisResult.getCode());
+            }
+        });
     }
 
     private static void tryRemoveConstructor(ClassFile classFile) {
@@ -475,32 +427,57 @@ public class CodeAnalyserWholeClass {
         JavaRefTypeInstance classType = classFile.getRefClassType();
         Map<String, FormalTypeParameter> params = FormalTypeParameter.getMap(classFile.getClassSignature().getFormalTypeParameters());
 
-        for (Method m : classFile.getMethods()) {
-            if (!m.hasCodeAttribute()) continue;
-            Op04StructuredStatement code = m.getAnalysis();
-            if (!code.isFullyStructured()) continue;
+        forEachStructuredMethod(classFile, new BinaryProcedure<Method, AnalysisResult>() {
+            @Override
+            public void call(Method method, AnalysisResult analysisResult) {
+                Op04StructuredStatement code = analysisResult.getCode();
+                List<StructuredStatement> statements = MiscStatementTools.linearise(code);
+                if (statements == null) return;
 
-            List<StructuredStatement> statements = MiscStatementTools.linearise(code);
-            if (statements == null) continue;
+                boolean bStatic = method.testAccessFlag(AccessFlagMethod.ACC_STATIC);
+                Map<String, FormalTypeParameter> formalParams = MapFactory.newMap();
+                if (!bStatic) {
+                    formalParams.putAll(params);
+                }
+                formalParams.putAll(method.getMethodPrototype().getFormalParameterMap());
 
-            boolean bStatic = m.testAccessFlag(AccessFlagMethod.ACC_STATIC);
-            Map<String, FormalTypeParameter> formalParams = MapFactory.newMap();
-            if (!bStatic) {
-                formalParams.putAll(params);
+                ExpressionRewriter r = new IllegalGenericRewriter(cp, formalParams);
+
+                for (StructuredStatement statement : statements) {
+                    statement.rewriteExpressions(r);
+                }
+                StructureRecoveryTransforms.removePrimitiveDeconversion(state, code);
             }
-            // if the method or the class (for instance) has unbound generics, these are allowed.
-            formalParams.putAll(m.getMethodPrototype().getFormalParameterMap());
+        });
+    }
 
-            ExpressionRewriter r = new IllegalGenericRewriter(cp, formalParams);
-
-            for (StructuredStatement statement : statements) {
-                statement.rewriteExpressions(r);
+    private static void forEachMethodWithCode(ClassFile classFile, UnaryProcedure<Method> procedure) {
+        for (Method method : classFile.getMethods()) {
+            if (method.hasCodeAttribute()) {
+                procedure.call(method);
             }
-            /*
-             * Apply boxing rewriter once more as well, to get rid of anything that's occured.
-             */
-            StructureRecoveryTransforms.removePrimitiveDeconversion(state, code);
         }
+    }
+
+    private static void forEachConstructorWithCode(ClassFile classFile, UnaryProcedure<Method> procedure) {
+        for (Method method : classFile.getConstructors()) {
+            if (method.hasCodeAttribute()) {
+                procedure.call(method);
+            }
+        }
+    }
+
+    private static void forEachStructuredMethod(ClassFile classFile, BinaryProcedure<Method, AnalysisResult> procedure) {
+        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
+            @Override
+            public void call(Method method) {
+                AnalysisResult analysisResult = method.getAnalysisResult();
+                Op04StructuredStatement code = analysisResult.getCode();
+                if (code != null && code.isFullyStructured()) {
+                    procedure.call(method, analysisResult);
+                }
+            }
+        });
     }
 
     private static void resugarAsserts(ClassFile classFile, Options options) {
@@ -519,19 +496,11 @@ public class CodeAnalyserWholeClass {
      *
      * This is the point at which we can perform analysis like rewriting references like accessors inner -> outer.
      */
-    public static void wholeClassAnalysisPass3(ClassFile classFile, DCCommonState state, TypeUsageCollectingDumper typeUsage) {
+    public static void applyPostTypeUsageRewrites(ClassFile classFile, DCCommonState state, TypeUsageCollectingDumper typeUsage) {
         Options options = state.getOptions();
-        if (options.getOption(OptionsImpl.REMOVE_BOILERPLATE)) {
-            removeRedundantSupers(classFile);
-        }
-
-        if (options.getOption(OptionsImpl.REMOVE_DEAD_METHODS)) {
-            removeDeadMethods(classFile);
-        }
-
-        rewriteUnreachableStatics(classFile, typeUsage);
-
-        detectFakeMethods(classFile, typeUsage);
+        removeBoilerplateAndDeadMethods(classFile, options);
+        rewriteReachabilityArtifacts(classFile, typeUsage);
+        refreshLocalVariableMetadata(classFile);
     }
 
     private static void detectFakeMethods(ClassFile classFile, TypeUsageCollectingDumper typeUsage) {
@@ -547,43 +516,78 @@ public class CodeAnalyserWholeClass {
      *
      * This is the point at which we can perform analysis like rewriting references like accessors inner -> outer.
      */
-    public static void wholeClassAnalysisPass2(ClassFile classFile, DCCommonState state) {
+    public static void applyOuterFirstReferenceRewrites(ClassFile classFile, DCCommonState state) {
         Options options = state.getOptions();
-        /*
-         * Rewrite 'outer.this' references.
-         */
-//        if (options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
-//            if (classFile.isInnerClass()) {
-//                removeInnerClassOuterThis(classFile);
-//            }
-//            // Synthetic constructor friends can exist on OUTER classes, when an inner makes a call out.
-//            removeInnerClassSyntheticConstructorFriends(classFile);
-//        }
-//
+        rewriteInnerClassSyntheticAccess(classFile, state, options);
+        relinkConstantStringsIfConfigured(classFile, state, options);
+    }
 
-        if (options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
-
-            /*
-             * All constructors of inner classes should have their first argument removed,
-             * and it should be marked as hidden.
-             */
-            if (classFile.isInnerClass()) {
-                fixInnerClassConstructorSyntheticOuterArgs(classFile);
-            }
-
-            replaceNestedSyntheticOuterRefs(classFile);
-
-            inlineAccessors(state, classFile);
-
-            /*
-             * Rename anonymous and method scoped inner variables which inadvertently hide outer class
-             * variables.
-             */
-            renameAnonymousScopeHidingVariables(classFile, state.getClassCache());
+    private static void applyEarlyClassStructureRewrites(ClassFile classFile, DCCommonState state, Options options) {
+        EnumClassRewriter.rewriteEnumClass(classFile, state);
+        if (options.getOption(OptionsImpl.REMOVE_BAD_GENERICS)) {
+            removeIllegalGenerics(classFile, options);
         }
+        if (options.getOption(OptionsImpl.SUGAR_ASSERTS)) {
+            resugarAsserts(classFile, options);
+        }
+        tidyAnonymousConstructors(classFile);
+    }
 
+    private static void applyInitializerLiftingAndLegacyResugaring(ClassFile classFile, DCCommonState state, Options options) {
+        if (options.getOption(OptionsImpl.LIFT_CONSTRUCTOR_INIT)) {
+            liftStaticInitialisers(classFile);
+            liftNonStaticInitialisers(classFile);
+        }
+        if (options.getOption(OptionsImpl.JAVA_4_CLASS_OBJECTS, classFile.getClassFileVersion())) {
+            resugarJava14classObjects(classFile, state);
+        }
+    }
+
+    private static void applySyntheticCleanupAndModernClassRewrites(ClassFile classFile, DCCommonState state, Options options) {
+        if (options.getOption(OptionsImpl.REMOVE_BOILERPLATE)) {
+            removeBoilerplateMethods(classFile);
+        }
+        if (options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
+            if (classFile.isInnerClass()) {
+                removeInnerClassOuterThis(classFile);
+            }
+            removeInnerClassSyntheticConstructorFriends(classFile);
+        }
+        if (options.getOption(OptionsImpl.SUGAR_RETRO_LAMBDA)) {
+            resugarRetroLambda(classFile, state);
+        }
+        ModernClassFeatureRewriter.rewrite(classFile, state);
+    }
+
+    private static void rewriteInnerClassSyntheticAccess(ClassFile classFile, DCCommonState state, Options options) {
+        if (!options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
+            return;
+        }
+        if (classFile.isInnerClass()) {
+            fixInnerClassConstructorSyntheticOuterArgs(classFile);
+        }
+        replaceNestedSyntheticOuterRefs(classFile);
+        inlineAccessors(state, classFile);
+        renameAnonymousScopeHidingVariables(classFile, state.getClassCache());
+    }
+
+    private static void relinkConstantStringsIfConfigured(ClassFile classFile, DCCommonState state, Options options) {
         if (options.getOption(OptionsImpl.RELINK_CONSTANT_STRINGS)) {
             relinkConstantStrings(classFile, state);
         }
+    }
+
+    private static void removeBoilerplateAndDeadMethods(ClassFile classFile, Options options) {
+        if (options.getOption(OptionsImpl.REMOVE_BOILERPLATE)) {
+            removeRedundantSupers(classFile);
+        }
+        if (options.getOption(OptionsImpl.REMOVE_DEAD_METHODS)) {
+            removeDeadMethods(classFile);
+        }
+    }
+
+    private static void rewriteReachabilityArtifacts(ClassFile classFile, TypeUsageCollectingDumper typeUsage) {
+        rewriteUnreachableStatics(classFile, typeUsage);
+        detectFakeMethods(classFile, typeUsage);
     }
 }

@@ -18,7 +18,7 @@ public class PointlessJumps {
      *
      * Normalise code by removing jumps which have been introduced to confuse.
      */
-    public static void removePointlessJumps(List<Op03SimpleStatement> statements) {
+    public static void normalizePointlessJumps(List<Op03SimpleStatement> statements) {
 
         /*
          * Odd first pass, but we want to translate

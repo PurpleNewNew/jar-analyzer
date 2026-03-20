@@ -78,14 +78,7 @@ public class ClassFileDumperEnum extends AbstractClassFileDumper {
 
     @Override
     public Dumper dump(ClassFile classFile, InnerClassDumpType innerClass, Dumper d) {
-
-        if (!innerClass.isInnerClass()) {
-            dumpTopHeader(classFile, d, true);
-            dumpImports(d, classFile);
-        }
-
-        dumpComments(classFile, d);
-        dumpAnnotations(classFile, d);
+        dumpDeclarationPrelude(classFile, innerClass, d, true);
         dumpHeader(classFile, innerClass, d);
         d.separator("{").newln();
         d.indent(1);
@@ -97,21 +90,8 @@ public class ClassFileDumperEnum extends AbstractClassFileDumper {
         }
 
         d.newln();
-
-        List<ClassFileField> fields = classFile.getFields();
-        for (ClassFileField field : fields) {
-            if (field.shouldNotDisplay()) continue;
-            field.dump(d, classFile);
-        }
-        List<Method> methods = classFile.getMethods();
-        if (!methods.isEmpty()) {
-            for (Method method : methods) {
-                if (method.hiddenState() != Method.Visibility.Visible) continue;
-                d.newln();
-                method.dump(d, true);
-            }
-        }
-        classFile.dumpNamedInnerClasses(d);
+        boolean first = dumpFields(classFile, d, false, true);
+        dumpMethodsAndInnerClasses(classFile, d, first, true);
         d.indent(-1);
         d.print("}").newln();
 

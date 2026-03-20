@@ -20,11 +20,6 @@ import java.util.LinkedList;
 
 public class LambdaCleaner extends AbstractExpressionRewriter implements StructuredStatementTransformer {
 
-    public void transform(Op04StructuredStatement root) {
-        StructuredScope structuredScope = new StructuredScope();
-        root.transform(this, structuredScope);
-    }
-
     @Override
     public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
         in.transformStructuredChildren(this, scope);

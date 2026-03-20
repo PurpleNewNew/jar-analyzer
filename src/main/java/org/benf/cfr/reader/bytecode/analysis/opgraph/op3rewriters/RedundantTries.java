@@ -47,8 +47,7 @@ public class RedundantTries {
         }
 
         if (effect) {
-            statements = Cleaner.removeUnreachableCode(statements, false);
-            statements = Cleaner.sortAndRenumber(statements);
+            statements = Cleaner.removeUnreachableAndSort(statements, false);
         }
 
         return statements;

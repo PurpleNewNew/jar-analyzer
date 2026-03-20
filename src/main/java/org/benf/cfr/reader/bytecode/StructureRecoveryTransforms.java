@@ -44,23 +44,40 @@ public final class StructureRecoveryTransforms {
     }
 
     public static void insertLabelledBlocks(Op04StructuredStatement root) {
-        applyStructured(root, new LabelledBlockExtractor());
+        applyStructured(root, preOrderTransformer((statement, scope) -> {
+            if (statement instanceof Block) {
+                ((Block) statement).extractLabelledBlocks();
+            }
+            return statement;
+        }));
     }
 
     public static void tidyEmptyCatch(Op04StructuredStatement root) {
-        applyStructured(root, new EmptyCatchTidier());
+        applyStructured(root, preOrderTransformer((statement, scope) ->
+                statement instanceof UnstructuredCatch ? ((UnstructuredCatch) statement).getCatchForEmpty() : statement));
     }
 
     public static void tidyTryCatch(Op04StructuredStatement root) {
-        applyStructured(root, new TryCatchTidier());
+        applyStructured(root, preOrderTransformer((statement, scope) -> {
+            if (statement instanceof Block) {
+                ((Block) statement).combineTryCatch();
+            }
+            return statement;
+        }));
     }
 
     public static void inlinePossibles(Op04StructuredStatement root) {
-        applyStructured(root, new Inliner());
+        applyStructured(root, postOrderTransformer((statement, scope) -> {
+            if (statement instanceof Block) {
+                ((Block) statement).combineInlineable();
+            }
+            return statement;
+        }));
     }
 
     public static void convertUnstructuredIf(Op04StructuredStatement root) {
-        applyStructured(root, new UnstructuredIfConverter());
+        applyStructured(root, postOrderTransformer((statement, scope) ->
+                statement instanceof UnstructuredIf ? ((UnstructuredIf) statement).convertEmptyToGoto() : statement));
     }
 
     public static void removePointlessReturn(Op04StructuredStatement root) {
@@ -83,15 +100,27 @@ public final class StructureRecoveryTransforms {
     }
 
     public static void removeStructuredGotos(Op04StructuredStatement root) {
-        applyStructured(root, new StructuredGotoRemover());
+        applyStructured(root, scopeDescendingTransformer((statement, targets, scope) -> {
+            if (statement instanceof UnstructuredGoto || statement instanceof UnstructuredAnonymousBreak) {
+                return transformStructuredGotoWithScope(scope, statement, targets);
+            }
+            return statement;
+        }));
     }
 
     public static void removeUnnecessaryLabelledBreaks(Op04StructuredStatement root) {
-        applyStructured(root, new NamedBreakRemover());
+        applyStructured(root, scopeDescendingTransformer((statement, targets, scope) ->
+                statement instanceof StructuredBreak ? ((StructuredBreak) statement).maybeTightenToLocal(targets) : statement));
     }
 
     public static void removePointlessBlocks(Op04StructuredStatement root) {
-        applyStructured(root, new PointlessBlockRemover());
+        applyStructured(root, postOrderTransformer((statement, scope) -> {
+            if (statement instanceof CanRemovePointlessBlock) {
+                ((CanRemovePointlessBlock) statement).removePointlessBlocks(scope);
+                return statement.getContainer().getStatement();
+            }
+            return statement;
+        }));
     }
 
     public static void cleanupStructuredExpressionBodies(Op04StructuredStatement root) {
@@ -111,6 +140,27 @@ public final class StructureRecoveryTransforms {
 
     private static void applyStructured(Op04StructuredStatement root, StructuredStatementTransformer transformer) {
         root.transform(transformer, new StructuredScope());
+    }
+
+    private static StructuredStatementTransformer preOrderTransformer(StructuredStatementMutation mutation) {
+        return new StructuredStatementTransformer() {
+            @Override
+            public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+                StructuredStatement out = mutation.apply(in, scope);
+                out.transformStructuredChildren(this, scope);
+                return out;
+            }
+        };
+    }
+
+    private static StructuredStatementTransformer postOrderTransformer(StructuredStatementMutation mutation) {
+        return new StructuredStatementTransformer() {
+            @Override
+            public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+                in.transformStructuredChildren(this, scope);
+                return mutation.apply(in, scope);
+            }
+        };
     }
 
     private static StructuredStatement transformStructuredGotoWithScope(
@@ -135,128 +185,32 @@ public final class StructureRecoveryTransforms {
         return statement;
     }
 
-    private static final class LabelledBlockExtractor implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof Block) {
-                ((Block) in).extractLabelledBlocks();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
+    private static StructuredStatementTransformer scopeDescendingTransformer(ScopeStructuredMutation mutation) {
+        return new StructuredStatementTransformer() {
+            private final Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets =
+                    new Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>>();
 
-    private static final class EmptyCatchTidier implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof UnstructuredCatch) {
-                return ((UnstructuredCatch) in).getCatchForEmpty();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
-
-    private static final class TryCatchTidier implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            if (in instanceof Block) {
-                ((Block) in).combineTryCatch();
-            }
-            in.transformStructuredChildren(this, scope);
-            return in;
-        }
-    }
-
-    private static final class Inliner implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof Block) {
-                ((Block) in).combineInlineable();
-            }
-            return in;
-        }
-    }
-
-    private static final class UnstructuredIfConverter implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof UnstructuredIf) {
-                return ((UnstructuredIf) in).convertEmptyToGoto();
-            }
-            return in;
-        }
-    }
-
-    private abstract static class ScopeDescendingTransformer implements StructuredStatementTransformer {
-        private final Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets =
-                new Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>>();
-
-        protected abstract StructuredStatement doTransform(
-                StructuredStatement statement,
-                Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets,
-                StructuredScope scope);
-
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            BlockIdentifier breakableBlock = in.getBreakableBlockOrNull();
-            if (breakableBlock != null) {
-                targets.push(Triplet.make(in, breakableBlock, scope.getNextFallThrough(in)));
-            }
-            StructuredStatement out = in;
-            try {
-                out.transformStructuredChildrenInReverse(this, scope);
-                out = doTransform(out, targets, scope);
-                if (out instanceof StructuredBreak) {
-                    out = ((StructuredBreak) out).maybeTightenToLocal(targets);
-                }
-                return out;
-            } finally {
+            @Override
+            public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+                BlockIdentifier breakableBlock = in.getBreakableBlockOrNull();
                 if (breakableBlock != null) {
-                    targets.pop();
+                    targets.push(Triplet.make(in, breakableBlock, scope.getNextFallThrough(in)));
+                }
+                StructuredStatement out = in;
+                try {
+                    out.transformStructuredChildrenInReverse(this, scope);
+                    out = mutation.apply(out, targets, scope);
+                    if (out instanceof StructuredBreak) {
+                        out = ((StructuredBreak) out).maybeTightenToLocal(targets);
+                    }
+                    return out;
+                } finally {
+                    if (breakableBlock != null) {
+                        targets.pop();
+                    }
                 }
             }
-        }
-    }
-
-    private static final class StructuredGotoRemover extends ScopeDescendingTransformer {
-        @Override
-        protected StructuredStatement doTransform(
-                StructuredStatement statement,
-                Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets,
-                StructuredScope scope) {
-            if (statement instanceof UnstructuredGoto || statement instanceof UnstructuredAnonymousBreak) {
-                return transformStructuredGotoWithScope(scope, statement, targets);
-            }
-            return statement;
-        }
-    }
-
-    private static final class NamedBreakRemover extends ScopeDescendingTransformer {
-        @Override
-        protected StructuredStatement doTransform(
-                StructuredStatement statement,
-                Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets,
-                StructuredScope scope) {
-            if (statement instanceof StructuredBreak) {
-                return ((StructuredBreak) statement).maybeTightenToLocal(targets);
-            }
-            return statement;
-        }
-    }
-
-    private static final class PointlessBlockRemover implements StructuredStatementTransformer {
-        @Override
-        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
-            in.transformStructuredChildren(this, scope);
-            if (in instanceof CanRemovePointlessBlock) {
-                ((CanRemovePointlessBlock) in).removePointlessBlocks(scope);
-                return in.getContainer().getStatement();
-            }
-            return in;
-        }
+        };
     }
 
     private static final class StructuredExpressionBodyCleaner extends AbstractExpressionRewriter {
@@ -270,5 +224,17 @@ public final class StructureRecoveryTransforms {
             }
             return expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
         }
+    }
+
+    @FunctionalInterface
+    private interface StructuredStatementMutation {
+        StructuredStatement apply(StructuredStatement statement, StructuredScope scope);
+    }
+
+    @FunctionalInterface
+    private interface ScopeStructuredMutation {
+        StructuredStatement apply(StructuredStatement statement,
+                                  Stack<Triplet<StructuredStatement, BlockIdentifier, Set<Op04StructuredStatement>>> targets,
+                                  StructuredScope scope);
     }
 }
