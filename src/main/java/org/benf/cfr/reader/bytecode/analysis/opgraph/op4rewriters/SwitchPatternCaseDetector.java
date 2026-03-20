@@ -218,7 +218,9 @@ final class SwitchPatternCaseDetector {
     private int nextLeadingGuardIndex(List<Op04StructuredStatement> statements, int start) {
         for (int x = start; x < statements.size(); ++x) {
             StructuredStatement statement = statements.get(x).getStatement();
-            if (isLeadingGuardPreludeStatement(statement)) {
+            if (statement.isEffectivelyNOP()
+                    || statement instanceof StructuredComment
+                    || statement instanceof StructuredDefinition) {
                 continue;
             }
             return statement instanceof StructuredIf ? x : -1;
@@ -240,12 +242,6 @@ final class SwitchPatternCaseDetector {
             return null;
         }
         return new IndexedGuardIf(ifIdx, (StructuredIf) statement);
-    }
-
-    private boolean isLeadingGuardPreludeStatement(StructuredStatement statement) {
-        return statement.isEffectivelyNOP()
-                || statement instanceof StructuredComment
-                || statement instanceof StructuredDefinition;
     }
 
     private boolean hasTrailingLoopGuard(List<Op04StructuredStatement> statements,

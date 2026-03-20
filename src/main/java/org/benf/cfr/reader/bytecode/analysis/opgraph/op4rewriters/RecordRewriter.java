@@ -132,7 +132,10 @@ public class RecordRewriter {
             canonicalCons.setConstructorFlag(Method.MethodConstructor.RECORD_CANONICAL_CONSTRUCTOR);
         }
         // Now if it's empty, hide altogether.
-        hideConstructorIfEmpty(canonicalCons);
+        Block canonicalBlock = getStructuredCodeBlock(canonicalCons);
+        if (canonicalBlock != null && canonicalBlock.isEffectivelyNOP()) {
+            canonicalCons.hideDead();
+        }
 
         // If any of the getters are default getters, hide them also.
         for (int x=0;x<getters.size();++x) {
@@ -218,7 +221,7 @@ public class RecordRewriter {
 
         StructuredStatement item = getSingleCodeLine(method);
         if (!stm.equals(item)) return;
-        if (!cmpArgsEq(wcm.getExpressionWildCard("array").getMatch(), thisType, fields)) return;
+        if (!matchesObjectMethodBootstrapArgs(wcm.getExpressionWildCard("array").getMatch(), thisType, fields)) return;
         if (!MiscUtils.isThis(wcm.getExpressionWildCard("this").getMatch(), thisType)) return;
         method.hideDead();
     }
@@ -251,7 +254,9 @@ public class RecordRewriter {
         return thisType.equals(tl.getClassValue());
     }
 
-    private static boolean cmpArgsEq(Expression cmpArgs, JavaTypeInstance thisType, List<ClassFileField> instances) {
+    private static boolean matchesObjectMethodBootstrapArgs(Expression cmpArgs,
+                                                            JavaTypeInstance thisType,
+                                                            List<ClassFileField> instances) {
         if (!(cmpArgs instanceof NewAnonymousArray)) return false;
         List<Expression> cmpValues = ((NewAnonymousArray) cmpArgs).getValues();
         if (cmpValues.size() != instances.size() + 2) return false;
@@ -301,7 +306,7 @@ public class RecordRewriter {
         if (!(value instanceof LValueExpression)) {
             return;
         }
-        if (getCFF(((LValueExpression) value).getLValue(), thisType) != classFileField) {
+        if (resolveThisFieldReference(((LValueExpression) value).getLValue(), thisType) != classFileField) {
             return;
         }
         classFileField.markHidden();
@@ -317,13 +322,6 @@ public class RecordRewriter {
          */
         if (method.getMethodAnnotations().isEmpty()) {
             method.hideDead();
-        }
-    }
-
-    private static void hideConstructorIfEmpty(Method canonicalCons) {
-        Block block = getStructuredCodeBlock(canonicalCons);
-        if (block != null && block.isEffectivelyNOP()) {
-            canonicalCons.hideDead();
         }
     }
 
@@ -364,7 +362,7 @@ public class RecordRewriter {
             int idx = -1;
             if (statement instanceof StructuredAssignment) {
                 StructuredAssignment assignment = (StructuredAssignment) statement;
-                ClassFileField field = getCFF(assignment.getLvalue(), thisType);
+                ClassFileField field = resolveThisFieldReference(assignment.getLvalue(), thisType);
                 if (field != null) {
                     idx = remainingFields.indexOf(field);
                     if (idx != -1) {
@@ -426,7 +424,7 @@ public class RecordRewriter {
         }
     }
 
-    private static ClassFileField getCFF(LValue lhs, JavaRefTypeInstance thisType) {
+    private static ClassFileField resolveThisFieldReference(LValue lhs, JavaRefTypeInstance thisType) {
         if (!(lhs instanceof FieldVariable)) return null;
         Expression obj = ((FieldVariable) lhs).getObject();
         if (!MiscUtils.isThis(obj, thisType)) return null;

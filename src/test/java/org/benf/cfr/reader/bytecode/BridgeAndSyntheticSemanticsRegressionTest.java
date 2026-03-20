@@ -44,4 +44,49 @@ class BridgeAndSyntheticSemanticsRegressionTest {
 
         CfrDecompilerRegressionSupport.compileJava(tempDir, "SyntheticAccessorSample", decompiled, "--release", "21");
     }
+
+    @Test
+    void shouldInlineLegacySyntheticMutatingAccessors(@TempDir Path tempDir) throws IOException {
+        String source = """
+                public class SyntheticAccessorMutationSample {
+                    private int counter;
+
+                    class Inner {
+                        void bump() {
+                            ++counter;
+                        }
+
+                        int read() {
+                            return counter;
+                        }
+                    }
+
+                    static int run() {
+                        SyntheticAccessorMutationSample outer = new SyntheticAccessorMutationSample();
+                        Inner inner = outer.new Inner();
+                        inner.bump();
+                        inner.bump();
+                        return inner.read();
+                    }
+                }
+                """;
+
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(
+                tempDir,
+                "SyntheticAccessorMutationSample",
+                source,
+                "--release", "8");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
+
+        assertFalse(decompiled.contains("access$"), decompiled);
+        assertTrue(decompiled.contains("++this.this$0.counter;")
+                || decompiled.contains("++counter;")
+                || decompiled.contains("++SyntheticAccessorMutationSample.this.counter;")
+                || decompiled.contains("this.this$0.counter++;")
+                || decompiled.contains("SyntheticAccessorMutationSample.this.counter++;")
+                || decompiled.contains("counter++;"), decompiled);
+
+        CfrDecompilerRegressionSupport.compileJava(tempDir, "SyntheticAccessorMutationSample", decompiled, "--release", "21");
+    }
 }

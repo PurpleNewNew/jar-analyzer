@@ -88,7 +88,10 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
             /*
              * REWRITE INSIDE OUT! First, rewrite args, THEN rewrite expression.
              */
-            expression = rewriteFunctionExpression((StaticFunctionInvokation) expression);
+            Expression rewritten = rewriteSyntheticAccessorInvocation((StaticFunctionInvokation) expression);
+            if (rewritten != null) {
+                expression = rewritten;
+            }
         }
         return expression;
     }
@@ -97,13 +100,6 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
         // Ecj will bury synthetic accessors in lvalues..... (see AnonymousInnerClassTest11c2).
         return lValue.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
-    }
-
-    private Expression rewriteFunctionExpression(final StaticFunctionInvokation functionInvokation) {
-        Expression res = rewriteFunctionExpression2(functionInvokation);
-        // Just a cheat to allow me to return null.
-        if (res == null) return functionInvokation;
-        return res;
     }
 
     private enum AccessorMatchKind {
@@ -159,7 +155,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         }
     }
 
-    private static boolean validRelationship(JavaTypeInstance type1, JavaTypeInstance type2) {
+    private static boolean sharesInnerClassHierarchy(JavaTypeInstance type1, JavaTypeInstance type2) {
         Set<JavaTypeInstance> parents1 = SetFactory.newSet();
         type1.getInnerClassHereInfo().collectTransitiveDegenericParents(parents1);
         parents1.add(type1);
@@ -169,10 +165,10 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         return SetUtil.hasIntersection(parents1, parents2);
     }
 
-    private Expression rewriteFunctionExpression2(final StaticFunctionInvokation functionInvokation) {
+    private Expression rewriteSyntheticAccessorInvocation(final StaticFunctionInvokation functionInvokation) {
         JavaTypeInstance tgtType = functionInvokation.getClazz();
         // Does tgtType have an inner relationship with this?
-        if (!validRelationship(thisClassType, tgtType)) return null;
+        if (!sharesInnerClassHierarchy(thisClassType, tgtType)) return null;
 
         ClassFile otherClass = state.getClassFile(tgtType);
         JavaTypeInstance otherType = otherClass.getClassType();
@@ -462,7 +458,11 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
             if (appliedArg instanceof LValueExpression) {
                 lValueReplacements.put(methodArg, ((LValueExpression) appliedArg).getLValue());
             }
-            expressionReplacements.put(new LValueExpression(methodArg), getCastFriendArg(otherType, methodArg, appliedArg));
+            if (methodArg.getInferredJavaType().getJavaTypeInstance().equals(otherType)
+                    && !appliedArg.getInferredJavaType().getJavaTypeInstance().equals(otherType)) {
+                appliedArg = new CastExpression(BytecodeLoc.NONE, methodArg.getInferredJavaType(), appliedArg);
+            }
+            expressionReplacements.put(new LValueExpression(methodArg), appliedArg);
         }
         return new CloneHelper(expressionReplacements, lValueReplacements);
     }
@@ -511,15 +511,6 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
             default:
                 throw new IllegalStateException();
         }
-    }
-
-    private Expression getCastFriendArg(JavaTypeInstance otherType, LocalVariable methodArg, Expression appliedArg) {
-        if (methodArg.getInferredJavaType().getJavaTypeInstance().equals(otherType)) {
-            if (!appliedArg.getInferredJavaType().getJavaTypeInstance().equals(otherType)) {
-                appliedArg = new CastExpression(BytecodeLoc.NONE, methodArg.getInferredJavaType(), appliedArg);
-            }
-        }
-        return appliedArg;
     }
 
     private class FuncMatchCollector extends AbstractMatchResultIterator {
