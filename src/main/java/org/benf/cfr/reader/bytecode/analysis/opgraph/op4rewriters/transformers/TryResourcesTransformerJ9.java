@@ -34,13 +34,13 @@ public class TryResourcesTransformerJ9 extends TryResourceTransformerFinally {
         Op04StructuredStatement content = finalli.getCatchBlock();
 
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = linearizeStatements(content);
-        if (structuredStatements == null) return null;
-
-        Matcher<StructuredStatement> m = buildFinallyResourceReleaseMatcher(wcm);
-        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        boolean res = matchesStatements(structuredStatements, 1, m, collector);
-        if (!res) return null;
+        TryResourcesMatchResultCollector collector = matchTryResourcesPattern(
+                content,
+                1,
+                wcm,
+                buildFinallyResourceReleaseMatcher(wcm)
+        );
+        if (collector == null) return null;
 
         Method resourceMethod = resolveFakeEndResourceMethod(collector);
         if (resourceMethod == null) return null;
@@ -49,15 +49,11 @@ public class TryResourcesTransformerJ9 extends TryResourceTransformerFinally {
     }
 
     private Matcher<StructuredStatement> buildFinallyResourceReleaseMatcher(WildcardMatch wcm) {
-        return new ResetAfterTest(wcm, buildOptionalGuardedBlockMatcher(wcm.getLValueWildCard("resource"), buildBlockResourceReleaseMatcher(wcm)));
+        return buildOptionalGuardedBlockMatcher(wcm.getLValueWildCard("resource"), buildBlockResourceReleaseMatcher(wcm));
     }
 
     private Matcher<StructuredStatement> buildBlockResourceReleaseMatcher(WildcardMatch wcm) {
-        return new MatchSequence(
-                new BeginBlock(null),
-                buildFakeEndResourceInvocationMatcher(wcm),
-                new EndBlock(null)
-        );
+        return wrapBlockMatcher(buildFakeEndResourceInvocationMatcher(wcm));
     }
 
     private MatchOneOf buildFakeEndResourceInvocationMatcher(WildcardMatch wcm) {

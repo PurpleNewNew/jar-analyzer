@@ -27,17 +27,15 @@ public class TryResourcesTransformerJ7 extends TryResourceTransformerFinally {
         Op04StructuredStatement content = finalli.getCatchBlock();
 
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = linearizeStatements(content);
-        if (structuredStatements == null) return null;
-
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
         WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
-
-        Matcher<StructuredStatement> m = buildFinallyResourceReleaseMatcher(wcm, throwableLValue, autoclose);
-
-        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        boolean res = matchesStatements(structuredStatements, 1, m, collector);
-        if (!res) return null;
+        TryResourcesMatchResultCollector collector = matchTryResourcesPattern(
+                content,
+                1,
+                wcm,
+                buildFinallyResourceReleaseMatcher(wcm, throwableLValue, autoclose)
+        );
+        if (collector == null) return null;
 
         LValue resource = collector.resource;
         LValue throwable = collector.throwable;
@@ -52,6 +50,6 @@ public class TryResourcesTransformerJ7 extends TryResourceTransformerFinally {
                                                                             WildcardMatch.LValueWildcard throwableLValue,
                                                                             WildcardMatch.LValueWildcard autoclose) {
         Matcher<StructuredStatement> releaseMatcher = ResourceReleaseDetector.buildStructuredStatementMatcher(wcm, throwableLValue, autoclose);
-        return new ResetAfterTest(wcm, buildOptionalGuardedBlockMatcher(autoclose, releaseMatcher));
+        return buildOptionalGuardedBlockMatcher(autoclose, releaseMatcher);
     }
 }

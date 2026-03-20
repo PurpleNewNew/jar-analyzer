@@ -74,24 +74,15 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
         Op04StructuredStatement finallyBlock = structuredTry.getFinallyBlock();
 
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = linearizeStatements(finallyBlock);
-        if (structuredStatements == null) return null;
-
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
         WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
-
-        Matcher<StructuredStatement> m =
-                new ResetAfterTest(wcm,
-                        new MatchSequence(
-                                new BeginBlock(null),
-                                ResourceReleaseDetector.buildSimpleStructuredStatementMatcher(wcm, throwableLValue, autoclose),
-                                new EndBlock(null)
-                        )
-                );
-
-        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        boolean res = matchesStatements(structuredStatements, 2, m, collector);
-        if (!res) return null;
+        TryResourcesMatchResultCollector collector = matchTryResourcesPattern(
+                finallyBlock,
+                2,
+                wcm,
+                wrapBlockMatcher(ResourceReleaseDetector.buildSimpleStructuredStatementMatcher(wcm, throwableLValue, autoclose))
+        );
+        if (collector == null) return null;
         return new ResourceMatch(null, collector.resource, collector.throwable, false, Collections.<Op04StructuredStatement>emptyList());
     }
 
@@ -200,21 +191,15 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
 
     private MatchedResourceRelease matchNonTestingResourceRelease(Op04StructuredStatement statement, int advanceCount) {
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = linearizeStatements(statement);
-        if (structuredStatements == null) {
-            return null;
-        }
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
         WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
-        Matcher<StructuredStatement> matcher =
-                new ResetAfterTest(wcm,
-                        new MatchSequence(
-                                new BeginBlock(null),
-                                ResourceReleaseDetector.buildNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose),
-                                new EndBlock(null)
-                        ));
-        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        if (!matchesStatements(structuredStatements, advanceCount, matcher, collector)) {
+        TryResourcesMatchResultCollector collector = matchTryResourcesPattern(
+                statement,
+                advanceCount,
+                wcm,
+                wrapBlockMatcher(ResourceReleaseDetector.buildNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose))
+        );
+        if (collector == null) {
             return null;
         }
         return new MatchedResourceRelease(wcm, collector);

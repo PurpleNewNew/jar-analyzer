@@ -192,6 +192,30 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
         return matchesStatements(Collections.singletonList(statement), 1, checkClose, new EmptyMatchResultCollector());
     }
 
+    protected Matcher<StructuredStatement> wrapBlockMatcher(Matcher<StructuredStatement> matcher) {
+        return new MatchSequence(
+                new BeginBlock(null),
+                matcher,
+                new EndBlock(null)
+        );
+    }
+
+    protected TryResourcesMatchResultCollector matchTryResourcesPattern(Op04StructuredStatement statement,
+                                                                        int advanceCount,
+                                                                        WildcardMatch wcm,
+                                                                        Matcher<StructuredStatement> matcher) {
+        List<StructuredStatement> structuredStatements = linearizeStatements(statement);
+        if (structuredStatements == null) {
+            return null;
+        }
+        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
+        Matcher<StructuredStatement> resetMatcher = new ResetAfterTest(wcm, matcher);
+        if (!matchesStatements(structuredStatements, advanceCount, resetMatcher, collector)) {
+            return null;
+        }
+        return collector;
+    }
+
     protected Matcher<StructuredStatement> buildOptionalGuardedBlockMatcher(LValue resource, Matcher<StructuredStatement> blockMatcher) {
         return new MatchOneOf(
                 new MatchSequence(
