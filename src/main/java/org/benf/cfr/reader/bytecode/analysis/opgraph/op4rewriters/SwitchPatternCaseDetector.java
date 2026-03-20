@@ -293,18 +293,13 @@ final class SwitchPatternCaseDetector {
             }
             rewrittenStatements.add(statements.get(x));
         }
-        appendIfTakenStatements(rewrittenStatements, structuredIf);
-        return rewrittenStatements;
-    }
-
-    private void appendIfTakenStatements(LinkedList<Op04StructuredStatement> rewrittenStatements,
-                                         StructuredIf structuredIf) {
         StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
         if (ifTaken instanceof Block) {
             rewrittenStatements.addAll(((Block) ifTaken).getBlockStatements());
         } else {
             rewrittenStatements.add(structuredIf.getIfTaken());
         }
+        return rewrittenStatements;
     }
 
     private LinkedList<Op04StructuredStatement> simplifySyntheticYieldAlias(LocalVariable binding,
@@ -403,36 +398,19 @@ final class SwitchPatternCaseDetector {
             if (structuredStatement instanceof StructuredComment || structuredStatement instanceof StructuredDefinition) {
                 continue;
             }
-            LocalVariable component = getRecordComponentAssignment(structuredStatement, binding);
-            if (component == null) {
+            if (!(structuredStatement instanceof StructuredAssignment)) {
                 return null;
             }
-            components.add(component);
+            StructuredAssignment assignment = (StructuredAssignment) structuredStatement;
+            if (!(assignment.getLvalue() instanceof LocalVariable)) {
+                return null;
+            }
+            if (!isRecordAccessorAssignment(assignment.getRvalue(), binding)) {
+                return null;
+            }
+            components.add((LocalVariable) assignment.getLvalue());
         }
         return components;
-    }
-
-    private LocalVariable getRecordComponentAssignment(StructuredStatement structuredStatement,
-                                                       LocalVariable binding) {
-        if (!(structuredStatement instanceof StructuredAssignment)) {
-            return null;
-        }
-        StructuredAssignment assignment = (StructuredAssignment) structuredStatement;
-        if (!(assignment.getLvalue() instanceof LocalVariable)) {
-            return null;
-        }
-        if (!isRecordAccessorAssignment(assignment.getRvalue(), binding)) {
-            return null;
-        }
-        return (LocalVariable) assignment.getLvalue();
-    }
-
-    private boolean shouldDropRecordPatternPreludeStatement(Op04StructuredStatement statement, List<LValue> components) {
-        StructuredStatement structuredStatement = statement.getStatement();
-        if (!(structuredStatement instanceof StructuredDefinition)) {
-            return false;
-        }
-        return components.contains(((StructuredDefinition) structuredStatement).getLvalue());
     }
 
     private LinkedList<Op04StructuredStatement> rewriteRecordPatternBody(List<Op04StructuredStatement> statements,
@@ -442,7 +420,9 @@ final class SwitchPatternCaseDetector {
         LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
         for (int x = 0; x < bindingIndex; ++x) {
             Op04StructuredStatement statement = statements.get(x);
-            if (shouldDropRecordPatternPreludeStatement(statement, components)) {
+            StructuredStatement structuredStatement = statement.getStatement();
+            if (structuredStatement instanceof StructuredDefinition
+                    && components.contains(((StructuredDefinition) structuredStatement).getLvalue())) {
                 continue;
             }
             rewrittenStatements.add(statement);

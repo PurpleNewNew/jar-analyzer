@@ -216,10 +216,6 @@ public class RecordRewriter {
                 resultType
         );
 
-        hideIfMatch(thisType, fields, method, wcm, stm);
-    }
-
-    private static void hideIfMatch(JavaTypeInstance thisType, List<ClassFileField> fields, Method method, WildcardMatch wcm, StructuredStatement stm) {
         StructuredStatement item = getSingleCodeLine(method);
         if (!stm.equals(item)) return;
         if (!cmpArgsEq(wcm.getExpressionWildCard("array").getMatch(), thisType, fields)) return;
@@ -365,7 +361,20 @@ public class RecordRewriter {
             if (statement.isEffectivelyNOP()) {
                 continue;
             }
-            int idx = getImplicitAssignmentIndex(statement, remainingFields, args, thisType);
+            int idx = -1;
+            if (statement instanceof StructuredAssignment) {
+                StructuredAssignment assignment = (StructuredAssignment) statement;
+                ClassFileField field = getCFF(assignment.getLvalue(), thisType);
+                if (field != null) {
+                    idx = remainingFields.indexOf(field);
+                    if (idx != -1) {
+                        Expression rhs = assignment.getRvalue();
+                        if (!(rhs instanceof LValueExpression) || ((LValueExpression) rhs).getLValue() != args.get(idx)) {
+                            idx = -1;
+                        }
+                    }
+                }
+            }
             if (idx == -1) {
                 break;
             }
@@ -385,21 +394,6 @@ public class RecordRewriter {
             check.transform(statements.get(x));
         }
         return thisCheck.failed;
-    }
-
-    private static int getImplicitAssignmentIndex(StructuredStatement statement,
-                                                  List<ClassFileField> instances,
-                                                  List<LocalVariable> args,
-                                                  JavaRefTypeInstance thisType) {
-        if (!(statement instanceof StructuredAssignment)) return -1;
-        StructuredAssignment assignment = (StructuredAssignment) statement;
-        ClassFileField field = getCFF(assignment.getLvalue(), thisType);
-        if (field == null) return -1;
-        int idx = instances.indexOf(field);
-        if (idx == -1) return -1;
-        Expression rhs = assignment.getRvalue();
-        if (!(rhs instanceof LValueExpression)) return -1;
-        return ((LValueExpression) rhs).getLValue() == args.get(idx) ? idx : -1;
     }
 
     private static final class ImplicitAssignmentTail {

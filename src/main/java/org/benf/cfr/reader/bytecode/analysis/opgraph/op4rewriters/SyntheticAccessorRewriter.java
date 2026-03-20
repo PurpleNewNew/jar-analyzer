@@ -59,7 +59,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
 
     private final DCCommonState state;
     private final JavaTypeInstance thisClassType;
-    private final ExpressionRewriter visbilityRewriter = new VisibiliyDecreasingRewriter();
+    private final ExpressionRewriter visibilityRewriter = new VisibilityDecreasingRewriter();
 
     public SyntheticAccessorRewriter(DCCommonState state, JavaTypeInstance thisClassType) {
         this.state = state;
@@ -166,8 +166,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         Set<JavaTypeInstance> parents2 = SetFactory.newSet();
         type2.getInnerClassHereInfo().collectTransitiveDegenericParents(parents2);
         parents2.add(type2);
-        boolean res = SetUtil.hasIntersection(parents1, parents2);
-        return res;
+        return SetUtil.hasIntersection(parents1, parents2);
     }
 
     private Expression rewriteFunctionExpression2(final StaticFunctionInvokation functionInvokation) {
@@ -220,7 +219,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         }
         if (res != null) {
             otherMethod.hideSynthetic();
-            return visbilityRewriter.rewriteExpression(res, null, null, null);
+            return visibilityRewriter.rewriteExpression(res, null, null, null);
         }
 
         return null;
@@ -235,7 +234,12 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
             methodExprs.add(new LValueExpression(methodArgs.get(x)));
         }
         AccessorMatchCollector accessorMatchCollector = new AccessorMatchCollector();
-        if (!matchesSingleBlock(structuredStatements, buildAccessorMatcher(wcm, methodExprs), accessorMatchCollector)) return null;
+        Matcher<StructuredStatement> matcher = new MatchSequence(
+                new BeginBlock(null),
+                buildAccessorCases(wcm, methodExprs),
+                new EndBlock(null)
+        );
+        if (!matchesSingleBlock(structuredStatements, matcher, accessorMatchCollector)) return null;
         if (accessorMatchCollector.matchKind == null) return null;
 
         boolean isStatic = (accessorMatchCollector.lValue instanceof StaticVariable);
@@ -296,27 +300,16 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         WildcardMatch wcm = new WildcardMatch();
 
         FuncMatchCollector funcMatchCollector = new FuncMatchCollector();
-        if (!matchesSingleBlock(structuredStatements, buildFunctionCallMatcher(wcm, otherType), funcMatchCollector)) return null;
-        if (funcMatchCollector.matchKind == null) return null;
-
-        CloneHelper cloneHelper = buildCloneHelper(otherType, methodArgs, appliedArgs);
-        return cloneHelper.replaceOrClone(funcMatchCollector.functionInvokation);
-    }
-
-    private Matcher<StructuredStatement> buildAccessorMatcher(WildcardMatch wcm, List<Expression> methodExprs) {
-        return new MatchSequence(
-                new BeginBlock(null),
-                buildAccessorCases(wcm, methodExprs),
-                new EndBlock(null)
-        );
-    }
-
-    private Matcher<StructuredStatement> buildFunctionCallMatcher(WildcardMatch wcm, JavaTypeInstance otherType) {
-        return new MatchSequence(
+        Matcher<StructuredStatement> matcher = new MatchSequence(
                 new BeginBlock(null),
                 buildFunctionCallCases(wcm, otherType),
                 new EndBlock(null)
         );
+        if (!matchesSingleBlock(structuredStatements, matcher, funcMatchCollector)) return null;
+        if (funcMatchCollector.matchKind == null) return null;
+
+        CloneHelper cloneHelper = buildCloneHelper(otherType, methodArgs, appliedArgs);
+        return cloneHelper.replaceOrClone(funcMatchCollector.functionInvokation);
     }
 
     private MatchOneOf buildFunctionCallCases(WildcardMatch wcm, JavaTypeInstance otherType) {
@@ -537,18 +530,13 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
             this.matchKind = FunctionCallMatchKind.fromMatcherName(name);
-            functionInvokation = getMatchedFunctionInvocation(matchKind, wcm);
-        }
-
-        private Expression getMatchedFunctionInvocation(FunctionCallMatchKind matchKind, WildcardMatch wcm) {
-            if (matchKind != null && matchKind.staticInvocation) {
-                return wcm.getStaticFunction("func").getMatch();
-            }
-            return wcm.getMemberFunction("func").getMatch();
+            functionInvokation = matchKind != null && matchKind.staticInvocation
+                    ? wcm.getStaticFunction("func").getMatch()
+                    : wcm.getMemberFunction("func").getMatch();
         }
     }
 
-    private class VisibiliyDecreasingRewriter extends AbstractExpressionRewriter {
+    private class VisibilityDecreasingRewriter extends AbstractExpressionRewriter {
         @Override
         public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
             if (lValue instanceof StaticVariable) {
