@@ -29,15 +29,15 @@ public final class DecompileDispatcher {
         if (decompilePath == null) {
             return null;
         }
-        return CFRDecompileEngine.decompile(decompilePath.toString());
+        return VineflowerDecompileEngine.decompile(decompilePath.toString());
     }
 
-    public static CFRDecompileEngine.CfrDecompileResult decompileWithLineMapping(Path path) {
+    public static VineflowerDecompileEngine.DecompileResult decompileWithLineMapping(Path path) {
         Path decompilePath = resolveDecompilePath(path);
         if (decompilePath == null) {
             return null;
         }
-        return CFRDecompileEngine.decompileWithLineMapping(decompilePath.toString());
+        return VineflowerDecompileEngine.decompileWithLineMapping(decompilePath.toString());
     }
 
     public static boolean decompileJars(List<String> jarsPath, String outputDir) {
@@ -48,7 +48,7 @@ public final class DecompileDispatcher {
         if (jarsPath == null || jarsPath.isEmpty()) {
             return false;
         }
-        return CFRDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
+        return VineflowerDecompileEngine.decompileJars(jarsPath, outputDir, decompileNested);
     }
 
     private static Path resolveDecompilePath(Path path) {

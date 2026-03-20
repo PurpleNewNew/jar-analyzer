@@ -96,6 +96,7 @@
         <compress.version>1.28.0</compress.version>
         <tomcat.jasper.version>10.1.18</tomcat.jasper.version>
         <ant.version>1.10.12</ant.version>
+        <jetbrains.annotations.version>26.0.2</jetbrains.annotations.version>
         <neo4j.version>5.26.0</neo4j.version>
         <frontend.maven.version>1.15.1</frontend.maven.version>
         <node.version>v20.16.0</node.version>
@@ -260,6 +261,11 @@
             <groupId>org.apache.ant</groupId>
             <artifactId>ant</artifactId>
             <version>${ant.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>${jetbrains.annotations.version}</version>
         </dependency>
         <dependency>
             <groupId>org.neo4j</groupId>

@@ -12,10 +12,10 @@ import me.n1ar4.jar.analyzer.graph.flow.FlowOptions;
 import me.n1ar4.jar.analyzer.graph.flow.FlowStats;
 import me.n1ar4.jar.analyzer.graph.flow.FlowTruncation;
 import me.n1ar4.jar.analyzer.graph.flow.GraphFlowService;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
 import me.n1ar4.jar.analyzer.engine.DecompileDispatcher;
 import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.engine.VineflowerDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.project.ProjectOrigin;
 import me.n1ar4.jar.analyzer.core.reference.ClassReference;
 import me.n1ar4.jar.analyzer.core.reference.MethodReference;
@@ -678,7 +678,7 @@ public final class RuntimeFacades {
 
         private volatile EditorDocumentDto editorDocument = new EditorDocumentDto(
                 "", "", null, "", "", "", 0, initialTr("就绪", "ready"));
-        private volatile List<CFRDecompileEngine.CfrLineMapping> editorLineMappings = List.of();
+        private volatile List<VineflowerDecompileEngine.LineMapping> editorLineMappings = List.of();
         private final AtomicLong editorOpenTicket = new AtomicLong(0L);
         private final Object navLock = new Object();
         private final List<NavState> navStates = new ArrayList<>();
@@ -2759,13 +2759,13 @@ public final class RuntimeFacades {
             }
             String content = "";
             String status = "ready";
-            List<CFRDecompileEngine.CfrLineMapping> lineMappings = List.of();
+            List<VineflowerDecompileEngine.LineMapping> lineMappings = List.of();
             if (safe(absPath).isEmpty()) {
                 status = "class bytecode path not found";
             } else {
                 try {
                     Path classPath = Paths.get(absPath);
-                    CFRDecompileEngine.CfrDecompileResult result =
+                    VineflowerDecompileEngine.DecompileResult result =
                             DecompileDispatcher.decompileWithLineMapping(classPath);
                     if (result == null || result.getCode() == null) {
                         status = "decompile output is empty";
@@ -2773,7 +2773,7 @@ public final class RuntimeFacades {
                         lineMappings = List.of();
                     } else {
                         content = result.getCode();
-                        List<CFRDecompileEngine.CfrLineMapping> resolvedMappings = result.getLineMappings();
+                        List<VineflowerDecompileEngine.LineMapping> resolvedMappings = result.getLineMappings();
                         lineMappings = resolvedMappings == null || resolvedMappings.isEmpty()
                                 ? List.of()
                                 : List.copyOf(resolvedMappings);
@@ -2935,7 +2935,7 @@ public final class RuntimeFacades {
             if (desc.isEmpty()) {
                 desc = resolveMethodDescFromMetadata(className, jarId, name, lineNumberHint);
             }
-            CFRDecompileEngine.CfrLineMapping mapping = selectEditorLineMapping(name, desc, lineNumberHint);
+            VineflowerDecompileEngine.LineMapping mapping = selectEditorLineMapping(name, desc, lineNumberHint);
             if (mapping != null && desc.isEmpty()) {
                 desc = safe(mapping.getMethodDesc()).trim();
             }
@@ -3041,17 +3041,17 @@ public final class RuntimeFacades {
             if (sourceLineHint == null || sourceLineHint <= 0) {
                 return null;
             }
-            CFRDecompileEngine.CfrLineMapping mapping = selectEditorLineMapping(methodName, methodDesc, sourceLineHint);
+            VineflowerDecompileEngine.LineMapping mapping = selectEditorLineMapping(methodName, methodDesc, sourceLineHint);
             if (mapping == null) {
                 return null;
             }
             return findClosestMappedLine(mapping.getDecompiledToSource(), sourceLineHint);
         }
 
-        private CFRDecompileEngine.CfrLineMapping selectEditorLineMapping(String methodName,
-                                                                          String methodDesc,
-                                                                          Integer sourceLineHint) {
-            List<CFRDecompileEngine.CfrLineMapping> candidates = collectEditorLineMappings(methodName, methodDesc);
+        private VineflowerDecompileEngine.LineMapping selectEditorLineMapping(String methodName,
+                                                                              String methodDesc,
+                                                                              Integer sourceLineHint) {
+            List<VineflowerDecompileEngine.LineMapping> candidates = collectEditorLineMappings(methodName, methodDesc);
             if (candidates.isEmpty()) {
                 return null;
             }
@@ -3065,9 +3065,9 @@ public final class RuntimeFacades {
             return selectClosestMappedLine(candidates, sourceLineHint);
         }
 
-        private List<CFRDecompileEngine.CfrLineMapping> collectEditorLineMappings(String methodName,
-                                                                                  String methodDesc) {
-            List<CFRDecompileEngine.CfrLineMapping> mappings = STATE.editorLineMappings;
+        private List<VineflowerDecompileEngine.LineMapping> collectEditorLineMappings(String methodName,
+                                                                                      String methodDesc) {
+            List<VineflowerDecompileEngine.LineMapping> mappings = STATE.editorLineMappings;
             if (mappings == null || mappings.isEmpty()) {
                 return List.of();
             }
@@ -3076,8 +3076,8 @@ public final class RuntimeFacades {
                 return List.of();
             }
             String desc = safe(methodDesc).trim();
-            List<CFRDecompileEngine.CfrLineMapping> candidates = new ArrayList<>();
-            for (CFRDecompileEngine.CfrLineMapping mapping : mappings) {
+            List<VineflowerDecompileEngine.LineMapping> candidates = new ArrayList<>();
+            for (VineflowerDecompileEngine.LineMapping mapping : mappings) {
                 if (mapping == null) {
                     continue;
                 }
@@ -3092,13 +3092,13 @@ public final class RuntimeFacades {
             return candidates;
         }
 
-        private CFRDecompileEngine.CfrLineMapping selectClosestMappedLine(List<CFRDecompileEngine.CfrLineMapping> candidates,
-                                                                          int sourceLineHint) {
-            CFRDecompileEngine.CfrLineMapping bestMapping = null;
+        private VineflowerDecompileEngine.LineMapping selectClosestMappedLine(List<VineflowerDecompileEngine.LineMapping> candidates,
+                                                                              int sourceLineHint) {
+            VineflowerDecompileEngine.LineMapping bestMapping = null;
             Integer bestLine = null;
             int bestDistance = Integer.MAX_VALUE;
             String bestDesc = "";
-            for (CFRDecompileEngine.CfrLineMapping candidate : candidates) {
+            for (VineflowerDecompileEngine.LineMapping candidate : candidates) {
                 if (candidate == null) {
                     continue;
                 }

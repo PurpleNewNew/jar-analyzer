@@ -29,6 +29,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -617,23 +618,39 @@ public class ProjectContextModelTest {
 
     private static RegistryBackup replaceRegistryWithDirectory() throws Exception {
         Path registry = Path.of(".jar-analyzer-projects.json").toAbsolutePath().normalize();
-        Path temp = registry.resolveSibling(registry.getFileName() + ".tmp");
+        Path blocker = registry.resolve("blocked");
         byte[] backup = Files.exists(registry) ? Files.readAllBytes(registry) : null;
-        Files.deleteIfExists(temp);
-        Files.createDirectories(temp);
-        return new RegistryBackup(registry, backup, temp);
+        deletePath(registry);
+        Files.createDirectories(registry);
+        Files.writeString(blocker, "block", StandardCharsets.UTF_8);
+        return new RegistryBackup(registry, backup, blocker);
     }
 
     private static void restoreRegistryBackup(ProjectRegistryService service, RegistryBackup backup) throws Exception {
         if (backup == null) {
             return;
         }
-        Files.deleteIfExists(backup.tempPath());
-        Files.deleteIfExists(backup.path());
+        deletePath(backup.path());
         if (backup.content() != null) {
             Files.write(backup.path(), backup.content());
         }
         invokeLoad(service);
+    }
+
+    private static void deletePath(Path path) throws Exception {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+        try (var stream = Files.walk(path)) {
+            stream.sorted(Comparator.reverseOrder())
+                    .forEach(current -> {
+                        try {
+                            Files.deleteIfExists(current);
+                        } catch (Exception ex) {
+                            throw new IllegalStateException("delete_test_path_failed", ex);
+                        }
+                    });
+        }
     }
 
     @SuppressWarnings("unchecked")

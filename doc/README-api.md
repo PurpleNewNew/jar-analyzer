@@ -112,8 +112,8 @@
 
 ### 反编译 / 证据
 - `GET /api/code`
-  参数: `class` `method` `desc` `engine` `full`
-  `engine`: 仅支持 `cfr`（可省略）
+  参数: `class` `method` `desc` `jarId` `full`
+  说明: 反编译固定使用内置 `VineFlower`，不再接受 `engine/decompiler` 等旧参数；`desc` 在重载场景下用于消歧。
 
 ### 资源
 - `GET /api/resources/list`

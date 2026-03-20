@@ -106,6 +106,41 @@ class CodeHandlerTest {
     }
 
     @Test
+    void handleShouldRejectRemovedEngineParam() throws Exception {
+        String className = installReadyEngineForClass(CodeHandlerTest.class, 1);
+
+        NanoHTTPD.Response response = new CodeHandler().handle(session(Map.of(
+                "class", className,
+                "method", "handleShouldRejectRemovedEngineParam",
+                "desc", "()V",
+                "engine", "vineflower"
+        )));
+
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.getStatus());
+        JSONObject body = JSON.parseObject(readBody(response));
+        assertEquals("invalid_param", body.getString("code"));
+        assertTrue(body.getString("message").contains("engine"));
+        assertTrue(body.getString("message").contains("removed"));
+    }
+
+    @Test
+    void handleShouldRejectRemovedMethodNameAlias() throws Exception {
+        String className = installReadyEngineForClass(CodeHandlerTest.class, 1);
+
+        NanoHTTPD.Response response = new CodeHandler().handle(session(Map.of(
+                "class", className,
+                "methodName", "handleShouldRejectRemovedMethodNameAlias",
+                "desc", "()V"
+        )));
+
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.getStatus());
+        JSONObject body = JSON.parseObject(readBody(response));
+        assertEquals("invalid_param", body.getString("code"));
+        assertTrue(body.getString("message").contains("methodName"));
+        assertTrue(body.getString("message").contains("method"));
+    }
+
+    @Test
     void codeGetToolShouldForwardJarId() throws Exception {
         String className = installReadyEngineForClass(CodeHandlerTest.class, 1);
         McpToolRegistry registry = new McpToolRegistry();

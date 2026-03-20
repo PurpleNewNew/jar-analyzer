@@ -43,8 +43,8 @@ public final class ClasspathRegistry {
                 "android", "androidx", "kotlin", "scala");
     }
     private static volatile List<Path> cachedArchives = Collections.emptyList();
-    private static volatile List<Path> cachedCfrEntries = Collections.emptyList();
-    private static volatile String cachedCfrClasspath = "";
+    private static volatile List<Path> cachedDecompilerEntries = Collections.emptyList();
+    private static volatile String cachedDecompilerClasspath = "";
     private static volatile long lastRootSeq = -1;
 
     private ClasspathRegistry() {
@@ -55,19 +55,14 @@ public final class ClasspathRegistry {
         return cachedArchives;
     }
 
-    public static List<Path> getClasspathEntriesForCfr() {
+    public static List<Path> getDecompilerClasspathEntries() {
         ensureFresh();
-        return cachedCfrEntries;
+        return cachedDecompilerEntries;
     }
 
     public static String getClasspathString() {
         ensureFresh();
-        return cachedCfrClasspath;
-    }
-
-    public static String getClasspathStringForCfr() {
-        ensureFresh();
-        return cachedCfrClasspath;
+        return cachedDecompilerClasspath;
     }
 
     private static void ensureFresh() {
@@ -88,11 +83,11 @@ public final class ClasspathRegistry {
         cachedArchives = archives.isEmpty()
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(archives);
-        List<Path> cfrEntries = resolveClasspathEntriesForCfr(archives);
-        cachedCfrEntries = cfrEntries.isEmpty()
+        List<Path> decompilerEntries = resolveDecompilerClasspathEntries(archives);
+        cachedDecompilerEntries = decompilerEntries.isEmpty()
                 ? Collections.emptyList()
-                : Collections.unmodifiableList(cfrEntries);
-        cachedCfrClasspath = buildClasspathString(cfrEntries);
+                : Collections.unmodifiableList(decompilerEntries);
+        cachedDecompilerClasspath = buildClasspathString(decompilerEntries);
         lastRootSeq = rootSeq;
     }
 
@@ -122,7 +117,7 @@ public final class ClasspathRegistry {
         return new ArrayList<>(out);
     }
 
-    private static List<Path> resolveClasspathEntriesForCfr(List<Path> archives) {
+    private static List<Path> resolveDecompilerClasspathEntries(List<Path> archives) {
         LinkedHashSet<Path> out = new LinkedHashSet<>();
         Path root = resolveRootPath();
         addRootEntries(out, root);

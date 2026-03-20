@@ -31,7 +31,7 @@ import java.util.List;
  *
  * Main path is:
  * 1. AST + descriptor match
- * 2. exact decompiled line fallback from CFR mapping
+ * 2. exact decompiled line fallback from decompiler mapping
  */
 public final class DecompiledMethodLocator {
     private static final int FULL_SIGNATURE_SCORE = 30_000;

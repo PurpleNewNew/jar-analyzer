@@ -1,8 +1,8 @@
 package me.n1ar4.jar.analyzer.gui.runtime.api;
 
 import me.n1ar4.jar.analyzer.core.DatabaseManager;
-import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
 import me.n1ar4.jar.analyzer.engine.CoreEngine;
+import me.n1ar4.jar.analyzer.engine.VineflowerDecompileEngine;
 import me.n1ar4.jar.analyzer.graph.store.GraphStore;
 import me.n1ar4.jar.analyzer.utils.ClassIndex;
 import me.n1ar4.log.LogManager;
@@ -26,9 +26,9 @@ public final class ProjectScopedRuntimeCleaner {
 
     public static void clearDerivedCaches(Supplier<CoreEngine> engineSupplier) {
         try {
-            CFRDecompileEngine.cleanCache();
+            VineflowerDecompileEngine.cleanCache();
         } catch (Throwable ex) {
-            logger.debug("clear cfr cache failed: {}", ex.toString());
+            logger.debug("clear decompile cache failed: {}", ex.toString());
         }
         try {
             CoreEngine engine = engineSupplier == null ? null : engineSupplier.get();

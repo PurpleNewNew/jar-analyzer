@@ -96,7 +96,7 @@
 - 字节码扫描：ASM。
 - 调用图：`bytecode-mainline`（`fast / balanced / precision`）。
 - 图存储：Neo4j Embedded（官方依赖）。
-- 反编译：CFR（单引擎）。
+- 反编译：VineFlower（单引擎）。
 
 ### 2.3 单活项目模型
 - 同一时刻只有一个 active project 对外提供查询/Flow 数据。

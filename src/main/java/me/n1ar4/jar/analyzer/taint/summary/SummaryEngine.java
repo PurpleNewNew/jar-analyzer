@@ -75,6 +75,10 @@ public final class SummaryEngine {
         return summary;
     }
 
+    private void ensureRuleContext() {
+        ensureRuleContext(null);
+    }
+
     private void ensureRuleContext(TaintPropagationConfig propagationConfig) {
         TaintPropagationConfig effectiveConfig = propagationConfig == null
                 ? TaintPropagationConfig.resolve()

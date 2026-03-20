@@ -217,7 +217,7 @@ public final class ToolWindowDialogs {
         c.gridwidth = 2;
         JPanel enginePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         enginePanel.add(new JLabel(tr(translator, "反编译引擎", "Decompiler")));
-        enginePanel.add(new JLabel("CFR"));
+        enginePanel.add(new JLabel("VineFlower"));
         enginePanel.add(nestedLib);
         form.add(enginePanel, c);
         c.gridy = 5;

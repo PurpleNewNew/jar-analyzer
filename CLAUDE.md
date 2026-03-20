@@ -76,7 +76,7 @@ Entry point: `me.n1ar4.jar.analyzer.starter.Application`. Three modes:
 | `graph/` | Graph queries, DFS path search, taint flow engine, Cypher execution |
 | `taint/` | Taint propagation analysis with JVM simulation and method summaries |
 | `rules/` | DSL rule compiler, model/sink/source registries with hot-reload |
-| `engine/` | Query engine, CFR decompiler, class lookup, search |
+| `engine/` | Query engine, VineFlower decompiler, class lookup, search |
 | `server/` | NanoHTTPD-based HTTP API server and request handlers |
 | `mcp/` | MCP protocol server (Java-native, in-process) |
 | `gui/runtime/` | GUI state layer: facades, DTOs, bootstrap |

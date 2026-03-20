@@ -33,23 +33,20 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
         if (engine == null) {
             return projectNotReady();
         }
+        NanoHTTPD.Response legacyParamError = rejectRemovedParams(session);
+        if (legacyParamError != null) {
+            return legacyParamError;
+        }
         String className = getClassParam(session);
-        String methodName = getStringParam(session, "method", "methodName");
-        String methodDesc = getStringParam(session, "desc", "methodDesc");
+        String methodName = getStringParam(session, "method");
+        String methodDesc = getStringParam(session, "desc");
         if (StringUtil.isNull(className)) {
             return needParam("class");
         }
         if (StringUtil.isNull(methodName)) {
             return needParam("method");
         }
-        String engineName = getStringParam(session, "engine", "decompiler");
-        if (!StringUtil.isNull(engineName) && !"cfr".equalsIgnoreCase(engineName.trim())) {
-            return buildError(
-                    NanoHTTPD.Response.Status.BAD_REQUEST,
-                    "invalid_engine",
-                    "engine must be cfr");
-        }
-        boolean includeFull = getBoolParam(session, "full") || getBoolParam(session, "includeFull");
+        boolean includeFull = getBoolParam(session, "full");
         Integer jarId = getIntParamNullable(session, "jarId");
         try {
             MethodResolution resolution = resolveMethod(engine, className, methodName, methodDesc, jarId);
@@ -85,7 +82,6 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                         "method not found: " + className + "#" + methodName + safeDesc(resolvedMethodDesc));
             }
             Map<String, Object> result = new HashMap<>();
-            result.put("engine", "cfr");
             result.put("className", className);
             result.put("methodName", methodName);
             result.put("methodDesc", safeDesc(resolvedMethodDesc));
@@ -101,6 +97,60 @@ public class CodeHandler extends ApiBaseHandler implements HttpHandler {
                     "code_error",
                     "error: " + e.getMessage());
         }
+    }
+
+    private NanoHTTPD.Response rejectRemovedParams(NanoHTTPD.IHTTPSession session) {
+        NanoHTTPD.Response error = rejectRemovedParam(session, "methodName", "method");
+        if (error != null) {
+            return error;
+        }
+        error = rejectRemovedParam(session, "methodDesc", "desc");
+        if (error != null) {
+            return error;
+        }
+        error = rejectRemovedParam(session, "includeFull", "full");
+        if (error != null) {
+            return error;
+        }
+        if (hasNonBlankParam(session, "engine") || hasNonBlankParam(session, "decompiler")) {
+            return buildError(
+                    NanoHTTPD.Response.Status.BAD_REQUEST,
+                    "invalid_param",
+                    "parameter engine has been removed; /api/code always uses the built-in decompiler");
+        }
+        return null;
+    }
+
+    private NanoHTTPD.Response rejectRemovedParam(NanoHTTPD.IHTTPSession session,
+                                                  String removed,
+                                                  String canonical) {
+        if (!hasNonBlankParam(session, removed)) {
+            return null;
+        }
+        return buildError(
+                NanoHTTPD.Response.Status.BAD_REQUEST,
+                "invalid_param",
+                "parameter " + removed + " has been removed; use " + canonical);
+    }
+
+    private static boolean hasNonBlankParam(NanoHTTPD.IHTTPSession session, String key) {
+        if (session == null || StringUtil.isNull(key)) {
+            return false;
+        }
+        Map<String, java.util.List<String>> parameters = session.getParameters();
+        if (parameters == null) {
+            return false;
+        }
+        java.util.List<String> values = parameters.get(key);
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        for (String value : values) {
+            if (!StringUtil.isNull(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String safeDesc(String methodDesc) {

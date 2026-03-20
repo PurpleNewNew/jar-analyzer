@@ -329,7 +329,6 @@
                     apiUrl: localStorage.getItem('ja_api_url') || 'http://127.0.0.1:8088',
                     token: localStorage.getItem('ja_api_token') || ''
                 });
-                localStorage.removeItem('ja_decompiler');
 
                 let ws = null;
                 let myPieChart = null;
@@ -370,7 +369,6 @@
                 const saveSettings = () => {
                     localStorage.setItem('ja_api_url', settings.value.apiUrl);
                     localStorage.setItem('ja_api_token', settings.value.token || '');
-                    localStorage.removeItem('ja_decompiler');
                     settingsVisible.value = false;
                     ElementPlus.ElMessage.success('Settings saved');
                 };
@@ -384,7 +382,7 @@
 
                     try {
                         const baseUrl = settings.value.apiUrl.replace(/\/$/, '');
-                        const targetUrl = `${baseUrl}/api/code?class=${encodeURIComponent(trace.class)}&method=${encodeURIComponent(trace.method)}&desc=${encodeURIComponent(trace.desc || '')}&engine=cfr&full=true`;
+                        const targetUrl = `${baseUrl}/api/code?class=${encodeURIComponent(trace.class)}&method=${encodeURIComponent(trace.method)}&desc=${encodeURIComponent(trace.desc || '')}&full=true`;
                         
                         const headers = {};
                         if (settings.value.token && settings.value.token.trim()) {

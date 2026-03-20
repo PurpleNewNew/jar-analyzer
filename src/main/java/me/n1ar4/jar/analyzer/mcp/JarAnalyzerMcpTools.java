@@ -313,7 +313,7 @@ public final class JarAnalyzerMcpTools {
 
     private static void registerCodeTools(McpToolRegistry reg, JarAnalyzerApiInvoker api) {
         JSONObject code = McpToolSchemas.tool("code_get",
-                "Get decompiled method code (CFR).");
+                "Get decompiled method code (VineFlower).");
         McpToolSchemas.addString(code, "class", true, "Class name.");
         McpToolSchemas.addString(code, "method", true, "Method name.");
         McpToolSchemas.addString(code, "desc", false, "Method descriptor (optional).");
