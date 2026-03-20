@@ -158,25 +158,20 @@ final class SwitchPatternCaseDetector {
                                     int bindingIndex,
                                     LValue indexLValue,
                                     StructuredWhile patternLoop) {
-        int ifIdx = nextMeaningfulIndex(statements, bindingIndex + 1);
-        if (ifIdx == -1) {
+        IndexedGuardIf guardIf = findMeaningfulGuardIf(statements, bindingIndex + 1);
+        if (guardIf == null) {
             return null;
         }
-        StructuredStatement statement = statements.get(ifIdx).getStatement();
-        if (!(statement instanceof StructuredIf)) {
+        if (guardIf.structuredIf.hasElseBlock()) {
             return null;
         }
-        StructuredIf structuredIf = (StructuredIf) statement;
-        if (structuredIf.hasElseBlock()) {
-            return null;
-        }
-        if (!hasTrailingLoopGuard(statements, ifIdx, indexLValue, patternLoop)) {
+        if (!hasTrailingLoopGuard(statements, guardIf.index, indexLValue, patternLoop)) {
             return null;
         }
         return new GuardPlan(
                 null,
-                structuredIf.getConditionalExpression(),
-                rewriteGuardedBody(statements, bindingIndex, structuredIf, null)
+                guardIf.structuredIf.getConditionalExpression(),
+                rewriteGuardedBody(statements, bindingIndex, guardIf.structuredIf, null)
         );
     }
 
@@ -185,34 +180,29 @@ final class SwitchPatternCaseDetector {
                                                JavaTypeInstance expectedType,
                                                LValue indexLValue,
                                                StructuredWhile patternLoop) {
-        int ifIdx = nextLeadingGuardIndex(statements);
-        if (ifIdx == -1) {
+        IndexedGuardIf guardIf = findLeadingGuardIf(statements);
+        if (guardIf == null) {
             return null;
         }
-        StructuredStatement statement = statements.get(ifIdx).getStatement();
-        if (!(statement instanceof StructuredIf)) {
-            return null;
-        }
-        StructuredIf structuredIf = (StructuredIf) statement;
-        if (structuredIf.hasElseBlock()) {
+        if (guardIf.structuredIf.hasElseBlock()) {
             return null;
         }
 
         ConditionPatternBinding conditionBinding = ConditionPatternBinding.match(
-                structuredIf.getConditionalExpression(),
+                guardIf.structuredIf.getConditionalExpression(),
                 selector,
                 expectedType
         );
         if (conditionBinding == null) {
             return null;
         }
-        if (!hasTrailingLoopGuard(statements, ifIdx, indexLValue, patternLoop)) {
+        if (!hasTrailingLoopGuard(statements, guardIf.index, indexLValue, patternLoop)) {
             return null;
         }
         return new GuardPlan(
                 conditionBinding.binding,
                 conditionBinding.guard,
-                rewriteGuardedBody(statements, ifIdx, structuredIf, conditionBinding.binding)
+                rewriteGuardedBody(statements, guardIf.index, guardIf.structuredIf, conditionBinding.binding)
         );
     }
 
@@ -240,6 +230,30 @@ final class SwitchPatternCaseDetector {
             return -1;
         }
         return -1;
+    }
+
+    private IndexedGuardIf findMeaningfulGuardIf(List<Op04StructuredStatement> statements, int start) {
+        int ifIdx = nextMeaningfulIndex(statements, start);
+        if (ifIdx == -1) {
+            return null;
+        }
+        StructuredStatement statement = statements.get(ifIdx).getStatement();
+        if (!(statement instanceof StructuredIf)) {
+            return null;
+        }
+        return new IndexedGuardIf(ifIdx, (StructuredIf) statement);
+    }
+
+    private IndexedGuardIf findLeadingGuardIf(List<Op04StructuredStatement> statements) {
+        int ifIdx = nextLeadingGuardIndex(statements);
+        if (ifIdx == -1) {
+            return null;
+        }
+        StructuredStatement statement = statements.get(ifIdx).getStatement();
+        if (!(statement instanceof StructuredIf)) {
+            return null;
+        }
+        return new IndexedGuardIf(ifIdx, (StructuredIf) statement);
     }
 
     private boolean hasTrailingLoopGuard(List<Op04StructuredStatement> statements,
@@ -497,6 +511,16 @@ final class SwitchPatternCaseDetector {
         private PatternBinding(LocalVariable binding, int bindingIndex) {
             this.binding = binding;
             this.bindingIndex = bindingIndex;
+        }
+    }
+
+    private static final class IndexedGuardIf {
+        private final int index;
+        private final StructuredIf structuredIf;
+
+        private IndexedGuardIf(int index, StructuredIf structuredIf) {
+            this.index = index;
+            this.structuredIf = structuredIf;
         }
     }
 

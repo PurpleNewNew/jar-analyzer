@@ -4,7 +4,6 @@ import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ResourceReleaseDetector;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.*;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.wildcard.WildcardMatch;
@@ -28,31 +27,16 @@ public class TryResourcesTransformerJ7 extends TryResourceTransformerFinally {
         Op04StructuredStatement content = finalli.getCatchBlock();
 
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(content);
+        List<StructuredStatement> structuredStatements = linearizeStatements(content);
         if (structuredStatements == null) return null;
 
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
         WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
 
-        Matcher<StructuredStatement> subMatch = ResourceReleaseDetector.getStructuredStatementMatcher(wcm, throwableLValue, autoclose);
-
-        //noinspection unchecked
-        Matcher<StructuredStatement> m = new MatchOneOf(
-                new ResetAfterTest(wcm,
-                    new MatchSequence(
-                        new BeginBlock(null),
-                        new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
-                        subMatch,
-                        new EndBlock(null)
-                    )
-                ),
-                new ResetAfterTest(wcm, subMatch));
-
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
+        Matcher<StructuredStatement> m = buildFinallyResourceReleaseMatcher(wcm, throwableLValue, autoclose);
 
         TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        mi.advance();
-        boolean res = m.match(mi, collector);
+        boolean res = matchesStatements(structuredStatements, 1, m, collector);
         if (!res) return null;
 
         LValue resource = collector.resource;
@@ -62,5 +46,22 @@ public class TryResourcesTransformerJ7 extends TryResourceTransformerFinally {
         // resource must cast back to AutoClosable.
         // except, prior to J9, closable didn't inherit from Autoclosable, so test for closable.
         return new ResourceMatch(null, resource, throwable);
+    }
+
+    private Matcher<StructuredStatement> buildFinallyResourceReleaseMatcher(WildcardMatch wcm,
+                                                                            WildcardMatch.LValueWildcard throwableLValue,
+                                                                            WildcardMatch.LValueWildcard autoclose) {
+        Matcher<StructuredStatement> releaseMatcher = ResourceReleaseDetector.buildStructuredStatementMatcher(wcm, throwableLValue, autoclose);
+        return new MatchOneOf(
+                new ResetAfterTest(wcm,
+                        new MatchSequence(
+                                new BeginBlock(null),
+                                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
+                                releaseMatcher,
+                                new EndBlock(null)
+                        )
+                ),
+                new ResetAfterTest(wcm, releaseMatcher)
+        );
     }
 }

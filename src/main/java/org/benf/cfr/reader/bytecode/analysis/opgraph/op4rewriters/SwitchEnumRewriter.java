@@ -19,7 +19,6 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.placeholder.Be
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.placeholder.EndBlock;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaArrayTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
-import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.*;
@@ -38,6 +37,9 @@ import java.util.List;
 import java.util.Map;
 
 public class SwitchEnumRewriter implements Op04Rewriter {
+    private static final String MATCH_SWITCH = "switch";
+    private static final String MATCH_BODYLESS_SWITCH = "bodylessswitch";
+
     private final DCCommonState dcCommonState;
     private final ClassFile classFile;
     private final ClassFileVersion classFileVersion;
@@ -59,64 +61,66 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(root);
         if (structuredStatements == null) return;
 
-        List<StructuredStatement> switchStatements = Functional.filter(structuredStatements, new Predicate<StructuredStatement>() {
-            @Override
-            public boolean test(StructuredStatement in) {
-                return in.getClass() == StructuredSwitch.class;
-            }
-        });
-        WildcardMatch wcm = new WildcardMatch();
-
-        if (!switchStatements.isEmpty()) {
-            MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(switchStatements);
-
-            Matcher<StructuredStatement> m = new ResetAfterTest(wcm,
-                    new CollectMatch("switch", new StructuredSwitch(BytecodeLoc.NONE,
-                            new ArrayIndex(BytecodeLoc.NONE,
-                                    wcm.getExpressionWildCard("lut"),
-                                    wcm.getMemberFunction("fncall", "ordinal", wcm.getExpressionWildCard("object"))),
-                            null, wcm.getBlockIdentifier("block"))));
-
-
-            SwitchEnumMatchResultCollector matchResultCollector = new SwitchEnumMatchResultCollector();
-            while (mi.hasNext()) {
-                mi.advance();
-                matchResultCollector.clear();
-                if (m.match(mi, matchResultCollector)) {
-                    tryRewrite(matchResultCollector, false);
-                    mi.rewind1();
-                }
-            }
-        }
+        rewriteMatchedEnumSwitches(
+                Functional.filter(structuredStatements, new Predicate<StructuredStatement>() {
+                    @Override
+                    public boolean test(StructuredStatement in) {
+                        return in.getClass() == StructuredSwitch.class;
+                    }
+                }),
+                buildIndexedSwitchMatcher(new WildcardMatch()),
+                false
+        );
 
         // We also have the vanishingly unlikely but quite silly case of switching on a literal with no content.
         // See switchTest23
-        List<StructuredStatement> expressionStatements = Functional.filter(structuredStatements, new Predicate<StructuredStatement>() {
-            @Override
-            public boolean test(StructuredStatement in) {
-                return in.getClass() == StructuredExpressionStatement.class;
-                }
-        });
-        if (!expressionStatements.isEmpty()) {
-            Matcher<StructuredStatement> mInline = new ResetAfterTest(wcm,
-                    new CollectMatch("bodylessswitch", new StructuredExpressionStatement(
-                            BytecodeLoc.NONE,
-                            new ArrayIndex(BytecodeLoc.NONE,
-                                    wcm.getExpressionWildCard("lut"),
-                                    wcm.getMemberFunction("fncall", "ordinal", wcm.getExpressionWildCard("object"))),
-                            true)));
+        rewriteMatchedEnumSwitches(
+                Functional.filter(structuredStatements, new Predicate<StructuredStatement>() {
+                    @Override
+                    public boolean test(StructuredStatement in) {
+                        return in.getClass() == StructuredExpressionStatement.class;
+                    }
+                }),
+                buildBodylessIndexedSwitchMatcher(new WildcardMatch()),
+                true
+        );
+    }
 
-            MatchIterator<StructuredStatement> mi2 = new MatchIterator<StructuredStatement>(expressionStatements);
-            SwitchEnumMatchResultCollector matchResultCollector2 = new SwitchEnumMatchResultCollector();
-            while (mi2.hasNext()) {
-                mi2.advance();
-                matchResultCollector2.clear();
-                if (mInline.match(mi2, matchResultCollector2)) {
-                    tryRewrite(matchResultCollector2, true);
-                    mi2.rewind1();
-                }
+    private void rewriteMatchedEnumSwitches(List<StructuredStatement> candidateStatements,
+                                            Matcher<StructuredStatement> matcher,
+                                            boolean expression) {
+        if (candidateStatements.isEmpty()) {
+            return;
+        }
+        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(candidateStatements);
+        SwitchEnumMatchResultCollector collector = new SwitchEnumMatchResultCollector();
+        while (iterator.hasNext()) {
+            iterator.advance();
+            collector.clear();
+            if (matcher.match(iterator, collector)) {
+                rewriteMatchedEnumSwitch(collector, expression);
+                iterator.rewind1();
             }
         }
+    }
+
+    private Matcher<StructuredStatement> buildIndexedSwitchMatcher(WildcardMatch wcm) {
+        return new ResetAfterTest(wcm,
+                new CollectMatch(MATCH_SWITCH, new StructuredSwitch(BytecodeLoc.NONE,
+                        new ArrayIndex(BytecodeLoc.NONE,
+                                wcm.getExpressionWildCard("lut"),
+                                wcm.getMemberFunction("fncall", "ordinal", wcm.getExpressionWildCard("object"))),
+                        null, wcm.getBlockIdentifier("block"))));
+    }
+
+    private Matcher<StructuredStatement> buildBodylessIndexedSwitchMatcher(WildcardMatch wcm) {
+        return new ResetAfterTest(wcm,
+                new CollectMatch(MATCH_BODYLESS_SWITCH, new StructuredExpressionStatement(
+                        BytecodeLoc.NONE,
+                        new ArrayIndex(BytecodeLoc.NONE,
+                                wcm.getExpressionWildCard("lut"),
+                                wcm.getMemberFunction("fncall", "ordinal", wcm.getExpressionWildCard("object"))),
+                        true)));
     }
 
 
@@ -142,144 +146,67 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
      */
 
-    private void tryRewrite(SwitchEnumMatchResultCollector mrc, boolean expression) {
-        Expression lookup = mrc.getLookupTable();
-        // jdk style
-        if (lookup instanceof LValueExpression) {
-            tryRewriteJavac(mrc, ((LValueExpression) lookup).getLValue(), expression);
+    private void rewriteMatchedEnumSwitch(SwitchEnumMatchResultCollector matchResultCollector, boolean expression) {
+        LookupRewritePlan plan = createLookupRewritePlan(matchResultCollector);
+        if (plan == null) {
+            return;
         }
-        // eclipse style
-        if (lookup instanceof StaticFunctionInvokation) {
-            tryRewriteEclipse(mrc, ((StaticFunctionInvokation) lookup), expression);
+        if (!rewriteLookupSwitch(matchResultCollector, expression, plan.enumObject, plan.lookupTable, plan.lookupStatements, plan.sharedWildcardMatch)) {
+            return;
         }
+        applyLookupCleanup(plan);
     }
 
-    private void tryRewriteEclipse(SwitchEnumMatchResultCollector mrc, StaticFunctionInvokation lookupFn, boolean expression) {
-        Expression enumObject = mrc.getEnumObject();
-        Literal lv = enumObject.getComputedLiteral(MapFactory.<LValue, Literal>newMap());
-        boolean isNull = Literal.NULL.equals(lv);
+    private LookupRewritePlan createLookupRewritePlan(SwitchEnumMatchResultCollector matchResultCollector) {
+        Expression lookup = matchResultCollector.getLookupTable();
+        if (lookup instanceof LValueExpression) {
+            return createJavacLookupRewritePlan(matchResultCollector.getEnumObject(), ((LValueExpression) lookup).getLValue());
+        }
+        if (lookup instanceof StaticFunctionInvokation) {
+            return createEclipseLookupRewritePlan(matchResultCollector.getEnumObject(), (StaticFunctionInvokation) lookup);
+        }
+        return null;
+    }
 
+    private LookupRewritePlan createEclipseLookupRewritePlan(Expression enumObject, StaticFunctionInvokation lookupFn) {
+        Literal literalValue = enumObject.getComputedLiteral(MapFactory.<LValue, Literal>newMap());
+        boolean enumObjectIsNullLiteral = Literal.NULL.equals(literalValue);
         if (lookupFn.getClazz() != this.classFile.getClassType()) {
-            return;
+            return null;
         }
         if (!lookupFn.getArgs().isEmpty()) {
-            return;
-        }
-        Method meth = null;
-        try {
-            List<Method> methods = this.classFile.getMethodByName(lookupFn.getName());
-            if (methods.size() == 1) {
-                meth = methods.get(0);
-                if (!meth.getMethodPrototype().getArgs().isEmpty()) {
-                    meth = null;
-                }
-            }
-        } catch (NoSuchMethodException ignore) {
-        }
-        if (meth == null) {
-            return;
-        }
-        if (!meth.testAccessFlag(AccessFlagMethod.ACC_SYNTHETIC) ||
-            !meth.testAccessFlag(AccessFlagMethod.ACC_STATIC)) {
-            return;
-        }
-        MethodPrototype methodPrototype = meth.getMethodPrototype();
-        if (!methodPrototype.getReturnType().equals(expectedLUTType)) {
-            return;
+            return null;
         }
 
-        List<StructuredStatement> structuredStatements = getLookupMethodStatements(meth);
-        if (structuredStatements == null) return;
-
-        WildcardMatch wcm1 = new WildcardMatch();
-        JavaTypeInstance enumType = isNull ? null : enumObject.getInferredJavaType().getJavaTypeInstance();
-        Matcher<StructuredStatement> test =
-                new ResetAfterTest(wcm1,
-                        new MatchSequence(
-                            new MatchOneOf(
-                                new MatchSequence(
-                                    new StructuredAssignment(BytecodeLoc.NONE, wcm1.getLValueWildCard("res"), new LValueExpression(wcm1.getLValueWildCard("static"))),
-                                    new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(wcm1.getLValueWildCard("res")), Literal.NULL,CompOp.NE), null),
-                                    new BeginBlock(null),
-                                    new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm1.getLValueWildCard("res")), null),
-                                    new EndBlock(null)
-                                ),
-                                new MatchSequence(
-                                    new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(wcm1.getLValueWildCard("static")), Literal.NULL,CompOp.NE), null),
-                                    new BeginBlock(null),
-                                    new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm1.getLValueWildCard("static")), null),
-                                    new EndBlock(null)
-                                )
-                            ),
-                            new StructuredAssignment(BytecodeLoc.NONE, wcm1.getLValueWildCard("lookup"), new NewPrimitiveArray(BytecodeLoc.TODO,
-                                    new ArrayLength(BytecodeLoc.NONE, wcm1.getStaticFunction("func", enumType, null, "values")),
-                            RawJavaType.INT)))
-                );
-
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
-        boolean matched = false;
-        EclipseVarResultCollector assignment = new EclipseVarResultCollector();
-        while (mi.hasNext()) {
-            mi.advance();
-            assignment.clear();
-            if (test.match(mi, assignment)) {
-                matched = true;
-                break;
-            }
+        Method lookupMethod = resolveUniqueNoArgMethod(lookupFn.getName());
+        if (lookupMethod == null || !isSyntheticStaticLookupMethod(lookupMethod)) {
+            return null;
         }
-        if (!matched) {
-            return;
-        }
-        LValue fieldLv = assignment.field;
-        if (!(fieldLv instanceof StaticVariable)) {
-            return;
-        }
-        StaticVariable sv = (StaticVariable)fieldLv;
-        ClassFileField fieldvar = sv.getClassFileField();
-        Field field = fieldvar.getField();
-        if (!field.testAccessFlag(AccessFlag.ACC_SYNTHETIC) ||
-            !field.testAccessFlag(AccessFlag.ACC_STATIC)) {
-            return;
-        }
-        // If we didn't have the enum type, get it here.
-        if (enumType == null) {
-            enumType = assignment.arrayLen.getClazz();
-            enumObject = new CastExpression(BytecodeLoc.NONE, new InferredJavaType(enumType, InferredJavaType.Source.TRANSFORM), enumObject);
+        if (!lookupMethod.getMethodPrototype().getReturnType().equals(expectedLUTType)) {
+            return null;
         }
 
-        WildcardMatch wcm2 = new WildcardMatch();
-        // Now we've figured out what the parts of the enum are, we can do the real match...
-        Matcher<StructuredStatement> m = new ResetAfterTest(wcm1,
-                new MatchSequence(
-                        new StructuredAssignment(BytecodeLoc.NONE, assignment.lookup, new NewPrimitiveArray(BytecodeLoc.TODO,
-                                new ArrayLength(BytecodeLoc.NONE, wcm1.getStaticFunction("func", enumType, null, "values")),
-                                RawJavaType.INT)),
-                        getEnumSugarKleeneStar(assignment.lookup, enumObject, wcm2)
-                )
-        );
+        List<StructuredStatement> lookupStatements = getLookupMethodStatements(lookupMethod);
+        if (lookupStatements == null) return null;
 
-        SwitchForeignEnumMatchResultCollector matchResultCollector = new SwitchForeignEnumMatchResultCollector(wcm2);
-        matched = false;
-        mi.rewind();
-        while (mi.hasNext()) {
-            mi.advance();
-            matchResultCollector.clear();
-            if (m.match(mi, matchResultCollector)) {
-                // This really should only match once.  If it matches multiple times, something else
-                // is being identically initialised, which is probably wrong!
-                matched = true;
-                break;
-            }
+        WildcardMatch sharedWildcardMatch = new WildcardMatch();
+        EclipseVarResultCollector assignment = matchEclipseLookupAssignment(lookupStatements, enumObject, enumObjectIsNullLiteral, sharedWildcardMatch);
+        if (assignment == null) {
+            return null;
         }
 
-        if (!matched) {
-            // If the switch is a completely empty enum switch, we can still remove the blank lookup initialiser.
-            return;
+        ClassFileField hiddenField = getSyntheticStaticLookupField(assignment.field);
+        if (hiddenField == null) {
+            return null;
         }
 
-        if (replaceIndexedSwitch(mrc, expression, enumObject, matchResultCollector)) return;
-        fieldvar.markHidden();
-        meth.hideSynthetic();
+        Expression rewrittenEnumObject = enumObject;
+        if (enumObjectIsNullLiteral) {
+            JavaTypeInstance enumType = assignment.arrayLen.getClazz();
+            rewrittenEnumObject = new CastExpression(BytecodeLoc.NONE, new InferredJavaType(enumType, InferredJavaType.Source.TRANSFORM), enumObject);
+        }
+
+        return new LookupRewritePlan(rewrittenEnumObject, assignment.lookup, lookupStatements, sharedWildcardMatch, hiddenField, lookupMethod, null);
     }
 
     private static class EclipseVarResultCollector implements MatchResultCollector {
@@ -289,6 +216,9 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
         @Override
         public void clear() {
+            lookup = null;
+            field = null;
+            arrayLen = null;
         }
 
         @Override
@@ -304,87 +234,203 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         }
     }
 
-    private void tryRewriteJavac(SwitchEnumMatchResultCollector mrc, LValue lookupTable, boolean expression) {
-        Expression enumObject = mrc.getEnumObject();
+    private static class LookupRewritePlan {
+        private final Expression enumObject;
+        private final LValue lookupTable;
+        private final List<StructuredStatement> lookupStatements;
+        private final WildcardMatch sharedWildcardMatch;
+        private final ClassFileField hiddenField;
+        private final Method hiddenMethod;
+        private final ClassFile hiddenInnerClass;
 
+        private LookupRewritePlan(Expression enumObject,
+                                  LValue lookupTable,
+                                  List<StructuredStatement> lookupStatements,
+                                  WildcardMatch sharedWildcardMatch,
+                                  ClassFileField hiddenField,
+                                  Method hiddenMethod,
+                                  ClassFile hiddenInnerClass) {
+            this.enumObject = enumObject;
+            this.lookupTable = lookupTable;
+            this.lookupStatements = lookupStatements;
+            this.sharedWildcardMatch = sharedWildcardMatch;
+            this.hiddenField = hiddenField;
+            this.hiddenMethod = hiddenMethod;
+            this.hiddenInnerClass = hiddenInnerClass;
+        }
+    }
+
+    private LookupRewritePlan createJavacLookupRewritePlan(Expression enumObject, LValue lookupTable) {
         if (!(lookupTable instanceof StaticVariable)) {
-            return;
+            return null;
         }
 
         StaticVariable staticLookupTable = (StaticVariable) lookupTable;
-        JavaTypeInstance classInfo = staticLookupTable.getOwningClassType();  // The inner class
-        String varName = staticLookupTable.getFieldName();
-
-        /*
-         * All cases will of course be integers.  The lookup table /COULD/ be perverse, but that wouldn't
-         * stop it being valid for this use.... as long as the array matches the indexes.
-         *
-         * So here's the tricky bit - we now have to load (cached?) clazz, and find out if
-         * varName was initialised like a lookup table....
-         */
-        ClassFile enumLutClass;
-        try {
-            enumLutClass = dcCommonState.getClassFile(classInfo);
-        } catch (CannotLoadClassException e) {
-            // Oh dear, can't load that class.  Proceed without it.
-            return;
+        ClassFile enumLookupOwner = resolveLookupOwnerClass(staticLookupTable);
+        if (enumLookupOwner == null) {
+            return null;
         }
-        Field lut;
-        try {
-            lut = enumLutClass.getFieldByName(varName, staticLookupTable.getInferredJavaType().getJavaTypeInstance()).getField();
-        } catch (NoSuchFieldException e) {
-            return;
+        if (!hasExpectedLookupField(enumLookupOwner, staticLookupTable)) {
+            return null;
         }
-        JavaTypeInstance fieldType = lut.getJavaTypeInstance();
-        if (!fieldType.equals(expectedLUTType)) return;
 
         Method lutStaticInit;
         try {
-            lutStaticInit = enumLutClass.getMethodByName("<clinit>").get(0);
+            lutStaticInit = enumLookupOwner.getMethodByName("<clinit>").get(0);
         } catch (NoSuchMethodException e) {
-            return;
+            return null;
         }
-        List<StructuredStatement> structuredStatements = getLookupMethodStatements(lutStaticInit);
-        if (structuredStatements == null) return;
-
-
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
-
-        WildcardMatch wcm1 = new WildcardMatch();
-        WildcardMatch wcm2 = new WildcardMatch();
-
-        Matcher<StructuredStatement> m = new ResetAfterTest(wcm1,
-                new MatchSequence(
-                        new StructuredAssignment(BytecodeLoc.NONE, lookupTable, new NewPrimitiveArray(BytecodeLoc.TODO,
-                                new ArrayLength(BytecodeLoc.NONE, wcm1.getStaticFunction("func", enumObject.getInferredJavaType().getJavaTypeInstance(), null, "values")),
-                                RawJavaType.INT)),
-                        getEnumSugarKleeneStar(lookupTable, enumObject, wcm2)
-                )
-        );
-
-        SwitchForeignEnumMatchResultCollector matchResultCollector = new SwitchForeignEnumMatchResultCollector(wcm2);
-        boolean matched = false;
-        while (mi.hasNext()) {
-            mi.advance();
-            matchResultCollector.clear();
-            if (m.match(mi, matchResultCollector)) {
-                // This really should only match once.  If it matches multiple times, something else
-                // is being identically initialised, which is probably wrong!
-                matched = true;
-                break;
-            }
-        }
-
-        if (!matched) {
-            // If the switch is a completely empty enum switch, we can still remove the blank lookup initialiser.
-            return;
-        }
-
-        if (replaceIndexedSwitch(mrc, expression, enumObject, matchResultCollector)) return;
-        enumLutClass.markHiddenInnerClass();
+        List<StructuredStatement> lookupStatements = getLookupMethodStatements(lutStaticInit);
+        if (lookupStatements == null) return null;
+        return new LookupRewritePlan(enumObject, lookupTable, lookupStatements, null, null, null, enumLookupOwner);
     }
 
-    private boolean replaceIndexedSwitch(SwitchEnumMatchResultCollector mrc, boolean expression, Expression enumObject, SwitchForeignEnumMatchResultCollector matchResultCollector) {
+    private Method resolveUniqueNoArgMethod(String name) {
+        try {
+            List<Method> methods = this.classFile.getMethodByName(name);
+            if (methods.size() != 1) {
+                return null;
+            }
+            Method method = methods.get(0);
+            return method.getMethodPrototype().getArgs().isEmpty() ? method : null;
+        } catch (NoSuchMethodException ignore) {
+            return null;
+        }
+    }
+
+    private boolean isSyntheticStaticLookupMethod(Method method) {
+        return method.testAccessFlag(AccessFlagMethod.ACC_SYNTHETIC)
+                && method.testAccessFlag(AccessFlagMethod.ACC_STATIC);
+    }
+
+    private EclipseVarResultCollector matchEclipseLookupAssignment(List<StructuredStatement> lookupStatements,
+                                                                  Expression enumObject,
+                                                                  boolean enumObjectIsNullLiteral,
+                                                                  WildcardMatch wcm) {
+        JavaTypeInstance enumType = enumObjectIsNullLiteral ? null : enumObject.getInferredJavaType().getJavaTypeInstance();
+        Matcher<StructuredStatement> matcher =
+                new ResetAfterTest(wcm,
+                        new MatchSequence(
+                                new MatchOneOf(
+                                        new MatchSequence(
+                                                new StructuredAssignment(BytecodeLoc.NONE, wcm.getLValueWildCard("res"), new LValueExpression(wcm.getLValueWildCard("static"))),
+                                                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(wcm.getLValueWildCard("res")), Literal.NULL,CompOp.NE), null),
+                                                new BeginBlock(null),
+                                                new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm.getLValueWildCard("res")), null),
+                                                new EndBlock(null)
+                                        ),
+                                        new MatchSequence(
+                                                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(wcm.getLValueWildCard("static")), Literal.NULL,CompOp.NE), null),
+                                                new BeginBlock(null),
+                                                new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm.getLValueWildCard("static")), null),
+                                                new EndBlock(null)
+                                        )
+                                ),
+                                new StructuredAssignment(BytecodeLoc.NONE, wcm.getLValueWildCard("lookup"), new NewPrimitiveArray(BytecodeLoc.TODO,
+                                        new ArrayLength(BytecodeLoc.NONE, wcm.getStaticFunction("func", enumType, null, "values")),
+                                        RawJavaType.INT)))
+                );
+        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(lookupStatements);
+        EclipseVarResultCollector collector = new EclipseVarResultCollector();
+        while (iterator.hasNext()) {
+            iterator.advance();
+            collector.clear();
+            if (matcher.match(iterator, collector)) {
+                return collector;
+            }
+        }
+        return null;
+    }
+
+    private ClassFileField getSyntheticStaticLookupField(LValue fieldLValue) {
+        if (!(fieldLValue instanceof StaticVariable)) {
+            return null;
+        }
+        StaticVariable staticVariable = (StaticVariable) fieldLValue;
+        ClassFileField classFileField = staticVariable.getClassFileField();
+        Field field = classFileField.getField();
+        if (!field.testAccessFlag(AccessFlag.ACC_SYNTHETIC) || !field.testAccessFlag(AccessFlag.ACC_STATIC)) {
+            return null;
+        }
+        return classFileField;
+    }
+
+    private ClassFile resolveLookupOwnerClass(StaticVariable staticLookupTable) {
+        try {
+            return dcCommonState.getClassFile(staticLookupTable.getOwningClassType());
+        } catch (CannotLoadClassException e) {
+            return null;
+        }
+    }
+
+    private boolean hasExpectedLookupField(ClassFile enumLookupOwner, StaticVariable staticLookupTable) {
+        try {
+            Field field = enumLookupOwner
+                    .getFieldByName(staticLookupTable.getFieldName(), staticLookupTable.getInferredJavaType().getJavaTypeInstance())
+                    .getField();
+            return field.getJavaTypeInstance().equals(expectedLUTType);
+        } catch (NoSuchFieldException e) {
+            return false;
+        }
+    }
+
+    private void applyLookupCleanup(LookupRewritePlan plan) {
+        if (plan.hiddenField != null) {
+            plan.hiddenField.markHidden();
+        }
+        if (plan.hiddenMethod != null) {
+            plan.hiddenMethod.hideSynthetic();
+        }
+        if (plan.hiddenInnerClass != null) {
+            plan.hiddenInnerClass.markHiddenInnerClass();
+        }
+    }
+
+    private boolean rewriteLookupSwitch(SwitchEnumMatchResultCollector mrc,
+                                        boolean expression,
+                                        Expression enumObject,
+                                        LValue lookupTable,
+                                        List<StructuredStatement> structuredStatements,
+                                        WildcardMatch sharedWildcardMatch) {
+        WildcardMatch caseMatch = new WildcardMatch();
+        Matcher<StructuredStatement> matcher = buildEnumLookupMatcher(lookupTable, enumObject, sharedWildcardMatch, caseMatch);
+        SwitchForeignEnumMatchResultCollector matchResultCollector = new SwitchForeignEnumMatchResultCollector(caseMatch);
+        if (!matchLookupInitialisation(structuredStatements, matcher, matchResultCollector)) {
+            return false;
+        }
+        return rewriteIndexedSwitch(mrc, expression, enumObject, matchResultCollector);
+    }
+
+    private Matcher<StructuredStatement> buildEnumLookupMatcher(LValue lookupTable,
+                                                                Expression enumObject,
+                                                                WildcardMatch sharedWildcardMatch,
+                                                                WildcardMatch caseMatch) {
+        WildcardMatch lookupArrayMatch = sharedWildcardMatch == null ? new WildcardMatch() : sharedWildcardMatch;
+        return new ResetAfterTest(lookupArrayMatch,
+                new MatchSequence(
+                        new StructuredAssignment(BytecodeLoc.NONE, lookupTable, new NewPrimitiveArray(BytecodeLoc.TODO,
+                                new ArrayLength(BytecodeLoc.NONE, lookupArrayMatch.getStaticFunction("func", enumObject.getInferredJavaType().getJavaTypeInstance(), null, "values")),
+                                RawJavaType.INT)),
+                        getEnumSugarKleeneStar(lookupTable, enumObject, caseMatch)
+                )
+        );
+    }
+
+    private boolean matchLookupInitialisation(List<StructuredStatement> structuredStatements,
+                                              Matcher<StructuredStatement> matcher,
+                                              SwitchForeignEnumMatchResultCollector collector) {
+        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(structuredStatements);
+        while (iterator.hasNext()) {
+            iterator.advance();
+            collector.clear();
+            if (matcher.match(iterator, collector)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean rewriteIndexedSwitch(SwitchEnumMatchResultCollector mrc, boolean expression, Expression enumObject, SwitchForeignEnumMatchResultCollector matchResultCollector) {
         Map<Integer, StaticVariable> reverseLut = matchResultCollector.getLUT();
         /*
          * Now, we rewrite the statement in the FIRST match (i.e in our original source file)
@@ -422,11 +468,11 @@ public class SwitchEnumRewriter implements Op04Rewriter {
                 for (Expression value : values) {
                     Integer iVal = getIntegerFromLiteralExpression(value);
                     if (iVal == null) {
-                        return true;
+                        return false;
                     }
                     StaticVariable enumVal = reverseLut.get(iVal);
                     if (enumVal == null) {
-                        return true;
+                        return false;
                     }
                     newValues.add(new LValueExpression(enumVal));
                 }
@@ -452,7 +498,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
 
         structuredStatement.getContainer().replaceStatement(newSwitch);
-        return false;
+        return true;
     }
 
     private KleeneStar getEnumSugarKleeneStar(LValue lookupTable, Expression enumObject, WildcardMatch wcm) {
@@ -523,13 +569,15 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         public void clear() {
             lookupTable = null;
             enumObject = null;
+            structuredSwitch = null;
+            structuredExpressionStatement = null;
         }
 
         @Override
         public void collectStatement(String name, StructuredStatement statement) {
-            if (name.equals("switch")) {
+            if (name.equals(MATCH_SWITCH)) {
                 structuredSwitch = (StructuredSwitch) statement;
-            } else if (name.equals("bodylessswitch")) {
+            } else if (name.equals(MATCH_BODYLESS_SWITCH)) {
                 structuredExpressionStatement = (StructuredExpressionStatement)statement;
             }
         }
@@ -567,6 +615,11 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
         Map<Integer, StaticVariable> getLUT() {
             return lutValues;
+        }
+
+        @Override
+        public void clear() {
+            lutValues.clear();
         }
 
         @Override

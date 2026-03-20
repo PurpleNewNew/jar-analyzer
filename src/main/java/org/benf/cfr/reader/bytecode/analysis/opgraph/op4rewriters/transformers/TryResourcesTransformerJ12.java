@@ -3,7 +3,6 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ResourceReleaseDetector;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.*;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.wildcard.WildcardMatch;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
@@ -75,7 +74,7 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
         Op04StructuredStatement finallyBlock = structuredTry.getFinallyBlock();
 
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(finallyBlock);
+        List<StructuredStatement> structuredStatements = linearizeStatements(finallyBlock);
         if (structuredStatements == null) return null;
 
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
@@ -85,16 +84,13 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
                 new ResetAfterTest(wcm,
                         new MatchSequence(
                                 new BeginBlock(null),
-                                ResourceReleaseDetector.getSimpleStructuredStatementMatcher(wcm, throwableLValue, autoclose),
+                                ResourceReleaseDetector.buildSimpleStructuredStatementMatcher(wcm, throwableLValue, autoclose),
                                 new EndBlock(null)
                         )
                 );
 
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
         TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        mi.advance();
-        mi.advance(); // skip structuredCatch
-        boolean res = m.match(mi, collector);
+        boolean res = matchesStatements(structuredStatements, 2, m, collector);
         if (!res) return null;
         return new ResourceMatch(null, collector.resource, collector.throwable, false, Collections.<Op04StructuredStatement>emptyList());
     }
@@ -110,59 +106,29 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
         JavaTypeInstance caughtType = catchStatement.getCatchTypes().get(0);
         if (!TypeConstants.THROWABLE.equals(caughtType)) return null;
 
-        WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(catchBlock);
-        if (structuredStatements == null) return null;
-
-        WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
-        WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
-
-        Matcher<StructuredStatement> m =
-                new ResetAfterTest(wcm,
-                        new MatchSequence(
-                            new BeginBlock(null),
-                            ResourceReleaseDetector.getNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose),
-                            new EndBlock(null)
-                        )
-                );
-
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
-
-        TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        mi.advance();
-        mi.advance(); // skip structuredCatch
-        boolean res = m.match(mi, collector);
-        if (!res) {
+        MatchedResourceRelease directMatch = matchNonTestingResourceRelease(catchBlock, 2);
+        if (directMatch == null) {
             return getWrappedComplexResourceMatch(structuredTry, scope, catchStatement);
         }
 
-        /* There are two possible locations for the close statement to be, depending on how our try block has been
-         * structured.
-         * It could be either after the catch, or at the last statement of the try.
-         */
-        List<Op04StructuredStatement> toRemove = getCloseStatementAfter(structuredTry, scope, wcm, collector);
-        if (toRemove == null) {
-            toRemove = getCloseStatementEndTry(structuredTry, scope, wcm, collector);
-            if (toRemove == null) {
-                return null;
-            }
-        }
-        return new ResourceMatch(null, collector.resource, collector.throwable, false, toRemove);
+        List<Op04StructuredStatement> toRemove = findCloseStatements(structuredTry, scope, directMatch.wcm, directMatch.collector);
+        if (toRemove == null) return null;
+        return new ResourceMatch(null, directMatch.collector.resource, directMatch.collector.throwable, false, toRemove);
     }
 
-    private List<Op04StructuredStatement> getCloseStatementEndTry(StructuredTry structuredTry, StructuredScope scope, WildcardMatch wcm, TryResourcesMatchResultCollector collector) {
+    private List<Op04StructuredStatement> findTrailingCloseStatementInTry(StructuredTry structuredTry, WildcardMatch wcm, TryResourcesMatchResultCollector collector) {
         Op04StructuredStatement tryb = structuredTry.getTryBlock();
         StructuredStatement tryStm = tryb.getStatement();
         if (!(tryStm instanceof Block)) return null;
         Block block = (Block)tryStm;
         Op04StructuredStatement lastInBlock = block.getLast();
-        if (getMatchingCloseStatement(wcm, collector, lastInBlock.getStatement())) {
+        if (matchesCloseStatement(wcm, collector, lastInBlock.getStatement())) {
             return Collections.singletonList(lastInBlock);
         }
         return null;
     }
 
-    private List<Op04StructuredStatement> getCloseStatementAfter(StructuredTry structuredTry, StructuredScope scope, WildcardMatch wcm, TryResourcesMatchResultCollector collector) {
+    private List<Op04StructuredStatement> findCloseStatementsAfterTry(StructuredTry structuredTry, StructuredScope scope, WildcardMatch wcm, TryResourcesMatchResultCollector collector) {
         Set<Op04StructuredStatement> next = scope.getNextFallThrough(structuredTry);
 
         List<Op04StructuredStatement> toRemove = Functional.filter(next, new Predicate<Op04StructuredStatement>() {
@@ -175,23 +141,45 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
 
         StructuredStatement statement = toRemove.get(0).getStatement();
 
-        if (getMatchingCloseStatement(wcm, collector, statement)) {
+        if (matchesCloseStatement(wcm, collector, statement)) {
             return toRemove;
         }
         return null;
     }
 
-    private boolean getMatchingCloseStatement(WildcardMatch wcm, TryResourcesMatchResultCollector collector, StructuredStatement statement) {
-        Matcher<StructuredStatement> checkClose = ResourceReleaseDetector.getCloseExpressionMatch(wcm, new LValueExpression(collector.resource));
-        MatchIterator<StructuredStatement> closeStm = new MatchIterator<StructuredStatement>(Collections.singletonList(statement));
-
-        closeStm.advance();
-        return checkClose.match(closeStm, new EmptyMatchResultCollector());
+    private List<Op04StructuredStatement> findCloseStatements(StructuredTry structuredTry,
+                                                              StructuredScope scope,
+                                                              WildcardMatch wcm,
+                                                              TryResourcesMatchResultCollector collector) {
+        List<Op04StructuredStatement> toRemove = findCloseStatementsAfterTry(structuredTry, scope, wcm, collector);
+        if (toRemove != null) {
+            return toRemove;
+        }
+        return findTrailingCloseStatementInTry(structuredTry, wcm, collector);
     }
 
     private ResourceMatch getWrappedComplexResourceMatch(StructuredTry structuredTry,
                                                          StructuredScope scope,
                                                          StructuredCatch outerCatch) {
+        StructuredTry wrappedTry = getSingleWrappedTry(outerCatch);
+        if (wrappedTry == null) return null;
+
+        MatchedResourceRelease wrappedMatch = matchNonTestingResourceRelease(wrappedTry.getTryBlock(), 1);
+        if (wrappedMatch == null) return null;
+
+        List<Op04StructuredStatement> toRemove = findCloseStatements(structuredTry, scope, wrappedMatch.wcm, wrappedMatch.collector);
+        if (toRemove == null) return null;
+        return new ResourceMatch(
+                null,
+                wrappedMatch.collector.resource,
+                wrappedMatch.collector.throwable,
+                false,
+                toRemove,
+                wrappedTry.getCatchBlocks()
+        );
+    }
+
+    private StructuredTry getSingleWrappedTry(StructuredCatch outerCatch) {
         Op04StructuredStatement catchBlock = outerCatch.getCatchBlock();
         StructuredStatement catchBlockStatement = catchBlock.getStatement();
         if (!(catchBlockStatement instanceof Block)) {
@@ -207,48 +195,38 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
             return null;
         }
         StructuredTry wrappedTry = (StructuredTry) onlyStatement;
-        if (wrappedTry.getCatchBlocks().isEmpty()) {
-            return null;
-        }
+        return wrappedTry.getCatchBlocks().isEmpty() ? null : wrappedTry;
+    }
 
+    private MatchedResourceRelease matchNonTestingResourceRelease(Op04StructuredStatement statement, int advanceCount) {
         WildcardMatch wcm = new WildcardMatch();
-        List<StructuredStatement> structuredStatements = MiscStatementTools.linearise(wrappedTry.getTryBlock());
+        List<StructuredStatement> structuredStatements = linearizeStatements(statement);
         if (structuredStatements == null) {
             return null;
         }
-
         WildcardMatch.LValueWildcard throwableLValue = wcm.getLValueWildCard("throwable");
         WildcardMatch.LValueWildcard autoclose = wcm.getLValueWildCard("resource");
         Matcher<StructuredStatement> matcher =
                 new ResetAfterTest(wcm,
                         new MatchSequence(
                                 new BeginBlock(null),
-                                ResourceReleaseDetector.getNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose),
+                                ResourceReleaseDetector.buildNonTestingStructuredStatementMatcher(wcm, throwableLValue, autoclose),
                                 new EndBlock(null)
                         ));
-
-        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(structuredStatements);
         TryResourcesMatchResultCollector collector = new TryResourcesMatchResultCollector();
-        iterator.advance();
-        boolean matched = matcher.match(iterator, collector);
-        if (!matched) {
+        if (!matchesStatements(structuredStatements, advanceCount, matcher, collector)) {
             return null;
         }
+        return new MatchedResourceRelease(wcm, collector);
+    }
 
-        List<Op04StructuredStatement> toRemove = getCloseStatementAfter(structuredTry, scope, wcm, collector);
-        if (toRemove == null) {
-            toRemove = getCloseStatementEndTry(structuredTry, scope, wcm, collector);
-            if (toRemove == null) {
-                return null;
-            }
+    private static class MatchedResourceRelease {
+        private final WildcardMatch wcm;
+        private final TryResourcesMatchResultCollector collector;
+
+        private MatchedResourceRelease(WildcardMatch wcm, TryResourcesMatchResultCollector collector) {
+            this.wcm = wcm;
+            this.collector = collector;
         }
-        return new ResourceMatch(
-                null,
-                collector.resource,
-                collector.throwable,
-                false,
-                toRemove,
-                wrappedTry.getCatchBlocks()
-        );
     }
 }

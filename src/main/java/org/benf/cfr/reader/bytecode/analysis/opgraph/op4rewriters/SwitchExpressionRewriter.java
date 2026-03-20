@@ -17,8 +17,6 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
-import org.benf.cfr.reader.bytecode.analysis.parse.statement.CommentStatement;
-import org.benf.cfr.reader.bytecode.analysis.parse.statement.Nop;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.BlockIdentifier;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -42,14 +40,13 @@ import org.benf.cfr.reader.util.DecompilerComments;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.collections.MapFactory;
 import org.benf.cfr.reader.util.collections.SetFactory;
-import org.benf.cfr.reader.util.functors.Predicate;
-import org.benf.cfr.reader.util.functors.UnaryFunction;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 public class SwitchExpressionRewriter extends AbstractExpressionRewriter implements StructuredStatementTransformer {
     private final boolean emitPreviewComment;
@@ -220,70 +217,82 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         Block b = (Block)swBody.getStatement();
         List<Op04StructuredStatement> content = b.getBlockStatements();
         int size = content.size();
-        List<Pair<StructuredCase, Expression>> extracted = ListFactory.newList();
-        List<Pair<Op04StructuredStatement, StructuredStatement>> replacements = ListFactory.newList();
-        LValue target = null;
-        for (int itm = 0; itm < size && target == null; ++itm) {
-            target = extractSwitchLValue(swatch.getBlockIdentifier(), content.get(itm), itm == size - 1);
-        }
+        LValue target = findSwitchTarget(swatch.getBlockIdentifier(), content);
         if (target == null) {
             return false;
         }
-        for (int itm = 0; itm < size; ++itm) {
-            Pair<StructuredCase, Expression> e = extractSwitchEntryPair(target, swatch.getBlockIdentifier(), content.get(itm), replacements,itm == size -1);
-            if (e == null) {
-                return false;
-            }
-            extracted.add(e);
+        Map<Op04StructuredStatement, StructuredStatement> replacements = MapFactory.newOrderedMap();
+        List<SwitchExpression.Branch> branches = extractSwitchBranches(target, swatch.getBlockIdentifier(), content, replacements);
+        if (branches == null) return false;
+        Op04StructuredStatement definition = findSwitchDefinition(target, container, scope);
+        if (definition == null) {
+            return false;
         }
-        /*
-         * We have to find definition of target in our scope.
-         */
-        StructuredStatement declarationContainer = scope.get(1);
-        if (!(declarationContainer instanceof Block)) return false;
 
-        // Find the definition of the var, and ensure it's not used between there and statement.
-        // TODO : This is expensive, and we could improve this by ensuring variable is declared
-        // closer to usage.
+        // Now we're sure we're doing the transformation....
+        applySwitchReplacements(replacements);
+        definition.nopOut();
+        StructuredAssignment switchStatement =
+                new StructuredAssignment(BytecodeLoc.TODO, target, new SwitchExpression(BytecodeLoc.TODO, target.getInferredJavaType(), swatch.getSwitchOn(), branches));
+        swat.getContainer().replaceStatement(switchStatement);
+        Op04StructuredStatement switchStatementContainer = switchStatement.getContainer();
+        switchStatement.markCreator(target, switchStatementContainer);
+        return true;
+    }
+
+    private LValue findSwitchTarget(BlockIdentifier blockIdentifier, List<Op04StructuredStatement> content) {
+        for (int idx = 0; idx < content.size(); ++idx) {
+            LValue target = extractSwitchLValue(blockIdentifier, content.get(idx), idx == content.size() - 1);
+            if (target != null) {
+                return target;
+            }
+        }
+        return null;
+    }
+
+    private List<SwitchExpression.Branch> extractSwitchBranches(LValue target,
+                                                                BlockIdentifier blockIdentifier,
+                                                                List<Op04StructuredStatement> content,
+                                                                Map<Op04StructuredStatement, StructuredStatement> replacements) {
+        List<SwitchExpression.Branch> branches = ListFactory.newList();
+        for (int idx = 0; idx < content.size(); ++idx) {
+            SwitchExpression.Branch branch = extractSwitchBranch(target, blockIdentifier, content.get(idx), replacements, idx == content.size() - 1);
+            if (branch == null) {
+                return null;
+            }
+            branches.add(branch);
+        }
+        return branches;
+    }
+
+    private Op04StructuredStatement findSwitchDefinition(LValue target, Op04StructuredStatement container, StructuredScope scope) {
+        StructuredStatement declarationContainer = scope.get(1);
+        if (!(declarationContainer instanceof Block)) return null;
+
         List<Op04StructuredStatement> blockContent = ((Block) declarationContainer).getBlockStatements();
         Op04StructuredStatement definition = null;
         UsageCheck usageCheck = new UsageCheck(target);
         for (Op04StructuredStatement blockItem : blockContent) {
             if (definition == null) {
                 StructuredStatement stm = blockItem.getStatement();
-                if (stm instanceof StructuredDefinition) {
-                    if (target.equals(((StructuredDefinition) stm).getLvalue())) {
-                        definition = blockItem;
-                    }
+                if (stm instanceof StructuredDefinition && target.equals(((StructuredDefinition) stm).getLvalue())) {
+                    definition = blockItem;
                 }
                 continue;
             }
             if (blockItem == container) break;
             blockItem.getStatement().rewriteExpressions(usageCheck);
             if (usageCheck.failed) {
-                return false;
+                return null;
             }
         }
-        if (definition == null) {
-            return false;
-        }
+        return definition;
+    }
 
-        // Now we're sure we're doing the transformation....
-        for (Pair<Op04StructuredStatement, StructuredStatement> replacement : replacements) {
-            replacement.getFirst().replaceStatement(replacement.getSecond());
+    private void applySwitchReplacements(Map<Op04StructuredStatement, StructuredStatement> replacements) {
+        for (Map.Entry<Op04StructuredStatement, StructuredStatement> replacement : replacements.entrySet()) {
+            replacement.getKey().replaceStatement(replacement.getValue());
         }
-        List<SwitchExpression.Branch> items = ListFactory.newList();
-        for (Pair<StructuredCase, Expression> e : extracted) {
-            items.add(new SwitchExpression.Branch(e.getFirst().getValues(), e.getSecond()));
-        }
-
-        definition.nopOut();
-        StructuredAssignment switchStatement =
-                new StructuredAssignment(BytecodeLoc.TODO, target, new SwitchExpression(BytecodeLoc.TODO, target.getInferredJavaType(), swatch.getSwitchOn(), items));
-        swat.getContainer().replaceStatement(switchStatement);
-        Op04StructuredStatement switchStatementContainer = switchStatement.getContainer();
-        switchStatement.markCreator(target, switchStatementContainer);
-        return true;
     }
 
     private static class SwitchExpressionSearcher implements StructuredStatementTransformer {
@@ -335,14 +344,11 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         return ses.found;
     }
 
-    private final static Predicate<Op04StructuredStatement> notEmpty = new Predicate<Op04StructuredStatement>() {
-        @Override
-        public boolean test(Op04StructuredStatement in) {
-            return !(in.getStatement() instanceof Nop || in.getStatement() instanceof CommentStatement);
-        }
-    };
-
-    private Pair<StructuredCase, Expression> extractSwitchEntryPair(LValue target, BlockIdentifier blockIdentifier, Op04StructuredStatement item, List<Pair<Op04StructuredStatement, StructuredStatement>> replacements, boolean last) {
+    private SwitchExpression.Branch extractSwitchBranch(LValue target,
+                                                       BlockIdentifier blockIdentifier,
+                                                       Op04StructuredStatement item,
+                                                       Map<Op04StructuredStatement, StructuredStatement> replacements,
+                                                       boolean last) {
         StructuredStatement stm = item.getStatement();
         if (!(stm instanceof StructuredCase)) {
             return null;
@@ -352,7 +358,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         if (res == null) {
             return null;
         }
-        return Pair.make(sc, res);
+        return new SwitchExpression.Branch(sc.getValues(), res);
     }
 
     /*
@@ -366,7 +372,11 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
      *
      * No assignment to the target can happen other than just prior to an exit point.
      */
-    private Expression extractSwitchEntry(LValue target, BlockIdentifier blockIdentifier, Op04StructuredStatement body, List<Pair<Op04StructuredStatement, StructuredStatement>> replacements, boolean last) {
+    private Expression extractSwitchEntry(LValue target,
+                                          BlockIdentifier blockIdentifier,
+                                          Op04StructuredStatement body,
+                                          Map<Op04StructuredStatement, StructuredStatement> replacements,
+                                          boolean last) {
         SwitchExpressionTransformer transformer = new SwitchExpressionTransformer(target, blockIdentifier, replacements, last);
         body.transform(transformer, new StructuredScope());
         if (transformer.failed) return null;
@@ -404,7 +414,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
     static class SwitchExpressionTransformer implements StructuredStatementTransformer {
         private UsageCheck rewriter;
         private BlockIdentifier blockIdentifier;
-        private List<Pair<Op04StructuredStatement, StructuredStatement>> replacements;
+        private Map<Op04StructuredStatement, StructuredStatement> replacements;
         private boolean last;
         private final LValue target;
         private boolean failed;
@@ -413,7 +423,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         private Expression singleValue = null;
         private int totalStatements;
 
-        private SwitchExpressionTransformer(LValue target, BlockIdentifier blockIdentifier, List<Pair<Op04StructuredStatement, StructuredStatement>> replacements, boolean last) {
+        private SwitchExpressionTransformer(LValue target, BlockIdentifier blockIdentifier, Map<Op04StructuredStatement, StructuredStatement> replacements, boolean last) {
             this.target = target;
             this.rewriter = new UsageCheck(target);
             this.blockIdentifier = blockIdentifier;
@@ -440,7 +450,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
                         lastMarked = true;
                         lastAssign = false;
                         totalStatements--;
-                        replacements.add(Pair.make(in.getContainer(),(StructuredStatement)StructuredComment.EMPTY_COMMENT));
+                        replacements.put(in.getContainer(), StructuredComment.EMPTY_COMMENT);
                         return in;
                     case INNER:
                         break;
@@ -459,7 +469,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
                 if (((StructuredAssignment) in).getLvalue().equals(target)) {
                     Set<Op04StructuredStatement> nextFallThrough = scope.getNextFallThrough(in);
                     lastMarked = true;
-                    replacements.add(Pair.make(in.getContainer(), (StructuredStatement)new StructuredExpressionYield(BytecodeLoc.TODO, ((StructuredAssignment) in).getRvalue())));
+                    replacements.put(in.getContainer(), new StructuredExpressionYield(BytecodeLoc.TODO, ((StructuredAssignment) in).getRvalue()));
                     singleValue = ((StructuredAssignment) in).getRvalue();
                     boolean foundBreak = false;
                     for (Op04StructuredStatement fall : nextFallThrough) {
@@ -487,7 +497,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
             }
 
             if (in instanceof StructuredThrow) {
-                replacements.add(Pair.make(in.getContainer(), in));
+                replacements.put(in.getContainer(), in);
                 singleValue = new StructuredStatementExpression(target.getInferredJavaType(), in);
                 lastAssign = false;
                 lastMarked = true;
@@ -579,14 +589,14 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
      *    }
      * }
      */
-    private RollState getRollState(Op04StructuredStatement body) {
+    private RollState scanConstructorRollState(Op04StructuredStatement body) {
         StructuredStatement s = body.getStatement();
         if (!(s instanceof Block)) return new RollState();
         Block b = (Block)s;
 
         List<Op04StructuredStatement> prequel = ListFactory.newList();
-        LinkedList<ClassifiedStm> tt = ListFactory.newLinkedList();
-        List<Op04StructuredStatement> others = ListFactory.newList();
+        LinkedList<ClassifiedStatement> classifiedStatements = ListFactory.newLinkedList();
+        List<Op04StructuredStatement> remainder = ListFactory.newList();
         Iterator<Op04StructuredStatement> it = b.getBlockStatements().iterator();
         Set<Expression> directs = SetFactory.newSet();
         boolean found = false;
@@ -595,29 +605,29 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
             Op04StructuredStatement item = it.next();
             if (item.getStatement().isEffectivelyNOP()) continue;
             if (inPrequel) {
-                if (prequelAssign(item, directs)) {
+                if (isDirectFieldPrequelAssignment(item, directs)) {
                     prequel.add(item);
                     continue;
                 } else {
                     inPrequel = false;
                 }
             }
-            ClassifiedStm type = classify(item);
-            if (type.type == ClassifyType.CHAINED_CONSTRUCTOR) {
-                others.add(item);
+            ClassifiedStatement classified = classifyRollStatement(item);
+            if (classified.type == ClassifyType.CHAINED_CONSTRUCTOR) {
+                remainder.add(item);
                 while (it.hasNext()) {
-                    others.add(it.next());
+                    remainder.add(it.next());
                 }
                 found = true;
             } else {
-                tt.add(type);
+                classifiedStatements.add(classified);
             }
         }
         if (!found) return new RollState();
-        return new RollState(prequel, tt, others, b, directs);
+        return new RollState(prequel, classifiedStatements, remainder, b, directs);
     }
 
-    private boolean prequelAssign(Op04StructuredStatement item, Set<Expression> directs) {
+    private boolean isDirectFieldPrequelAssignment(Op04StructuredStatement item, Set<Expression> directs) {
         StructuredStatement s = item.getStatement();
         if (!(s instanceof StructuredAssignment)) return false;
         LValue lv = ((StructuredAssignment) s).getLvalue();
@@ -632,7 +642,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
     class RollState {
         boolean valid;
         List<Op04StructuredStatement> prequel;
-        LinkedList<ClassifiedStm> switchdata;
+        LinkedList<ClassifiedStatement> classifiedStatements;
         List<Op04StructuredStatement> remainder;
         Block block;
         private Set<Expression> directs;
@@ -641,25 +651,25 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
             this.valid = false;
         }
 
-        RollState(List<Op04StructuredStatement> prequel, LinkedList<ClassifiedStm> switchdata, List<Op04StructuredStatement> remainder, Block block, Set<Expression> directs) {
+        RollState(List<Op04StructuredStatement> prequel, LinkedList<ClassifiedStatement> classifiedStatements, List<Op04StructuredStatement> remainder, Block block, Set<Expression> directs) {
             this.directs = directs;
             this.valid = true;
             this.prequel = prequel;
-            this.switchdata = switchdata;
+            this.classifiedStatements = classifiedStatements;
             this.remainder = remainder;
             this.block = block;
         }
     }
 
-    private boolean rollOne(Op04StructuredStatement root, UnaryFunction<RollState, Boolean> apply) {
-        RollState rollState = getRollState(root);
+    private boolean applyRollTransform(Op04StructuredStatement root, Predicate<RollState> apply) {
+        RollState rollState = scanConstructorRollState(root);
         if (!rollState.valid) return false;
-        if (apply.invoke(rollState)) {
+        if (apply.test(rollState)) {
             List<Op04StructuredStatement> mutableBlockStatements = rollState.block.getBlockStatements();
             mutableBlockStatements.clear();
             mutableBlockStatements.addAll(rollState.prequel);
-            for (ClassifiedStm t : rollState.switchdata) {
-                mutableBlockStatements.add(t.stm);
+            for (ClassifiedStatement classifiedStatement : rollState.classifiedStatements) {
+                mutableBlockStatements.add(classifiedStatement.stm);
             }
             mutableBlockStatements.addAll(rollState.remainder);
             doTransform(root);
@@ -670,32 +680,12 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
     private void doAggressiveTransforms(Op04StructuredStatement root) {
         if (!method.isConstructor()) return;
 
-        if (!rollOne(root, new UnaryFunction<RollState, Boolean>() {
-            @Override
-            public Boolean invoke(RollState arg) {
-                return rollUpEmptySwitches(arg);
-            }
-        })) return;
-        rollOne(root, new UnaryFunction<RollState, Boolean>() {
-            @Override
-            public Boolean invoke(RollState arg) {
-                return rollUpEmptySwitchCreation(arg);
-            }
-        });
-        rollOne(root, new UnaryFunction<RollState, Boolean>() {
-            @Override
-            public Boolean invoke(RollState arg) {
-                return rollUpEmptySwitchAggregation(arg);
-            }
-        });
+        if (!applyRollTransform(root, this::rollUpEmptySwitches)) return;
+        applyRollTransform(root, this::rollUpEmptySwitchCreation);
+        applyRollTransform(root, this::rollUpEmptySwitchAggregation);
         // As a final pass - if there's a single 'default switch' remaining (SwitchConstructorTest1,6)
         // capture the first argument to the chain.
-        rollOne(root, new UnaryFunction<RollState, Boolean>() {
-            @Override
-            public Boolean invoke(RollState arg) {
-                return rollSingleDefault(arg);
-            }
-        });
+        applyRollTransform(root, this::rollSingleDefault);
 
     }
 
@@ -730,52 +720,34 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
 
      */
     private boolean rollSingleDefault(RollState rollState) {
-        if (rollState.switchdata.size() != 1) return false;
-        ClassifiedStm t = rollState.switchdata.get(0);
-        if (t.type != ClassifyType.EMPTY_SWITCH) return false;
-
-        // Try to extract the first expression from the call.
+        ClassifiedStatement emptySwitch = getSingleClassifiedStatement(rollState, ClassifyType.EMPTY_SWITCH);
+        if (emptySwitch == null) return false;
         if (rollState.remainder.isEmpty()) return false;
-        Op04StructuredStatement call = rollState.remainder.get(0);
-        StructuredStatement s = call.getStatement();
-        if (!(s instanceof StructuredExpressionStatement)) return false;
-        Expression e = ((StructuredExpressionStatement) s).getExpression();
-        List<Expression> args = null;
-        if (e instanceof MemberFunctionInvokation && ((MemberFunctionInvokation) e).isInitMethod()) {
-            args = ((MemberFunctionInvokation) e).getArgs();
-        } else if (e instanceof SuperFunctionInvokation) {
-            args = ((SuperFunctionInvokation) e).getArgs();
-        }
+        List<Expression> args = getConstructorChainArgs(rollState.remainder.get(0));
         if (args == null) return false;
-        // We have to use the first NON hidden arg - however (of course) we don't necessarily know that here!
-        int idx;
-        for (idx=0;idx<args.size();++idx) {
-            if (!rollState.directs.contains(args.get(idx))) break;
-        }
-        if (idx >= args.size()) return false;
-        Expression tmpValue = args.get(idx);
-        LValue tmp = new LocalVariable("cfr_switch_hack2", tmpValue.getInferredJavaType());
-        rollState.switchdata.add(0, new ClassifiedStm(ClassifyType.DEFINITION, new Op04StructuredStatement(new StructuredDefinition(tmp))));
-        addToSwitch(t.stm, new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, tmp, tmpValue)));
-        args.set(idx, new LValueExpression(tmp));
+        int firstVisibleArg = findFirstVisibleConstructorArg(args, rollState.directs);
+        if (firstVisibleArg < 0) return false;
+        Expression tmpValue = args.get(firstVisibleArg);
+        LValue tmp = new LocalVariable("cfr_switch_arg", tmpValue.getInferredJavaType());
+        rollState.classifiedStatements.add(0, new ClassifiedStatement(ClassifyType.DEFINITION, new Op04StructuredStatement(new StructuredDefinition(tmp))));
+        appendToEmptyDefaultSwitchCase(emptySwitch.stm, new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, tmp, tmpValue)));
+        args.set(firstVisibleArg, new LValueExpression(tmp));
         return true;
     }
 
     private boolean rollUpEmptySwitchAggregation(RollState rollState) {
-        LinkedList<ClassifiedStm> tt = rollState.switchdata;
-        Iterator<ClassifiedStm> di = tt.descendingIterator();
-        ClassifiedStm last = null;
+        LinkedList<ClassifiedStatement> classifiedStatements = rollState.classifiedStatements;
+        Iterator<ClassifiedStatement> descending = classifiedStatements.descendingIterator();
+        ClassifiedStatement last = null;
         boolean doneWork = false;
-        while (di.hasNext()) {
-            ClassifiedStm curr = di.next();
+        while (descending.hasNext()) {
+            ClassifiedStatement curr = descending.next();
             if (last != null) {
-                if (curr.type == ClassifyType.SWITCH_EXPRESSION) {
-                    if (last.type == ClassifyType.EMPTY_SWITCH) { // this could work for 'other' too....
-                        combineSwitchExpressionWithOther(curr, last);
-                        di.remove();
-                        doneWork = true;
-                        continue;
-                    }
+                if (shouldWrapSwitchExpressionInTrailingEmptySwitch(curr, last)) {
+                    combineSwitchExpressionWithOther(curr, last);
+                    descending.remove();
+                    doneWork = true;
+                    continue;
                 }
             }
             last = curr;
@@ -813,38 +785,44 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         };
 
      */
-    private void combineSwitchExpressionWithOther(ClassifiedStm switchExpression, ClassifiedStm other) {
+    private void combineSwitchExpressionWithOther(ClassifiedStatement switchExpression, ClassifiedStatement other) {
         StructuredAssignment assignment = (StructuredAssignment)switchExpression.stm.getStatement();
         LValue lv = assignment.getLvalue();
         Expression se = assignment.getRvalue();
-        LinkedList<Op04StructuredStatement> newBlockContent = ListFactory.newLinkedList();
-        LValue tmp = new LocalVariable("cfr_switch_hack", lv.getInferredJavaType());
-        newBlockContent.add(new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, tmp, se, true)));
-        newBlockContent.add(other.stm);
-        newBlockContent.add(new Op04StructuredStatement(new StructuredExpressionYield(BytecodeLoc.TODO, new LValueExpression(tmp))));
-        Block newBlock = new Block(newBlockContent, true);
-        SwitchExpression nse = new SwitchExpression(BytecodeLoc.TODO, lv.getInferredJavaType(), Literal.INT_ZERO, Collections.singletonList(new SwitchExpression.Branch(Collections.<Expression>emptyList(), new StructuredStatementExpression(lv.getInferredJavaType(), newBlock))));
-        StructuredAssignment nsa = new StructuredAssignment(BytecodeLoc.TODO, lv, nse, true);
+        StructuredAssignment nsa = createWrappedSwitchExpressionAssignment(lv, se, other.stm);
         other.type = ClassifyType.SWITCH_EXPRESSION;
         other.stm = new Op04StructuredStatement(nsa);
     }
 
-    private boolean rollUpEmptySwitchCreation(RollState rollState) {
-        LinkedList<ClassifiedStm> tt = rollState.switchdata;
-        Iterator<ClassifiedStm> di = tt.descendingIterator();
-        ClassifiedStm last = null;
-        boolean doneWork = false;
-        while (di.hasNext()) {
-            ClassifiedStm curr = di.next();
-            if (curr.type == ClassifyType.EMPTY_SWITCH) {
-                if (last != null) {
-                    if (last.type == ClassifyType.OTHER_CREATION || last.type == ClassifyType.SWITCH_EXPRESSION) {
-                        combineEmptySwitchWithCreation(curr, last);
-                        doneWork = true;
-                        continue;
+    private StructuredAssignment createWrappedSwitchExpressionAssignment(LValue lValue,
+                                                                        Expression switchExpression,
+                                                                        Op04StructuredStatement extraStatement) {
+        LinkedList<Op04StructuredStatement> newBlockContent = ListFactory.newLinkedList();
+        LValue tmp = new LocalVariable("cfr_switch_value", lValue.getInferredJavaType());
+        newBlockContent.add(new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, tmp, switchExpression, true)));
+        newBlockContent.add(extraStatement);
+        newBlockContent.add(new Op04StructuredStatement(new StructuredExpressionYield(BytecodeLoc.TODO, new LValueExpression(tmp))));
+        Block newBlock = new Block(newBlockContent, true);
+        SwitchExpression wrappedSwitch = new SwitchExpression(
+                BytecodeLoc.TODO,
+                lValue.getInferredJavaType(),
+                Literal.INT_ZERO,
+                Collections.singletonList(new SwitchExpression.Branch(Collections.<Expression>emptyList(), new StructuredStatementExpression(lValue.getInferredJavaType(), newBlock)))
+        );
+        return new StructuredAssignment(BytecodeLoc.TODO, lValue, wrappedSwitch, true);
+    }
 
-                    }
-                }
+    private boolean rollUpEmptySwitchCreation(RollState rollState) {
+        LinkedList<ClassifiedStatement> classifiedStatements = rollState.classifiedStatements;
+        Iterator<ClassifiedStatement> descending = classifiedStatements.descendingIterator();
+        ClassifiedStatement last = null;
+        boolean doneWork = false;
+        while (descending.hasNext()) {
+            ClassifiedStatement curr = descending.next();
+            if (last != null && shouldPushTrailingCreationIntoEmptySwitch(curr, last)) {
+                combineEmptySwitchWithCreation(curr, last);
+                doneWork = true;
+                continue;
             }
             last = curr;
         }
@@ -865,48 +843,72 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
               by = b;
         }
      */
-    private void combineEmptySwitchWithCreation(ClassifiedStm switchStm, ClassifiedStm assignStm) {
+    private void combineEmptySwitchWithCreation(ClassifiedStatement switchStm, ClassifiedStatement assignStm) {
         StructuredAssignment stm = (StructuredAssignment)assignStm.stm.getStatement();
         Expression rhs = stm.getRvalue();
         LValue lhs = stm.getLvalue();
-        addToSwitch(switchStm.stm, new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, lhs, rhs)));
-        StructuredStatement swtch = switchStm.stm.getStatement();
-        assignStm.stm.replaceStatement(swtch);
+        appendToEmptyDefaultSwitchCase(switchStm.stm, new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, lhs, rhs)));
+        replaceCreationWithEmptySwitch(assignStm, switchStm.stm.getStatement());
         assignStm.type = ClassifyType.EMPTY_SWITCH;
         switchStm.stm.replaceStatement(new StructuredDefinition(lhs));
         switchStm.type = ClassifyType.DEFINITION;
     }
 
+    private void replaceCreationWithEmptySwitch(ClassifiedStatement target, StructuredStatement replacement) {
+        target.stm.replaceStatement(replacement);
+    }
+
     private boolean rollUpEmptySwitches(RollState rollState) {
-        LinkedList<ClassifiedStm> tt = rollState.switchdata;
-        List<ClassifiedStm> lt = ListFactory.newList(tt);
+        List<ClassifiedStatement> classifiedStatements = ListFactory.newList(rollState.classifiedStatements);
 
         boolean doneWork = false;
-        for (int x=lt.size()-2;x>=0;--x) {
+        for (int x = classifiedStatements.size() - 2; x >= 0; --x) {
 
-            ClassifiedStm curr = lt.get(x);
-            ClassifiedStm last = x+1 < lt.size() ? lt.get(x+1) : null;
-            if (curr.type == ClassifyType.EMPTY_SWITCH) {
-                if (last != null) {
-                    if (last.type == ClassifyType.OTHER || last.type == ClassifyType.EMPTY_SWITCH) {
-                        addToSwitch(curr.stm, last.stm);
-                        last.stm = curr.stm;
-                        last.type = ClassifyType.EMPTY_SWITCH;
-                        lt.remove(x);
-                        ++x;
-                        doneWork = true;
-                    }
-                }
+            ClassifiedStatement curr = classifiedStatements.get(x);
+            ClassifiedStatement last = x + 1 < classifiedStatements.size() ? classifiedStatements.get(x + 1) : null;
+            if (last != null && shouldMergeAdjacentEmptySwitches(curr, last)) {
+                appendToEmptyDefaultSwitchCase(curr.stm, last.stm);
+                last.stm = curr.stm;
+                last.type = ClassifyType.EMPTY_SWITCH;
+                classifiedStatements.remove(x);
+                ++x;
+                doneWork = true;
             }
         }
         if (doneWork) {
-            rollState.switchdata.clear();
-            rollState.switchdata.addAll(lt);
+            rollState.classifiedStatements.clear();
+            rollState.classifiedStatements.addAll(classifiedStatements);
         }
         return doneWork;
     }
 
-    private void addToSwitch(Op04StructuredStatement swtch, Op04StructuredStatement add) {
+    private ClassifiedStatement getSingleClassifiedStatement(RollState rollState, ClassifyType expectedType) {
+        if (rollState.classifiedStatements.size() != 1) {
+            return null;
+        }
+        ClassifiedStatement only = rollState.classifiedStatements.get(0);
+        return only.type == expectedType ? only : null;
+    }
+
+    private boolean shouldWrapSwitchExpressionInTrailingEmptySwitch(ClassifiedStatement current, ClassifiedStatement next) {
+        return current.type == ClassifyType.SWITCH_EXPRESSION && next.type == ClassifyType.EMPTY_SWITCH;
+    }
+
+    private boolean shouldPushTrailingCreationIntoEmptySwitch(ClassifiedStatement current, ClassifiedStatement next) {
+        if (current.type != ClassifyType.EMPTY_SWITCH) {
+            return false;
+        }
+        return next.type == ClassifyType.OTHER_CREATION || next.type == ClassifyType.SWITCH_EXPRESSION;
+    }
+
+    private boolean shouldMergeAdjacentEmptySwitches(ClassifiedStatement current, ClassifiedStatement next) {
+        if (current.type != ClassifyType.EMPTY_SWITCH) {
+            return false;
+        }
+        return next.type == ClassifyType.OTHER || next.type == ClassifyType.EMPTY_SWITCH;
+    }
+
+    private void appendToEmptyDefaultSwitchCase(Op04StructuredStatement swtch, Op04StructuredStatement add) {
         StructuredSwitch ss = (StructuredSwitch)swtch.getStatement();
         Block block = (Block)ss.getBody().getStatement();
         StructuredCase caseStm = (StructuredCase)(block.getOneStatementIfPresent().getSecond().getStatement());
@@ -915,11 +917,33 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         block1.addStatement(add);
     }
 
-    private class ClassifiedStm {
+    private List<Expression> getConstructorChainArgs(Op04StructuredStatement item) {
+        StructuredStatement statement = item.getStatement();
+        if (!(statement instanceof StructuredExpressionStatement)) return null;
+        Expression expression = ((StructuredExpressionStatement) statement).getExpression();
+        if (expression instanceof MemberFunctionInvokation && ((MemberFunctionInvokation) expression).isInitMethod()) {
+            return ((MemberFunctionInvokation) expression).getArgs();
+        }
+        if (expression instanceof SuperFunctionInvokation) {
+            return ((SuperFunctionInvokation) expression).getArgs();
+        }
+        return null;
+    }
+
+    private int findFirstVisibleConstructorArg(List<Expression> args, Set<Expression> directs) {
+        for (int idx = 0; idx < args.size(); ++idx) {
+            if (!directs.contains(args.get(idx))) {
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    private class ClassifiedStatement {
         ClassifyType type;
         Op04StructuredStatement stm;
 
-        ClassifiedStm(ClassifyType type, Op04StructuredStatement stm) {
+        ClassifiedStatement(ClassifyType type, Op04StructuredStatement stm) {
             this.type = type;
             this.stm = stm;
         }
@@ -933,41 +957,40 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         }
     }
 
-    private ClassifiedStm classify(Op04StructuredStatement item) {
+    private ClassifiedStatement classifyRollStatement(Op04StructuredStatement item) {
         StructuredStatement stm = item.getStatement();
         if (stm instanceof StructuredDefinition) {
-            return new ClassifiedStm(ClassifyType.DEFINITION, item);
+            return new ClassifiedStatement(ClassifyType.DEFINITION, item);
         }
         if (stm instanceof StructuredAssignment) {
             StructuredAssignment as = (StructuredAssignment)stm;
             LValue lv = as.getLvalue();
             if (!as.isCreator(lv)) {
-                return new ClassifiedStm(ClassifyType.OTHER, item);
+                return new ClassifiedStatement(ClassifyType.OTHER, item);
             }
             Expression rv = as.getRvalue();
             if (rv instanceof SwitchExpression) {
-                return new ClassifiedStm(ClassifyType.SWITCH_EXPRESSION, item);
+                return new ClassifiedStatement(ClassifyType.SWITCH_EXPRESSION, item);
             } else {
-                return new ClassifiedStm(ClassifyType.OTHER_CREATION, item);
+                return new ClassifiedStatement(ClassifyType.OTHER_CREATION, item);
             }
         }
         if (stm instanceof StructuredSwitch) {
             StructuredSwitch ss = (StructuredSwitch)stm;
             if (ss.isOnlyEmptyDefault() || classifiedEmpty.contains(ss)) {
                 classifiedEmpty.add(ss);
-                return new ClassifiedStm(ClassifyType.EMPTY_SWITCH, item);
+                return new ClassifiedStatement(ClassifyType.EMPTY_SWITCH, item);
             } else {
-                return new ClassifiedStm(ClassifyType.OTHER, item);
+                return new ClassifiedStatement(ClassifyType.OTHER, item);
             }
         }
-        if (isConstructorChain(item)) {
-            return new ClassifiedStm(ClassifyType.CHAINED_CONSTRUCTOR, item);
+        if (isConstructorChainStatement(item)) {
+            return new ClassifiedStatement(ClassifyType.CHAINED_CONSTRUCTOR, item);
         }
-        return new ClassifiedStm(ClassifyType.OTHER, item);
+        return new ClassifiedStatement(ClassifyType.OTHER, item);
     }
 
     private enum ClassifyType {
-        NONE,
         EMPTY_SWITCH,
         SWITCH_EXPRESSION,
         OTHER_CREATION,
@@ -977,7 +1000,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
     }
 
     // TODO : Or super!!!
-    private boolean isConstructorChain(Op04StructuredStatement item) {
+    private boolean isConstructorChainStatement(Op04StructuredStatement item) {
         StructuredStatement s = item.getStatement();
         if (!(s instanceof StructuredExpressionStatement)) return false;
         Expression e = ((StructuredExpressionStatement) s).getExpression();

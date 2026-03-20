@@ -150,12 +150,6 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
         return (ConditionalExpression) res;
     }
 
-//    @Override
-//    public AbstractAssignmentExpression rewriteExpression(AbstractAssignmentExpression expression, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
-//        Expression res = expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
-//        return (AbstractAssignmentExpression) res;
-//    }
-
     @Override
     public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
         return lValue;
@@ -244,10 +238,10 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
         return args;
     }
 
-    private static class CannotDelambaException extends IllegalStateException {
+    private static class CannotInlineLambdaException extends IllegalStateException {
     }
 
-    private static Expression getLambdaVariable(Expression e) {
+    private static Expression asInlineLambdaArgument(Expression e) {
         if (e instanceof LValueExpression) {
             LValueExpression lValueExpression = (LValueExpression) e;
             LValue lValue = lValueExpression.getLValue();
@@ -255,7 +249,7 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
         }
         if (e instanceof NewObjectArray) return e;
         if (e instanceof CastExpression) return e;
-        throw new CannotDelambaException();
+        throw new CannotInlineLambdaException();
     }
 
     private Expression rewriteDynamicExpression(DynamicInvokation dynamicExpression, StaticFunctionInvokation functionInvokation, List<Expression> curriedArgs) {
@@ -263,8 +257,7 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
         if (!typeInstance.getRawName().equals(TypeConstants.lambdaMetaFactoryName)) return dynamicExpression;
         String functionName = functionInvokation.getName();
 
-        DynamicInvokeType dynamicInvokeType = DynamicInvokeType.lookup(functionName);
-        if (dynamicInvokeType == DynamicInvokeType.UNKNOWN) return dynamicExpression;
+        if (DynamicInvokeType.lookup(functionName) == DynamicInvokeType.UNKNOWN) return dynamicExpression;
 
         List<Expression> metaFactoryArgs = functionInvokation.getArgs();
         if (metaFactoryArgs.size() != 6) return dynamicExpression;
@@ -280,23 +273,13 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
         ConstantPoolEntryMethodRef lambdaMethRef = lambdaFnHandle.getMethodRef();
         JavaTypeInstance lambdaTypeLocation = lambdaMethRef.getClassEntry().getTypeInstance();
         MethodPrototype lambdaFn = lambdaMethRef.getMethodPrototype();
-        String lambdaFnName = lambdaFn.getName();
         List<JavaTypeInstance> lambdaFnArgTypes = lambdaFn.getArgs();
 
         if (!(lambdaTypeLocation instanceof JavaRefTypeInstance)) {
             return dynamicExpression;
         }
         JavaRefTypeInstance lambdaTypeRefLocation = (JavaRefTypeInstance) lambdaTypeLocation;
-        ClassFile classFile = null;
-        if (this.typeInstance.equals(lambdaTypeRefLocation)) {
-            classFile = thisClassFile;
-        } else {
-            try {
-                classFile = state.getClassFile(lambdaTypeRefLocation);
-            } catch (CannotLoadClassException ignore) {
-                // We can't load the lambda target - we can't really make any assumptions about what it will do.
-            }
-        }
+        ClassFile classFile = resolveLambdaTargetClassFile(lambdaTypeRefLocation);
 
         // We can't ask the prototype for instance behaviour, we have to get it from the
         // handle, as it will point to a ref.
@@ -314,7 +297,7 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
          * what it was going to do....
          */
         if (classFile == null) {
-            return new LambdaExpressionFallback(BytecodeLoc.TODO, lambdaTypeRefLocation, dynamicExpression.getInferredJavaType(), lambdaFn, targetFnArgTypes, curriedArgs, instance);
+            return buildLambdaFallback(dynamicExpression, lambdaTypeRefLocation, lambdaFn, targetFnArgTypes, curriedArgs, instance);
         }
 
         if (curriedArgs.size() + targetFnArgTypes.size() - (instance ? 1 : 0) != lambdaFnArgTypes.size()) {
@@ -331,11 +314,38 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             // This might happen if you're using a JRE which doesn't have support classes, etc.
             return dynamicExpression;
         }
+        normalizeCurriedArgs(curriedArgs);
+        Expression inlined = tryInlineSyntheticLambda(dynamicExpression, curriedArgs, targetFnArgTypes, lambdaTypeRefLocation, lambdaMethod, instance);
+        if (inlined != null) {
+            return inlined;
+        }
+
+        // Ok, just call the synthetic method directly.
+        return buildLambdaFallback(dynamicExpression, lambdaTypeRefLocation, lambdaFn, targetFnArgTypes, curriedArgs, instance);
+    }
+
+    private ClassFile resolveLambdaTargetClassFile(JavaRefTypeInstance lambdaTypeRefLocation) {
+        if (this.typeInstance.equals(lambdaTypeRefLocation)) {
+            return thisClassFile;
+        }
+        try {
+            return state.getClassFile(lambdaTypeRefLocation);
+        } catch (CannotLoadClassException ignore) {
+            return null;
+        }
+    }
+
+    private LambdaExpressionFallback buildLambdaFallback(DynamicInvokation dynamicExpression,
+                                                         JavaRefTypeInstance lambdaTypeRefLocation,
+                                                         MethodPrototype lambdaFn,
+                                                         List<JavaTypeInstance> targetFnArgTypes,
+                                                         List<Expression> curriedArgs,
+                                                         boolean instance) {
+        return new LambdaExpressionFallback(BytecodeLoc.TODO, lambdaTypeRefLocation, dynamicExpression.getInferredJavaType(), lambdaFn, targetFnArgTypes, curriedArgs, instance);
+    }
+
+    private void normalizeCurriedArgs(List<Expression> curriedArgs) {
         for (int x = 0, len = curriedArgs.size(); x < len; ++x) {
-            /*
-             * If a curried arg is a supplier, and not an LValue, then there needs to be an explicit cast in place.
-             *
-             */
             Expression curriedArg = curriedArgs.get(x);
             JavaTypeInstance curriedArgType = curriedArg.getInferredJavaType().getJavaTypeInstance();
             if (curriedArgType.getDeGenerifiedType().equals(TypeConstants.SUPPLIER)) {
@@ -348,114 +358,82 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             }
             curriedArgs.set(x, CastExpression.removeImplicit(curriedArg));
         }
-        if (this.typeInstance.equals(lambdaTypeRefLocation) && lambdaMethod.testAccessFlag(AccessFlagMethod.ACC_SYNTHETIC)) {
-            try {
-                /*
-                 * This is a local synthetic lambda - we'll try to inline it.
-                 */
-                Op04StructuredStatement lambdaCode;
-                try {
-                    /*
-                     * Why might this happen?  An immediately recursive lambda expression
-                     * might cause problems (scala code has been seen to do this).
-                     */
-                    lambdaCode = lambdaMethod.getAnalysis();
-                } catch (Exception e) {
-                    throw new CannotDelambaException();
-                }
-                int nLambdaArgs = targetFnArgTypes.size();
-                /* We will be
-                 * \arg0 ... arg(n-1) -> curriedArgs, arg0 ... arg(n-1)
-                 * where curriedArgs will lose first arg if instance method.
-                 */
-                List<Expression> replacementParameters = ListFactory.newList();
-                for (int n = instance ? 1 : 0, m = curriedArgs.size(); n < m; ++n) {
-                    replacementParameters.add(getLambdaVariable(curriedArgs.get(n)));
-                }
-                List<LValue> anonymousLambdaArgs = ListFactory.newList();
-                List<LocalVariable> originalParameters = lambdaMethod.getMethodPrototype().getComputedParameters();
-                int offset = replacementParameters.size();
-                for (int n = 0; n < nLambdaArgs; ++n) {
-                    LocalVariable original = originalParameters.get(n + offset);
-                    String name = original.getName().getStringName();
-                    // fabric - custom dump for lambda parameters
-                    LocalVariable tmp = new LambdaParameter(name, new InferredJavaType(targetFnArgTypes.get(n), InferredJavaType.Source.EXPRESSION),
-                            lambdaMethod.getMethodPrototype(), n + offset);
-                    anonymousLambdaArgs.add(tmp);
-                    replacementParameters.add(new LValueExpression(tmp));
-                }
-                // getParameters(lambdaMethod.getConstructorFlag());
+    }
 
-                /*
-                 * Now we need to take the arguments for the lambda function, and replace them with names
-                 * in the body.
-                 */
-                if (originalParameters.size() != replacementParameters.size()) throw new CannotDelambaException();
-
-                Map<LValue, Expression> rewrites = MapFactory.newMap();
-                for (int x = 0; x < originalParameters.size(); ++x) {
-                    rewrites.put(originalParameters.get(x), replacementParameters.get(x));
-                }
-
-                List<StructuredStatement> structuredLambdaStatements = MiscStatementTools.linearise(lambdaCode);
-                if (structuredLambdaStatements == null) {
-                    throw new CannotDelambaException();
-                }
-
-                ExpressionRewriter variableRenamer = new LambdaInternalRewriter(rewrites);
-                for (StructuredStatement lambdaStatement : structuredLambdaStatements) {
-                    lambdaStatement.rewriteExpressions(variableRenamer);
-                }
-                StructuredStatement lambdaStatement = lambdaCode.getStatement();
-
-                lambdaMethod.hideSynthetic();
-
-                if (structuredLambdaStatements.size() == 3 && (structuredLambdaStatements.get(1) instanceof StructuredReturn)) {
-                    /*
-                     * it's a single element lambda expression - we can just use a statement!
-                     */
-                    StructuredReturn structuredReturn = (StructuredReturn) structuredLambdaStatements.get(1);
-
-                    Expression expression = structuredReturn.getValue();
-
-                    // special case x -> new XXX[x]
-                    if (isNewArrayLambda(expression, curriedArgs, anonymousLambdaArgs)) {
-                        /*
-                         * It'd be nice to just use a fallback lambda here, same as other method references.
-                         * However, we can't use one, as ::new on an array is not a real method
-                         * reference.
-                         *
-                         * Note also that we *COULD* tell original intent here.  Does the variable have a valid name?
-                         * Then it wasn't a method reference.
-                         */
-                        return new LambdaExpressionNewArray(structuredReturn.getCombinedLoc(), dynamicExpression.getInferredJavaType(), expression.getInferredJavaType());
-                    }
-                    lambdaStatement = new StructuredExpressionStatement(structuredReturn.getCombinedLoc(), expression, true);
-                }
-
-
-                /*
-                 * Any method scoped classes that were being used in the lambda method now belong to me.
-                 * (maniac laughter).
-                 */
-                //noinspection unused
-                boolean copied = method.copyLocalClassesFrom(lambdaMethod);
-                Op04StructuredStatement placeHolder = new Op04StructuredStatement(lambdaStatement);
-
-                /*
-                 * Need to strip out declarations, as we will re-examine scope.
-                 * This is horrid, but necessary to deal with local classes defined inside lambda expressions.
-                 */
-                StructuredScope scope = new StructuredScope();
-                placeHolder.transform(new LocalDeclarationRemover(), scope);
-
-                return new LambdaExpression(lambdaStatement.getCombinedLoc(), dynamicExpression.getInferredJavaType(), anonymousLambdaArgs, null, new StructuredStatementExpression(new InferredJavaType(lambdaMethod.getMethodPrototype().getReturnType(), InferredJavaType.Source.EXPRESSION), lambdaStatement));
-            } catch (CannotDelambaException ignore) {
-            }
+    private Expression tryInlineSyntheticLambda(DynamicInvokation dynamicExpression,
+                                                List<Expression> curriedArgs,
+                                                List<JavaTypeInstance> targetFnArgTypes,
+                                                JavaRefTypeInstance lambdaTypeRefLocation,
+                                                Method lambdaMethod,
+                                                boolean instance) {
+        if (!this.typeInstance.equals(lambdaTypeRefLocation) || !lambdaMethod.testAccessFlag(AccessFlagMethod.ACC_SYNTHETIC)) {
+            return null;
         }
+        try {
+            Op04StructuredStatement lambdaCode;
+            try {
+                lambdaCode = lambdaMethod.getAnalysis();
+            } catch (Exception e) {
+                throw new CannotInlineLambdaException();
+            }
 
-        // Ok, just call the synthetic method directly.
-        return new LambdaExpressionFallback(BytecodeLoc.TODO, lambdaTypeRefLocation, dynamicExpression.getInferredJavaType(), lambdaFn, targetFnArgTypes, curriedArgs, instance);
+            int lambdaArgCount = targetFnArgTypes.size();
+            List<Expression> replacementParameters = ListFactory.newList();
+            for (int idx = instance ? 1 : 0, len = curriedArgs.size(); idx < len; ++idx) {
+                replacementParameters.add(asInlineLambdaArgument(curriedArgs.get(idx)));
+            }
+
+            List<LValue> anonymousLambdaArgs = ListFactory.newList();
+            List<LocalVariable> originalParameters = lambdaMethod.getMethodPrototype().getComputedParameters();
+            int offset = replacementParameters.size();
+            for (int idx = 0; idx < lambdaArgCount; ++idx) {
+                LocalVariable original = originalParameters.get(idx + offset);
+                String name = original.getName().getStringName();
+                LocalVariable tmp = new LambdaParameter(name, new InferredJavaType(targetFnArgTypes.get(idx), InferredJavaType.Source.EXPRESSION),
+                        lambdaMethod.getMethodPrototype(), idx + offset);
+                anonymousLambdaArgs.add(tmp);
+                replacementParameters.add(new LValueExpression(tmp));
+            }
+
+            if (originalParameters.size() != replacementParameters.size()) throw new CannotInlineLambdaException();
+
+            Map<LValue, Expression> rewrites = MapFactory.newMap();
+            for (int idx = 0; idx < originalParameters.size(); ++idx) {
+                rewrites.put(originalParameters.get(idx), replacementParameters.get(idx));
+            }
+
+            List<StructuredStatement> structuredLambdaStatements = MiscStatementTools.linearise(lambdaCode);
+            if (structuredLambdaStatements == null) {
+                throw new CannotInlineLambdaException();
+            }
+
+            ExpressionRewriter variableRenamer = new LambdaInternalRewriter(rewrites);
+            for (StructuredStatement lambdaStatement : structuredLambdaStatements) {
+                lambdaStatement.rewriteExpressions(variableRenamer);
+            }
+            StructuredStatement lambdaStatement = lambdaCode.getStatement();
+
+            lambdaMethod.hideSynthetic();
+
+            if (structuredLambdaStatements.size() == 3 && structuredLambdaStatements.get(1) instanceof StructuredReturn) {
+                StructuredReturn structuredReturn = (StructuredReturn) structuredLambdaStatements.get(1);
+                Expression expression = structuredReturn.getValue();
+                if (isNewArrayLambda(expression, curriedArgs, anonymousLambdaArgs)) {
+                    return new LambdaExpressionNewArray(structuredReturn.getCombinedLoc(), dynamicExpression.getInferredJavaType(), expression.getInferredJavaType());
+                }
+                lambdaStatement = new StructuredExpressionStatement(structuredReturn.getCombinedLoc(), expression, true);
+            }
+
+            method.copyLocalClassesFrom(lambdaMethod);
+            Op04StructuredStatement placeHolder = new Op04StructuredStatement(lambdaStatement);
+            StructuredScope scope = new StructuredScope();
+            placeHolder.transform(new LocalDeclarationRemover(), scope);
+
+            return new LambdaExpression(lambdaStatement.getCombinedLoc(), dynamicExpression.getInferredJavaType(), anonymousLambdaArgs, null,
+                    new StructuredStatementExpression(new InferredJavaType(lambdaMethod.getMethodPrototype().getReturnType(), InferredJavaType.Source.EXPRESSION), lambdaStatement));
+        } catch (CannotInlineLambdaException ignore) {
+            return null;
+        }
     }
 
     private static boolean isNewArrayLambda(Expression e, List<Expression> curriedArgs, List<LValue> anonymousLambdaArgs) {
@@ -496,12 +474,6 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             Expression res = expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
             return (ConditionalExpression) res;
         }
-
-//        @Override
-//        public AbstractAssignmentExpression rewriteExpression(AbstractAssignmentExpression expression, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {
-//            Expression res = expression.applyExpressionRewriter(this, ssaIdentifiers, statementContainer, flags);
-//            return (AbstractAssignmentExpression) res;
-//        }
 
         @Override
         public LValue rewriteExpression(LValue lValue, SSAIdentifiers ssaIdentifiers, StatementContainer statementContainer, ExpressionRewriterFlags flags) {

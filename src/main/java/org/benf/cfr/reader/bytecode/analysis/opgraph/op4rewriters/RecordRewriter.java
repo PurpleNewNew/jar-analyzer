@@ -324,35 +324,46 @@ public class RecordRewriter {
     private static boolean removeImplicitAssignments(Method canonicalCons, List<ClassFileField> instances, JavaRefTypeInstance thisType) {
         Block block = getStructuredCodeBlock(canonicalCons);
         if (block == null) return false;
-        instances = ListFactory.newList(instances);
-        List<LocalVariable> args = canonicalCons.getMethodPrototype().getComputedParameters();
         List<Op04StructuredStatement> statements = block.getBlockStatements();
-        List<Op04StructuredStatement> toNop = ListFactory.newList();
-        int nopFrom = statements.size();
-        for (int x=statements.size()-1;x>=0;x--) {
-            Op04StructuredStatement stm = statements.get(x);
-            StructuredStatement statement = stm.getStatement();
-            if (statement.isEffectivelyNOP()) continue;
-            int idx = getImplicitAssignmentIndex(statement, instances, args, thisType);
-            if (idx == -1) break;
-            instances.set(idx, null);
-            toNop.add(stm);
-            nopFrom = x;
-        }
+        ImplicitAssignmentTail implicitTail = collectTrailingImplicitAssignments(statements, instances, canonicalCons.getMethodPrototype().getComputedParameters(), thisType);
         /*
          * If there are any remaining usages of 'this.' left, we can't use the 0 argument canonical constructor,
          * because since J14, it's no longer valid to refer to 'this.' inside it.
          *
          * If we're not using the 0 argument version, we must assign all fields, so can't use the nops above.
          */
-        if (hasLeadingThisReferences(statements, nopFrom, thisType)) {
+        if (hasLeadingThisReferences(statements, implicitTail.nopFrom, thisType)) {
             return false;
         }
 
-        for (Op04StructuredStatement nop : toNop) {
+        for (Op04StructuredStatement nop : implicitTail.toNop) {
             nop.nopOut();
         }
         return true;
+    }
+
+    private static ImplicitAssignmentTail collectTrailingImplicitAssignments(List<Op04StructuredStatement> statements,
+                                                                             List<ClassFileField> instances,
+                                                                             List<LocalVariable> args,
+                                                                             JavaRefTypeInstance thisType) {
+        List<ClassFileField> remainingFields = ListFactory.newList(instances);
+        List<Op04StructuredStatement> toNop = ListFactory.newList();
+        int nopFrom = statements.size();
+        for (int x = statements.size() - 1; x >= 0; --x) {
+            Op04StructuredStatement stm = statements.get(x);
+            StructuredStatement statement = stm.getStatement();
+            if (statement.isEffectivelyNOP()) {
+                continue;
+            }
+            int idx = getImplicitAssignmentIndex(statement, remainingFields, args, thisType);
+            if (idx == -1) {
+                break;
+            }
+            remainingFields.set(idx, null);
+            toNop.add(stm);
+            nopFrom = x;
+        }
+        return new ImplicitAssignmentTail(toNop, nopFrom);
     }
 
     private static boolean hasLeadingThisReferences(List<Op04StructuredStatement> statements,
@@ -379,6 +390,16 @@ public class RecordRewriter {
         Expression rhs = assignment.getRvalue();
         if (!(rhs instanceof LValueExpression)) return -1;
         return ((LValueExpression) rhs).getLValue() == args.get(idx) ? idx : -1;
+    }
+
+    private static final class ImplicitAssignmentTail {
+        private final List<Op04StructuredStatement> toNop;
+        private final int nopFrom;
+
+        private ImplicitAssignmentTail(List<Op04StructuredStatement> toNop, int nopFrom) {
+            this.toNop = toNop;
+            this.nopFrom = nopFrom;
+        }
     }
 
     static class ThisCheck extends AbstractExpressionRewriter {

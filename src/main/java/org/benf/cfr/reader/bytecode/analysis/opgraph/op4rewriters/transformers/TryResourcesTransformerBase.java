@@ -2,6 +2,7 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers;
 
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ResourceReleaseDetector;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.matchutil.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
@@ -65,10 +66,10 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
     // Now we have to walk back from the try statement, finding the declaration of the resource.
     // the declaration MUST not be initialised from something which is subsequently used before the try statement.
     protected boolean rewriteTry(StructuredTry structuredTry, StructuredScope scope, ResourceMatch resourceMatch) {
-        List<Op04StructuredStatement> preceeding = scope.getPrecedingInblock(1, 2);
+        List<Op04StructuredStatement> preceding = scope.getPrecedingInblock(1, 2);
         // seatch backwards for a definition of resource.
         LValue resource = resourceMatch.resource;
-        Op04StructuredStatement autoAssign = findAutoclosableAssignment(preceeding, resource);
+        Op04StructuredStatement autoAssign = findAutoclosableAssignment(preceding, resource);
         if (autoAssign == null) return false;
         StructuredAssignment assign = (StructuredAssignment)autoAssign.getStatement();
         autoAssign.nopOut();
@@ -78,7 +79,7 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
             resourceMatch.resourceMethod.hideSynthetic();
         }
         if (resourceMatch.reprocessException) {
-            return rewriteException(structuredTry, preceeding);
+            return rewriteException(structuredTry, preceding);
         }
         return true;
     }
@@ -92,15 +93,15 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
     //   throw e;
     // }
     // Then we can remove everything except try() { X }.
-    private boolean rewriteException(StructuredTry structuredTry, List<Op04StructuredStatement> preceeding) {
+    private boolean rewriteException(StructuredTry structuredTry, List<Op04StructuredStatement> preceding) {
         List<Op04StructuredStatement> catchBlocks = structuredTry.getCatchBlocks();
         if (catchBlocks.size() != 1) return false;
         Op04StructuredStatement catchBlock = catchBlocks.get(0);
 
         Op04StructuredStatement exceptionDeclare = null;
         LValue tempThrowable = null;
-        for (int x=preceeding.size()-1;x >= 0;--x) {
-            Op04StructuredStatement stm = preceeding.get(x);
+        for (int x=preceding.size()-1;x >= 0;--x) {
+            Op04StructuredStatement stm = preceding.get(x);
             StructuredStatement structuredStatement = stm.getStatement();
             if (structuredStatement.isScopeBlock()) return false;
             if (structuredStatement instanceof StructuredAssignment) {
@@ -130,11 +131,7 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
                 new EndBlock(null)
         );
 
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(catchContent);
-
-        MatchResultCollector collector = new EmptyMatchResultCollector();
-        mi.advance();
-        if (!matcher.match(mi, collector)) return false;
+        if (!matchesStatements(catchContent, 1, matcher, new EmptyMatchResultCollector())) return false;
         LValue caught = wcm.getLValueWildCard("exception").getMatch();
         if (!caught.getInferredJavaType().getJavaTypeInstance().equals(TypeConstants.THROWABLE)) return false;
 
@@ -143,10 +140,10 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
         return true;
     }
 
-    private Op04StructuredStatement findAutoclosableAssignment(List<Op04StructuredStatement> preceeding, LValue resource) {
+    private Op04StructuredStatement findAutoclosableAssignment(List<Op04StructuredStatement> preceding, LValue resource) {
         LValueUsageCheckingRewriter usages = new LValueUsageCheckingRewriter();
-        for (int x=preceeding.size()-1;x >= 0;--x) {
-            Op04StructuredStatement stm = preceeding.get(x);
+        for (int x=preceding.size()-1;x >= 0;--x) {
+            Op04StructuredStatement stm = preceding.get(x);
             StructuredStatement structuredStatement = stm.getStatement();
             if (structuredStatement.isScopeBlock()) return null;
             if (structuredStatement instanceof StructuredAssignment) {
@@ -167,6 +164,32 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
 
     protected ClassFile getClassFile() {
         return classFile;
+    }
+
+    protected List<StructuredStatement> linearizeStatements(Op04StructuredStatement statement) {
+        return statement == null ? null : org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools.linearise(statement);
+    }
+
+    protected boolean matchesStatements(List<StructuredStatement> statements,
+                                        int advanceCount,
+                                        Matcher<StructuredStatement> matcher,
+                                        MatchResultCollector collector) {
+        if (statements == null) return false;
+        MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(statements);
+        for (int idx = 0; idx < advanceCount; ++idx) {
+            if (!iterator.hasNext()) {
+                return false;
+            }
+            iterator.advance();
+        }
+        return matcher.match(iterator, collector);
+    }
+
+    protected boolean matchesCloseStatement(WildcardMatch wcm,
+                                            TryResourcesMatchResultCollector collector,
+                                            StructuredStatement statement) {
+        Matcher<StructuredStatement> checkClose = ResourceReleaseDetector.buildCloseExpressionMatcher(wcm, new LValueExpression(collector.resource));
+        return matchesStatements(Collections.singletonList(statement), 1, checkClose, new EmptyMatchResultCollector());
     }
 
     private static class LValueUsageCheckingRewriter extends AbstractExpressionRewriter {

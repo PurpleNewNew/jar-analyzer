@@ -223,23 +223,30 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         public void collectMatches(String name, WildcardMatch wcm) {
             this.matchType = name;
             this.lValue = wcm.getLValueWildCard("lvalue").getMatch();
+            this.rValue = readMatchedAccessorValue(matchType, wcm);
+            this.op = readMatchedAccessorOp(matchType, wcm);
+        }
+
+        private Expression readMatchedAccessorValue(String matchType, WildcardMatch wcm) {
             switch (matchType) {
                 case MUTATION1:
                 case MUTATION2:
                 case ASSIGNMENT1:
-                    this.rValue = wcm.getExpressionWildCard("rvalue").getMatch();
-                    break;
                 case MUTATION3:
-                    this.rValue = wcm.getExpressionWildCard("rvalue").getMatch();
-                    this.op = wcm.getArithmeticMutationWildcard("mutation").getOp().getMatch();
-                    break;
+                    return wcm.getExpressionWildCard("rvalue").getMatch();
                 case SUPER_INVOKE:
                 case SUPER_RETINVOKE:
-                    this.rValue = wcm.getSuperFunction("super").getMatch();
-                    break;
+                    return wcm.getSuperFunction("super").getMatch();
                 default:
-                    break;
+                    return null;
             }
+        }
+
+        private ArithOp readMatchedAccessorOp(String matchType, WildcardMatch wcm) {
+            if (!MUTATION3.equals(matchType)) {
+                return null;
+            }
+            return wcm.getArithmeticMutationWildcard("mutation").getOp().getMatch();
         }
     }
 
@@ -271,13 +278,20 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         String MEM_FUN1 = "mfun1";
         return new MatchSequence(
                 new BeginBlock(null),
-                new MatchOneOf(
-                        memberFunctionCase(wcm, MEM_SUB1, false),
-                        staticFunctionCase(wcm, STA_SUB1, otherType, false),
-                        memberFunctionCase(wcm, MEM_FUN1, true),
-                        staticFunctionCase(wcm, STA_FUN1, otherType, true)
-                ),
+                buildFunctionCallCases(wcm, otherType, MEM_SUB1, MEM_FUN1),
                 new EndBlock(null)
+        );
+    }
+
+    private MatchOneOf buildFunctionCallCases(WildcardMatch wcm,
+                                              JavaTypeInstance otherType,
+                                              String memberStatementName,
+                                              String memberReturnName) {
+        return new MatchOneOf(
+                memberFunctionCase(wcm, memberStatementName, false),
+                staticFunctionCase(wcm, STA_SUB1, otherType, false),
+                memberFunctionCase(wcm, memberReturnName, true),
+                staticFunctionCase(wcm, STA_FUN1, otherType, true)
         );
     }
 
@@ -490,11 +504,14 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
             this.matchType = name;
-            if (STA_FUN1.equals(matchType) || STA_SUB1.equals(matchType)) {
-                functionInvokation = wcm.getStaticFunction("func").getMatch();
-            } else {
-                functionInvokation = wcm.getMemberFunction("func").getMatch();
+            functionInvokation = getMatchedFunctionInvocation(name, wcm);
+        }
+
+        private Expression getMatchedFunctionInvocation(String name, WildcardMatch wcm) {
+            if (STA_FUN1.equals(name) || STA_SUB1.equals(name)) {
+                return wcm.getStaticFunction("func").getMatch();
             }
+            return wcm.getMemberFunction("func").getMatch();
         }
     }
 
