@@ -33,4 +33,31 @@ class AssertRewriteRegressionTest {
         Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled"));
         CfrDecompilerRegressionSupport.compileJava(decompiledDir, "AssertRewriteSample", decompiled, "--release", "21");
     }
+
+    @Test
+    void shouldResugarSwitchExpressionAssertion(@TempDir Path tempDir) throws Exception {
+        String source = """
+                public class AssertSwitchRewriteSample {
+                    static void check(int value) {
+                        assert switch (value) {
+                            case 1 -> true;
+                            case 2 -> false;
+                            default -> value > 3;
+                        };
+                    }
+                }
+                """;
+
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(tempDir, "AssertSwitchRewriteSample", source, "--release", "21");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
+        assertTrue(decompiled.contains("assert (switch (value)")
+                || decompiled.contains("assert switch (value)"), decompiled);
+        assertFalse(decompiled.contains("$assertionsDisabled"), decompiled);
+        assertFalse(decompiled.contains("throw new AssertionError"), decompiled);
+        assertFalse(decompiled.contains("block4:"), decompiled);
+
+        Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-switch-assert"));
+        CfrDecompilerRegressionSupport.compileJava(decompiledDir, "AssertSwitchRewriteSample", decompiled, "--release", "21");
+    }
 }
