@@ -16,7 +16,6 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
-import org.benf.cfr.reader.bytecode.analysis.parse.utils.Pair;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.QuotingUtils;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.parse.wildcard.WildcardMatch;
@@ -111,21 +110,15 @@ public class RecordRewriter {
         // call it (eventually)
         // (the latter can be cheekily verified by ensuring all other constructors are chained to SOMETHING).
         List<Method> constructors = classFile.getConstructors();
-        Pair<List<Method>, List<Method>> splitCons = Functional.partition(constructors, new IsCanonicalConstructor(instances));
-        if (splitCons.getFirst().size() != 1) {
-            // incorrect implicit.
+        Method canonicalCons = findCanonicalConstructor(constructors, instances);
+        if (canonicalCons == null) {
             return false;
         }
-        Method canonicalCons = splitCons.getFirst().get(0);
-
-        Method.MethodConstructor constructorFlag = canonicalCons.getConstructorFlag();
-        if (!constructorFlag.isConstructor()) return false;
-        if (constructorFlag.isEnumConstructor()) return false;
-
-        List<Method> otherCons = splitCons.getSecond();
-        for (Method other : otherCons) {
-            MethodPrototype chain = ConstructorUtils.getDelegatingPrototype(other);
-            if (chain == null) return false;
+        for (Method other : constructors) {
+            if (other == canonicalCons) {
+                continue;
+            }
+            if (ConstructorUtils.getDelegatingPrototype(other) == null) return false;
         }
 
         JavaRefTypeInstance thisType = classFile.getRefClassType();
@@ -162,51 +155,66 @@ public class RecordRewriter {
      * NB: This default may change - this is the existing behaviour as of 14-ea+34-1452
      */
     private static void hideDefaultUtilityMethods(ClassFile classFile, JavaTypeInstance thisType, List<ClassFileField> instances) {
-        hideEquals(classFile, thisType, instances);
-        hideToString(classFile, thisType, instances);
-        hideHashCode(classFile, thisType, instances);
+        Method equalsMethod = getMethod(classFile, Collections.<JavaTypeInstance>singletonList(TypeConstants.OBJECT), MiscConstants.EQUALS);
+        Method toStringMethod = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.TOSTRING);
+        Method hashCodeMethod = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.HASHCODE);
+
+        hideDefaultObjectMethod(
+                thisType,
+                instances,
+                equalsMethod,
+                MiscConstants.EQUALS,
+                RawJavaType.BOOLEAN,
+                equalsMethod == null ? null : new LValueExpression(equalsMethod.getMethodPrototype().getComputedParameters().get(0))
+        );
+        hideDefaultObjectMethod(
+                thisType,
+                instances,
+                toStringMethod,
+                MiscConstants.TOSTRING,
+                TypeConstants.STRING
+        );
+        hideDefaultObjectMethod(
+                thisType,
+                instances,
+                hashCodeMethod,
+                MiscConstants.HASHCODE,
+                RawJavaType.INT
+        );
     }
 
-    private static void hideEquals(ClassFile classFile, JavaTypeInstance thisType, List<ClassFileField> fields) {
-        Method method = getMethod(classFile, Collections.<JavaTypeInstance>singletonList(TypeConstants.OBJECT), MiscConstants.EQUALS);
-        if (method == null) return;
+    private static void hideDefaultObjectMethod(JavaTypeInstance thisType,
+                                                List<ClassFileField> fields,
+                                                Method method,
+                                                String methodName,
+                                                JavaTypeInstance resultType,
+                                                Expression... extraBootstrapArgs) {
+        if (method == null) {
+            return;
+        }
 
         WildcardMatch wcm = new WildcardMatch();
-        StructuredStatement stm = new StructuredReturn(BytecodeLoc.NONE, new CastExpression(BytecodeLoc.NONE, new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.TEST),
-                wcm.getStaticFunction("func", TypeConstants.OBJECTMETHODS, TypeConstants.OBJECT, "bootstrap",
-                        new Literal(TypedLiteral.getString(QuotingUtils.enquoteString(MiscConstants.EQUALS))),
-                        wcm.getExpressionWildCard("array"),
-                        wcm.getExpressionWildCard("this"),
-                        new LValueExpression(method.getMethodPrototype().getComputedParameters().get(0)))), RawJavaType.BOOLEAN);
+        List<Expression> bootstrapArgs = ListFactory.newList();
+        bootstrapArgs.add(new Literal(TypedLiteral.getString(QuotingUtils.enquoteString(methodName))));
+        bootstrapArgs.add(wcm.getExpressionWildCard("array"));
+        bootstrapArgs.add(wcm.getExpressionWildCard("this"));
+        Collections.addAll(bootstrapArgs, extraBootstrapArgs);
 
-        hideIfMatch(thisType, fields, method, wcm, stm);
-    }
-
-    private static void hideToString(ClassFile classFile, JavaTypeInstance thisType, List<ClassFileField> fields) {
-        Method method = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.TOSTRING);
-        if (method == null) return;
-
-        WildcardMatch wcm = new WildcardMatch();
-        StructuredStatement stm = new StructuredReturn(BytecodeLoc.NONE,
-                new CastExpression(BytecodeLoc.NONE, new InferredJavaType(TypeConstants.STRING, InferredJavaType.Source.TEST),
-                wcm.getStaticFunction("func", TypeConstants.OBJECTMETHODS, TypeConstants.OBJECT, "bootstrap",
-                        new Literal(TypedLiteral.getString(QuotingUtils.enquoteString(MiscConstants.TOSTRING))),
-                        wcm.getExpressionWildCard("array"),
-                        wcm.getExpressionWildCard("this"))), TypeConstants.STRING);
-
-        hideIfMatch(thisType, fields, method, wcm, stm);
-    }
-
-    private static void hideHashCode(ClassFile classFile, JavaTypeInstance thisType, List<ClassFileField> fields) {
-        Method method = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.HASHCODE);
-        if (method == null) return;
-
-        WildcardMatch wcm = new WildcardMatch();
-        StructuredStatement stm = new StructuredReturn(BytecodeLoc.NONE, new CastExpression(BytecodeLoc.NONE, new InferredJavaType(RawJavaType.INT, InferredJavaType.Source.TEST),
-                wcm.getStaticFunction("func", TypeConstants.OBJECTMETHODS, TypeConstants.OBJECT, "bootstrap",
-                        new Literal(TypedLiteral.getString(QuotingUtils.enquoteString(MiscConstants.HASHCODE))),
-                        wcm.getExpressionWildCard("array"),
-                        wcm.getExpressionWildCard("this"))), RawJavaType.INT);
+        StructuredStatement stm = new StructuredReturn(
+                BytecodeLoc.NONE,
+                new CastExpression(
+                        BytecodeLoc.NONE,
+                        new InferredJavaType(resultType, InferredJavaType.Source.TEST),
+                        wcm.getStaticFunction(
+                                "func",
+                                TypeConstants.OBJECTMETHODS,
+                                TypeConstants.OBJECT,
+                                "bootstrap",
+                                bootstrapArgs.toArray(new Expression[0])
+                        )
+                ),
+                resultType
+        );
 
         hideIfMatch(thisType, fields, method, wcm, stm);
     }
@@ -281,25 +289,15 @@ public class RecordRewriter {
     }
 
     private static StructuredStatement getSingleCodeLine(Method method) {
-        if (method == null) return null;
-        if (method.getCodeAttribute() == null) return null;
-        Op04StructuredStatement code = method.getAnalysis();
-        StructuredStatement topCode = code.getStatement();
-        if (!(topCode instanceof Block)) return null;
-        Block block = (Block)topCode;
+        Block block = getStructuredCodeBlock(method);
+        if (block == null) return null;
         Optional<Op04StructuredStatement> content = block.getMaybeJustOneStatement();
         if (!content.isSet()) return null;
         return content.getValue().getStatement();
     }
 
     private static void hideDefaultGetter(Method method, ClassFileField classFileField, JavaRefTypeInstance thisType) {
-        StructuredStatement item = getSingleCodeLine(method);
-        if (item == null) return;
-        WildcardMatch wcm = new WildcardMatch();
-        StructuredStatement s = new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm.getLValueWildCard("var")), classFileField.getField().getJavaTypeInstance());
-        if (!s.equals(item)) return;
-        ClassFileField cff = getCFF(wcm.getLValueWildCard("var").getMatch(), thisType);
-        if (cff != classFileField) return;
+        if (matchReturnedField(method, thisType) != classFileField) return;
         classFileField.markHidden();
 
         /*
@@ -317,46 +315,27 @@ public class RecordRewriter {
     }
 
     private static void hideConstructorIfEmpty(Method canonicalCons) {
-        if (canonicalCons.getCodeAttribute() == null) return;
-        Op04StructuredStatement code = canonicalCons.getAnalysis();
-        if (code.getStatement().isEffectivelyNOP()) {
+        Block block = getStructuredCodeBlock(canonicalCons);
+        if (block != null && block.isEffectivelyNOP()) {
             canonicalCons.hideDead();
         }
     }
 
     private static boolean removeImplicitAssignments(Method canonicalCons, List<ClassFileField> instances, JavaRefTypeInstance thisType) {
-        if (canonicalCons.getCodeAttribute() == null) return false;
-        Op04StructuredStatement code = canonicalCons.getAnalysis();
-
+        Block block = getStructuredCodeBlock(canonicalCons);
+        if (block == null) return false;
         instances = ListFactory.newList(instances);
-
         List<LocalVariable> args = canonicalCons.getMethodPrototype().getComputedParameters();
-        // We expect a block.  The last N statements should be assignments
-        StructuredStatement topCode = code.getStatement();
-        if (!(topCode instanceof Block)) return false;
-        Block block = (Block)topCode;
-
         List<Op04StructuredStatement> statements = block.getBlockStatements();
         List<Op04StructuredStatement> toNop = ListFactory.newList();
         int nopFrom = statements.size();
         for (int x=statements.size()-1;x>=0;x--) {
             Op04StructuredStatement stm = statements.get(x);
             StructuredStatement statement = stm.getStatement();
-            // this is very messy - refactor using wildcardmatch.
             if (statement.isEffectivelyNOP()) continue;
-            if (!(statement instanceof StructuredAssignment)) break;
-            LValue lhs = ((StructuredAssignment) statement).getLvalue();
-            ClassFileField field = getCFF(lhs, thisType);
-            if (field == null) break;
-            int idx = instances.indexOf(field);
+            int idx = getImplicitAssignmentIndex(statement, instances, args, thisType);
             if (idx == -1) break;
             instances.set(idx, null);
-
-            Expression rhs = ((StructuredAssignment) statement).getRvalue();
-            if (!(rhs instanceof LValueExpression)) break;
-            LValue rlv = ((LValueExpression) rhs).getLValue();
-            LocalVariable expected = args.get(idx);
-            if (rlv != expected) break;
             toNop.add(stm);
             nopFrom = x;
         }
@@ -366,12 +345,7 @@ public class RecordRewriter {
          *
          * If we're not using the 0 argument version, we must assign all fields, so can't use the nops above.
          */
-        ThisCheck thisCheck = new ThisCheck(thisType);
-        ExpressionRewriterTransformer check = new ExpressionRewriterTransformer(thisCheck);
-        for (int x=0;x<nopFrom && !thisCheck.failed;++x) {
-            check.transform(statements.get(x));
-        }
-        if (thisCheck.failed) {
+        if (hasLeadingThisReferences(statements, nopFrom, thisType)) {
             return false;
         }
 
@@ -379,6 +353,32 @@ public class RecordRewriter {
             nop.nopOut();
         }
         return true;
+    }
+
+    private static boolean hasLeadingThisReferences(List<Op04StructuredStatement> statements,
+                                                    int exclusiveEnd,
+                                                    JavaTypeInstance thisType) {
+        ThisCheck thisCheck = new ThisCheck(thisType);
+        ExpressionRewriterTransformer check = new ExpressionRewriterTransformer(thisCheck);
+        for (int x = 0; x < exclusiveEnd && !thisCheck.failed; ++x) {
+            check.transform(statements.get(x));
+        }
+        return thisCheck.failed;
+    }
+
+    private static int getImplicitAssignmentIndex(StructuredStatement statement,
+                                                  List<ClassFileField> instances,
+                                                  List<LocalVariable> args,
+                                                  JavaRefTypeInstance thisType) {
+        if (!(statement instanceof StructuredAssignment)) return -1;
+        StructuredAssignment assignment = (StructuredAssignment) statement;
+        ClassFileField field = getCFF(assignment.getLvalue(), thisType);
+        if (field == null) return -1;
+        int idx = instances.indexOf(field);
+        if (idx == -1) return -1;
+        Expression rhs = assignment.getRvalue();
+        if (!(rhs instanceof LValueExpression)) return -1;
+        return ((LValueExpression) rhs).getLValue() == args.get(idx) ? idx : -1;
     }
 
     static class ThisCheck extends AbstractExpressionRewriter {
@@ -408,31 +408,51 @@ public class RecordRewriter {
         return ((FieldVariable) lhs).getClassFileField();
     }
 
-    static class IsCanonicalConstructor implements Predicate<Method> {
-        private final List<ClassFileField> fields;
-
-        IsCanonicalConstructor(List<ClassFileField> fields) {
-            this.fields = fields;
+    private static ClassFileField matchReturnedField(Method method, JavaRefTypeInstance thisType) {
+        StructuredStatement item = getSingleCodeLine(method);
+        if (!(item instanceof StructuredReturn)) {
+            return null;
         }
+        Expression value = ((StructuredReturn) item).getValue();
+        if (!(value instanceof LValueExpression)) {
+            return null;
+        }
+        return getCFF(((LValueExpression) value).getLValue(), thisType);
+    }
 
-        @Override
-        public boolean test(Method in) {
-            MethodPrototype proto = in.getMethodPrototype();
-            if (!proto.parametersComputed()) return false;
-            List<JavaTypeInstance> protoArgs = proto.getArgs();
-            if (protoArgs.size() != fields.size()) return false;
-            List<LocalVariable> parameters = proto.getComputedParameters();
-            // The names MIGHT not match, if we've been obfuscated.  That's ok, as long as the parameters are assigned,
-            // at the top level, to the appropriate variable.
-            if (parameters.size() != fields.size()) return false;
-            // If they don't match, we have to rename, as implicit parameters are usable inside constructor.
-            for (int x=0;x<fields.size();++x) {
-                JavaTypeInstance fieldType = fields.get(x).getField().getJavaTypeInstance();
-                JavaTypeInstance paramType = protoArgs.get(x);
-                if (!fieldType.equals(paramType)) return false;
+    private static Block getStructuredCodeBlock(Method method) {
+        if (method == null || method.getCodeAttribute() == null) return null;
+        StructuredStatement topCode = method.getAnalysis().getStatement();
+        return topCode instanceof Block ? (Block) topCode : null;
+    }
+
+    private static Method findCanonicalConstructor(List<Method> constructors, List<ClassFileField> fields) {
+        Method canonical = null;
+        for (Method constructor : constructors) {
+            if (!matchesCanonicalConstructor(constructor, fields)) {
+                continue;
             }
-
-            return true;
+            if (canonical != null) {
+                return null;
+            }
+            canonical = constructor;
         }
+        return canonical;
+    }
+
+    private static boolean matchesCanonicalConstructor(Method method, List<ClassFileField> fields) {
+        Method.MethodConstructor constructorFlag = method.getConstructorFlag();
+        if (!constructorFlag.isConstructor() || constructorFlag.isEnumConstructor()) return false;
+        MethodPrototype proto = method.getMethodPrototype();
+        if (!proto.parametersComputed()) return false;
+        List<JavaTypeInstance> protoArgs = proto.getArgs();
+        if (protoArgs.size() != fields.size()) return false;
+        List<LocalVariable> parameters = proto.getComputedParameters();
+        if (parameters.size() != fields.size()) return false;
+        for (int x = 0; x < fields.size(); ++x) {
+            JavaTypeInstance fieldType = fields.get(x).getField().getJavaTypeInstance();
+            if (!fieldType.equals(protoArgs.get(x))) return false;
+        }
+        return true;
     }
 }

@@ -34,23 +34,17 @@ import java.util.LinkedList;
 import java.util.List;
 
 final class SwitchPatternCaseDetector {
-    SwitchPatternCasePlanner.PlanSpec detect(SwitchPatternCasePlanner.DetectionContext context) {
+    SwitchPatternCasePlanner.CaseRewritePlan detect(SwitchPatternCasePlanner.DetectionContext context) {
+        boolean allowDirectSelectorBinding = context.getPatternLoop() == null
+                && context.getExpectedPatternType().equals(context.getSelector().getInferredJavaType().getJavaTypeInstance());
         PatternBinding patternBinding = findPatternBinding(
                 context.getStatements(),
                 context.getSelector(),
-                context.getExpectedPatternType()
+                context.getExpectedPatternType(),
+                allowDirectSelectorBinding
         );
-        if (patternBinding == null
-                && context.getPatternLoop() == null
-                && context.getExpectedPatternType().equals(context.getSelector().getInferredJavaType().getJavaTypeInstance())) {
-            patternBinding = findDirectSelectorBinding(
-                    context.getStatements(),
-                    context.getSelector(),
-                    context.getExpectedPatternType()
-            );
-        }
         if (patternBinding == null) {
-            ConditionalGuardPlan conditionalGuardPlan = findConditionalGuardPlan(
+            GuardPlan conditionalGuardPlan = findConditionalGuardPlan(
                     context.getStatements(),
                     context.getSelector(),
                     context.getExpectedPatternType(),
@@ -60,7 +54,7 @@ final class SwitchPatternCaseDetector {
             if (conditionalGuardPlan == null) {
                 return null;
             }
-            return SwitchPatternCasePlanner.PlanSpec.guardedBinding(
+            return SwitchPatternCasePlanner.CaseRewritePlan.guardedBinding(
                     context,
                     conditionalGuardPlan.binding,
                     conditionalGuardPlan.guard,
@@ -75,7 +69,7 @@ final class SwitchPatternCaseDetector {
                 context.getPatternLoop()
         );
         if (guardPlan != null) {
-            return SwitchPatternCasePlanner.PlanSpec.guardedBinding(
+            return SwitchPatternCasePlanner.CaseRewritePlan.guardedBinding(
                     context,
                     patternBinding.binding,
                     guardPlan.guard,
@@ -89,7 +83,7 @@ final class SwitchPatternCaseDetector {
                 patternBinding.binding
         );
         if (recordPatternPlan != null) {
-            return SwitchPatternCasePlanner.PlanSpec.record(
+            return SwitchPatternCasePlanner.CaseRewritePlan.record(
                     context,
                     patternBinding.binding,
                     recordPatternPlan.components,
@@ -105,40 +99,13 @@ final class SwitchPatternCaseDetector {
             rewrittenStatements.add(context.getStatements().get(x));
         }
         rewrittenStatements = simplifySyntheticYieldAlias(patternBinding.binding, rewrittenStatements);
-        return SwitchPatternCasePlanner.PlanSpec.binding(context, patternBinding.binding, rewrittenStatements);
+        return SwitchPatternCasePlanner.CaseRewritePlan.binding(context, patternBinding.binding, rewrittenStatements);
     }
 
     private PatternBinding findPatternBinding(List<Op04StructuredStatement> statements,
                                               Expression selector,
-                                              JavaTypeInstance expectedType) {
-        for (int x = 0; x < statements.size(); ++x) {
-            StructuredStatement statement = statements.get(x).getStatement();
-            if (!(statement instanceof StructuredAssignment)) {
-                continue;
-            }
-            StructuredAssignment assignment = (StructuredAssignment) statement;
-            if (!(assignment.getLvalue() instanceof LocalVariable)) {
-                continue;
-            }
-            if (!(assignment.getRvalue() instanceof CastExpression)) {
-                continue;
-            }
-            CastExpression castExpression = (CastExpression) assignment.getRvalue();
-            if (!expectedType.equals(castExpression.getInferredJavaType().getJavaTypeInstance())) {
-                continue;
-            }
-            Expression castChild = CastExpression.removeImplicit(castExpression.getChild());
-            if (!selector.equals(castChild)) {
-                continue;
-            }
-            return new PatternBinding((LocalVariable) assignment.getLvalue(), x);
-        }
-        return null;
-    }
-
-    private PatternBinding findDirectSelectorBinding(List<Op04StructuredStatement> statements,
-                                                     Expression selector,
-                                                     JavaTypeInstance expectedType) {
+                                              JavaTypeInstance expectedType,
+                                              boolean allowDirectSelectorBinding) {
         for (int x = 0; x < statements.size(); ++x) {
             StructuredStatement statement = statements.get(x).getStatement();
             if (!(statement instanceof StructuredAssignment)) {
@@ -149,10 +116,14 @@ final class SwitchPatternCaseDetector {
                 continue;
             }
             LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
-            if (!expectedType.equals(localVariable.getInferredJavaType().getJavaTypeInstance())) {
-                continue;
-            }
-            if (!selector.equals(CastExpression.removeImplicit(assignment.getRvalue()))) {
+            Expression matchedSource = matchBindingSource(
+                    assignment.getRvalue(),
+                    selector,
+                    expectedType,
+                    allowDirectSelectorBinding,
+                    localVariable
+            );
+            if (matchedSource == null) {
                 continue;
             }
             return new PatternBinding(localVariable, x);
@@ -160,13 +131,33 @@ final class SwitchPatternCaseDetector {
         return null;
     }
 
+    private Expression matchBindingSource(Expression expression,
+                                          Expression selector,
+                                          JavaTypeInstance expectedType,
+                                          boolean allowDirectSelectorBinding,
+                                          LocalVariable binding) {
+        if (expression instanceof CastExpression) {
+            CastExpression castExpression = (CastExpression) expression;
+            if (!expectedType.equals(castExpression.getInferredJavaType().getJavaTypeInstance())) {
+                return null;
+            }
+            Expression castChild = CastExpression.removeImplicit(castExpression.getChild());
+            return selector.equals(castChild) ? castChild : null;
+        }
+        if (!allowDirectSelectorBinding) {
+            return null;
+        }
+        if (!expectedType.equals(binding.getInferredJavaType().getJavaTypeInstance())) {
+            return null;
+        }
+        Expression directSource = CastExpression.removeImplicit(expression);
+        return selector.equals(directSource) ? directSource : null;
+    }
+
     private GuardPlan findGuardPlan(List<Op04StructuredStatement> statements,
                                     int bindingIndex,
                                     LValue indexLValue,
                                     StructuredWhile patternLoop) {
-        if (patternLoop == null) {
-            return null;
-        }
         int ifIdx = nextMeaningfulIndex(statements, bindingIndex + 1);
         if (ifIdx == -1) {
             return null;
@@ -179,57 +170,21 @@ final class SwitchPatternCaseDetector {
         if (structuredIf.hasElseBlock()) {
             return null;
         }
-
-        int assignIdx = nextMeaningfulIndex(statements, ifIdx + 1);
-        int continueIdx = nextMeaningfulIndex(statements, assignIdx + 1);
-        if (assignIdx == -1 || continueIdx == -1) {
+        if (!hasTrailingLoopGuard(statements, ifIdx, indexLValue, patternLoop)) {
             return null;
         }
-
-        StructuredStatement indexAssignment = statements.get(assignIdx).getStatement();
-        if (!(indexAssignment instanceof StructuredAssignment)) {
-            return null;
-        }
-        StructuredAssignment structuredAssignment = (StructuredAssignment) indexAssignment;
-        if (!indexLValue.equals(structuredAssignment.getLvalue())) {
-            return null;
-        }
-        if (!(structuredAssignment.getRvalue() instanceof Literal)) {
-            return null;
-        }
-
-        StructuredStatement continueStatement = statements.get(continueIdx).getStatement();
-        if (!(continueStatement instanceof AbstractStructuredContinue)) {
-            return null;
-        }
-        if (!patternLoop.getBlock().equals(((AbstractStructuredContinue) continueStatement).getContinueTgt())) {
-            return null;
-        }
-        if (nextMeaningfulIndex(statements, continueIdx + 1) != -1) {
-            return null;
-        }
-
-        LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
-        for (int x = 0; x < bindingIndex; ++x) {
-            rewrittenStatements.add(statements.get(x));
-        }
-        StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
-        if (ifTaken instanceof Block) {
-            rewrittenStatements.addAll(((Block) ifTaken).getBlockStatements());
-        } else {
-            rewrittenStatements.add(structuredIf.getIfTaken());
-        }
-        return new GuardPlan(structuredIf.getConditionalExpression(), rewrittenStatements);
+        return new GuardPlan(
+                null,
+                structuredIf.getConditionalExpression(),
+                rewriteGuardedBody(statements, bindingIndex, structuredIf, null)
+        );
     }
 
-    private ConditionalGuardPlan findConditionalGuardPlan(List<Op04StructuredStatement> statements,
-                                                          Expression selector,
-                                                          JavaTypeInstance expectedType,
-                                                          LValue indexLValue,
-                                                          StructuredWhile patternLoop) {
-        if (patternLoop == null) {
-            return null;
-        }
+    private GuardPlan findConditionalGuardPlan(List<Op04StructuredStatement> statements,
+                                               Expression selector,
+                                               JavaTypeInstance expectedType,
+                                               LValue indexLValue,
+                                               StructuredWhile patternLoop) {
         int ifIdx = nextLeadingGuardIndex(statements);
         if (ifIdx == -1) {
             return null;
@@ -251,50 +206,14 @@ final class SwitchPatternCaseDetector {
         if (conditionBinding == null) {
             return null;
         }
-
-        int assignIdx = nextMeaningfulIndex(statements, ifIdx + 1);
-        int continueIdx = nextMeaningfulIndex(statements, assignIdx + 1);
-        if (assignIdx == -1 || continueIdx == -1) {
+        if (!hasTrailingLoopGuard(statements, ifIdx, indexLValue, patternLoop)) {
             return null;
         }
-
-        StructuredStatement indexAssignment = statements.get(assignIdx).getStatement();
-        if (!(indexAssignment instanceof StructuredAssignment)) {
-            return null;
-        }
-        StructuredAssignment structuredAssignment = (StructuredAssignment) indexAssignment;
-        if (!indexLValue.equals(structuredAssignment.getLvalue())) {
-            return null;
-        }
-        if (!(structuredAssignment.getRvalue() instanceof Literal)) {
-            return null;
-        }
-
-        StructuredStatement continueStatement = statements.get(continueIdx).getStatement();
-        if (!(continueStatement instanceof AbstractStructuredContinue)) {
-            return null;
-        }
-        if (!patternLoop.getBlock().equals(((AbstractStructuredContinue) continueStatement).getContinueTgt())) {
-            return null;
-        }
-        if (nextMeaningfulIndex(statements, continueIdx + 1) != -1) {
-            return null;
-        }
-
-        LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
-        for (int x = 0; x < ifIdx; ++x) {
-            if (isBindingSetupStatement(statements.get(x).getStatement(), conditionBinding.binding)) {
-                continue;
-            }
-            rewrittenStatements.add(statements.get(x));
-        }
-        StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
-        if (ifTaken instanceof Block) {
-            rewrittenStatements.addAll(((Block) ifTaken).getBlockStatements());
-        } else {
-            rewrittenStatements.add(structuredIf.getIfTaken());
-        }
-        return new ConditionalGuardPlan(conditionBinding.binding, conditionBinding.guard, rewrittenStatements);
+        return new GuardPlan(
+                conditionBinding.binding,
+                conditionBinding.guard,
+                rewriteGuardedBody(statements, ifIdx, structuredIf, conditionBinding.binding)
+        );
     }
 
     private int nextMeaningfulIndex(List<Op04StructuredStatement> statements, int start) {
@@ -321,6 +240,65 @@ final class SwitchPatternCaseDetector {
             return -1;
         }
         return -1;
+    }
+
+    private boolean hasTrailingLoopGuard(List<Op04StructuredStatement> statements,
+                                         int ifIdx,
+                                         LValue indexLValue,
+                                         StructuredWhile patternLoop) {
+        if (patternLoop == null) {
+            return false;
+        }
+        int assignIdx = nextMeaningfulIndex(statements, ifIdx + 1);
+        int continueIdx = nextMeaningfulIndex(statements, assignIdx + 1);
+        if (assignIdx == -1 || continueIdx == -1) {
+            return false;
+        }
+        StructuredStatement indexAssignment = statements.get(assignIdx).getStatement();
+        if (!(indexAssignment instanceof StructuredAssignment)) {
+            return false;
+        }
+        StructuredAssignment structuredAssignment = (StructuredAssignment) indexAssignment;
+        if (!indexLValue.equals(structuredAssignment.getLvalue())) {
+            return false;
+        }
+        if (!(structuredAssignment.getRvalue() instanceof Literal)) {
+            return false;
+        }
+        StructuredStatement continueStatement = statements.get(continueIdx).getStatement();
+        if (!(continueStatement instanceof AbstractStructuredContinue)) {
+            return false;
+        }
+        if (!patternLoop.getBlock().equals(((AbstractStructuredContinue) continueStatement).getContinueTgt())) {
+            return false;
+        }
+        return nextMeaningfulIndex(statements, continueIdx + 1) == -1;
+    }
+
+    private LinkedList<Op04StructuredStatement> rewriteGuardedBody(List<Op04StructuredStatement> statements,
+                                                                   int prefixExclusiveEnd,
+                                                                   StructuredIf structuredIf,
+                                                                   LocalVariable bindingSetupToStrip) {
+        LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
+        for (int x = 0; x < prefixExclusiveEnd; ++x) {
+            StructuredStatement statement = statements.get(x).getStatement();
+            if (bindingSetupToStrip != null && isBindingSetupStatement(statement, bindingSetupToStrip)) {
+                continue;
+            }
+            rewrittenStatements.add(statements.get(x));
+        }
+        appendIfTakenStatements(rewrittenStatements, structuredIf);
+        return rewrittenStatements;
+    }
+
+    private void appendIfTakenStatements(LinkedList<Op04StructuredStatement> rewrittenStatements,
+                                         StructuredIf structuredIf) {
+        StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
+        if (ifTaken instanceof Block) {
+            rewrittenStatements.addAll(((Block) ifTaken).getBlockStatements());
+        } else {
+            rewrittenStatements.add(structuredIf.getIfTaken());
+        }
     }
 
     private LinkedList<Op04StructuredStatement> simplifySyntheticYieldAlias(LocalVariable binding,
@@ -405,7 +383,56 @@ final class SwitchPatternCaseDetector {
         if (usesLValue(statements, tryIdx + 1, binding)) {
             return null;
         }
+        return new RecordPatternPlan(
+                components,
+                rewriteRecordPatternBody(statements, bindingIndex, tryIdx, components)
+        );
+    }
 
+    private List<LValue> extractRecordComponents(Block tryBlock, LocalVariable binding) {
+        List<LValue> components = ListFactory.newList();
+        List<Op04StructuredStatement> tryStatements = tryBlock.getFilteredBlockStatements();
+        for (Op04StructuredStatement tryStatement : tryStatements) {
+            StructuredStatement structuredStatement = tryStatement.getStatement();
+            if (structuredStatement instanceof StructuredComment || structuredStatement instanceof StructuredDefinition) {
+                continue;
+            }
+            LocalVariable component = getRecordComponentAssignment(structuredStatement, binding);
+            if (component == null) {
+                return null;
+            }
+            components.add(component);
+        }
+        return components;
+    }
+
+    private LocalVariable getRecordComponentAssignment(StructuredStatement structuredStatement,
+                                                       LocalVariable binding) {
+        if (!(structuredStatement instanceof StructuredAssignment)) {
+            return null;
+        }
+        StructuredAssignment assignment = (StructuredAssignment) structuredStatement;
+        if (!(assignment.getLvalue() instanceof LocalVariable)) {
+            return null;
+        }
+        if (!isRecordAccessorAssignment(assignment.getRvalue(), binding)) {
+            return null;
+        }
+        return (LocalVariable) assignment.getLvalue();
+    }
+
+    private boolean shouldDropRecordPatternPreludeStatement(Op04StructuredStatement statement, List<LValue> components) {
+        StructuredStatement structuredStatement = statement.getStatement();
+        if (!(structuredStatement instanceof StructuredDefinition)) {
+            return false;
+        }
+        return components.contains(((StructuredDefinition) structuredStatement).getLvalue());
+    }
+
+    private LinkedList<Op04StructuredStatement> rewriteRecordPatternBody(List<Op04StructuredStatement> statements,
+                                                                         int bindingIndex,
+                                                                         int tryIdx,
+                                                                         List<LValue> components) {
         LinkedList<Op04StructuredStatement> rewrittenStatements = ListFactory.newLinkedList();
         for (int x = 0; x < bindingIndex; ++x) {
             Op04StructuredStatement statement = statements.get(x);
@@ -417,38 +444,7 @@ final class SwitchPatternCaseDetector {
         for (int x = tryIdx + 1; x < statements.size(); ++x) {
             rewrittenStatements.add(statements.get(x));
         }
-        return new RecordPatternPlan(components, rewrittenStatements);
-    }
-
-    private List<LValue> extractRecordComponents(Block tryBlock, LocalVariable binding) {
-        List<LValue> components = ListFactory.newList();
-        List<Op04StructuredStatement> tryStatements = tryBlock.getFilteredBlockStatements();
-        for (Op04StructuredStatement tryStatement : tryStatements) {
-            StructuredStatement structuredStatement = tryStatement.getStatement();
-            if (structuredStatement instanceof StructuredComment || structuredStatement instanceof StructuredDefinition) {
-                continue;
-            }
-            if (!(structuredStatement instanceof StructuredAssignment)) {
-                return null;
-            }
-            StructuredAssignment assignment = (StructuredAssignment) structuredStatement;
-            if (!(assignment.getLvalue() instanceof LocalVariable)) {
-                return null;
-            }
-            if (!isRecordAccessorAssignment(assignment.getRvalue(), binding)) {
-                return null;
-            }
-            components.add(assignment.getLvalue());
-        }
-        return components;
-    }
-
-    private boolean shouldDropRecordPatternPreludeStatement(Op04StructuredStatement statement, List<LValue> components) {
-        StructuredStatement structuredStatement = statement.getStatement();
-        if (!(structuredStatement instanceof StructuredDefinition)) {
-            return false;
-        }
-        return components.contains(((StructuredDefinition) structuredStatement).getLvalue());
+        return rewrittenStatements;
     }
 
     private boolean hasSingleThrowCatch(StructuredTry structuredTry) {
@@ -505,10 +501,12 @@ final class SwitchPatternCaseDetector {
     }
 
     private static final class GuardPlan {
+        private final LocalVariable binding;
         private final Expression guard;
         private final LinkedList<Op04StructuredStatement> rewrittenBody;
 
-        private GuardPlan(Expression guard, LinkedList<Op04StructuredStatement> rewrittenBody) {
+        private GuardPlan(LocalVariable binding, Expression guard, LinkedList<Op04StructuredStatement> rewrittenBody) {
+            this.binding = binding;
             this.guard = guard;
             this.rewrittenBody = rewrittenBody;
         }
@@ -570,18 +568,6 @@ final class SwitchPatternCaseDetector {
                 }
             }
             return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
-        }
-    }
-
-    private static final class ConditionalGuardPlan {
-        private final LocalVariable binding;
-        private final Expression guard;
-        private final LinkedList<Op04StructuredStatement> rewrittenBody;
-
-        private ConditionalGuardPlan(LocalVariable binding, Expression guard, LinkedList<Op04StructuredStatement> rewrittenBody) {
-            this.binding = binding;
-            this.guard = guard;
-            this.rewrittenBody = rewrittenBody;
         }
     }
 

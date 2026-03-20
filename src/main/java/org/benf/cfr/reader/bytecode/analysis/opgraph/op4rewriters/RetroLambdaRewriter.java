@@ -102,13 +102,8 @@ public class RetroLambdaRewriter extends AbstractExpressionRewriter {
         if (!MiscUtils.isThis(sfArg, mainClazz.getClassType())) return null;
 
         ClassFile cf = state.getClassFile(sf.getClazz());
-        Method lamMeth;
-        try {
-            List<Method> m;
-            m = cf.getMethodByName(name);
-            if (m.size() != 1) return null;
-            lamMeth = m.get(0);
-        } catch (NoSuchMethodException e) {
+        Method lamMeth = getUniqueMethodByName(cf, name);
+        if (lamMeth == null) {
             return null;
         }
 
@@ -262,12 +257,8 @@ public class RetroLambdaRewriter extends AbstractExpressionRewriter {
         MemberFunctionInvokation member = wcm.getMemberFunction("indirect").getMatch();
         if (!member.getMethodPrototype().getClassType().equals(mainClazz.getClassType())) return null;
 
-        Method lambdaBody;
-        try {
-            List<Method> methods = mainClazz.getMethodByName(member.getName());
-            if (methods.size() != 1) return null;
-            lambdaBody = methods.get(0);
-        } catch (NoSuchMethodException e) {
+        Method lambdaBody = getUniqueMethodByName(mainClazz, member.getName());
+        if (lambdaBody == null) {
             return null;
         }
 
@@ -287,15 +278,20 @@ public class RetroLambdaRewriter extends AbstractExpressionRewriter {
     }
 
     private Method getMainLambdaIndirect(StaticFunctionInvokation m2callReal) {
-        Method mainLambdaIndirect;
-        try {
-            List<Method> indirects = mainClazz.getMethodByName(m2callReal.getName());
-            if (indirects.size() != 1) return null;
-            mainLambdaIndirect = indirects.get(0);
-        } catch (NoSuchMethodException e) {
+        Method mainLambdaIndirect = getUniqueMethodByName(mainClazz, m2callReal.getName());
+        if (mainLambdaIndirect == null) {
             return null;
         }
         if (!mainLambdaIndirect.testAccessFlag(AccessFlagMethod.ACC_STATIC)) return null;
         return mainLambdaIndirect;
+    }
+
+    private Method getUniqueMethodByName(ClassFile classFile, String name) {
+        try {
+            List<Method> methods = classFile.getMethodByName(name);
+            return methods.size() == 1 ? methods.get(0) : null;
+        } catch (NoSuchMethodException e) {
+            return null;
+        }
     }
 }

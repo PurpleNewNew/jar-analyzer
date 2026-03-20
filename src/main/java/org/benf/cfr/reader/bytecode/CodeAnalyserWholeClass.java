@@ -13,7 +13,6 @@ import org.benf.cfr.reader.bytecode.analysis.types.*;
 import org.benf.cfr.reader.entities.*;
 import org.benf.cfr.reader.entities.classfilehelpers.ConstantLinks;
 import org.benf.cfr.reader.entities.constantpool.ConstantPool;
-import org.benf.cfr.reader.state.ClassCache;
 import org.benf.cfr.reader.state.DCCommonState;
 import org.benf.cfr.reader.state.TypeUsageCollectingDumper;
 import org.benf.cfr.reader.util.*;
@@ -70,259 +69,6 @@ public class CodeAnalyserWholeClass {
                 StructuredSemanticTransforms.removeConstructorBoilerplate(method.getAnalysis());
             }
         });
-    }
-
-    private static void replaceNestedSyntheticOuterRefs(ClassFile classFile) {
-        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
-            @Override
-            public void call(Method method) {
-                StructuredClassTransforms.replaceNestedSyntheticOuterRefs(method.getAnalysis());
-            }
-        });
-    }
-
-    private static void inlineAccessors(DCCommonState state, ClassFile classFile) {
-        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
-            @Override
-            public void call(Method method) {
-                StructuredClassTransforms.inlineSyntheticAccessors(state, method, method.getAnalysis());
-            }
-        });
-    }
-
-    private static void renameAnonymousScopeHidingVariables(ClassFile classFile, ClassCache classCache) {
-        List<ClassFileField> fields = Functional.filter(classFile.getFields(), new Predicate<ClassFileField>() {
-            @Override
-            public boolean test(ClassFileField in) {
-                return in.isSyntheticOuterRef();
-            }
-        });
-        if (fields.isEmpty()) return;
-        ModernFeatureStrategy modernFeatures = ModernFeatureStrategy.from(
-                classFile.getConstantPool().getDCCommonState().getOptions(),
-                classFile.getClassFileVersion()
-        );
-
-
-        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
-            @Override
-            public void call(Method method) {
-                ScopeHidingVariableRewriter rewriter = new ScopeHidingVariableRewriter(
-                        fields,
-                        method,
-                        classCache,
-                        modernFeatures
-                );
-                rewriter.rewrite(method.getAnalysis());
-            }
-        });
-    }
-
-    /*
-     * Fix references to this$x etc
-     */
-    private static void fixInnerClassConstructorSyntheticOuterArgs(ClassFile classFile) {
-        if (classFile.isInnerClass()) {
-            Set<MethodPrototype> processed = SetFactory.newSet();
-            forEachConstructorWithCode(classFile, new UnaryProcedure<Method>() {
-                @Override
-                public void call(Method method) {
-                    StructuredClassTransforms.fixInnerClassConstructorSyntheticOuterArgs(
-                            classFile,
-                            method,
-                            method.getAnalysis(),
-                            processed
-                    );
-                }
-            });
-        }
-    }
-
-    private static void tidyAnonymousConstructors(ClassFile classFile) {
-        forEachMethodWithCode(classFile, new UnaryProcedure<Method>() {
-            @Override
-            public void call(Method method) {
-                StructuredClassTransforms.tidyAnonymousConstructors(method.getAnalysis());
-            }
-        });
-    }
-
-    /*
-     * Friend accessors tack an extra, hidden argument onto the end of a synthetic
-     * constructor to make sure that only 'friends' can access it.
-     *
-     * Find these, and mark them as hidden.  This constructor should forward to an
-     * identical private one, minus the last argument.
-     */
-    private static void removeInnerClassSyntheticConstructorFriends(ClassFile classFile) {
-        for (Method method : classFile.getConstructors()) {
-            Set<AccessFlagMethod> flags = method.getAccessFlags();
-            if (!flags.contains(AccessFlagMethod.ACC_SYNTHETIC)) continue;
-            if (flags.contains(AccessFlagMethod.ACC_PUBLIC)) continue;
-
-            MethodPrototype chainPrototype =  ConstructorUtils.getDelegatingPrototype(method);
-            if (chainPrototype == null) continue;
-            // Verify that the target is identical to this, minus last arg.
-            MethodPrototype prototype = method.getMethodPrototype();
-
-            List<JavaTypeInstance> argsThis = prototype.getArgs();
-            if (argsThis.isEmpty()) continue;
-            List<JavaTypeInstance> argsThat = chainPrototype.getArgs();
-            if (argsThis.size() != argsThat.size() + 1) continue;
-            JavaTypeInstance last = argsThis.get(argsThis.size()-1);
-
-            UnaryFunction<JavaTypeInstance, JavaTypeInstance> degenerifier = new UnaryFunction<JavaTypeInstance, JavaTypeInstance>() {
-                @Override
-                public JavaTypeInstance invoke(JavaTypeInstance arg) {
-                    return arg.getDeGenerifiedType();
-                }
-            };
-            argsThis = Functional.map(argsThis, degenerifier);
-            argsThat = Functional.map(argsThat, degenerifier);
-            argsThis.remove(argsThis.size()-1);
-
-
-            /*
-             * Compare the types.  However, we compare AFTER ERASURE, as there's no
-             * need for the compiler to emit a generic signature for the synthetic method.
-             */
-            if (!argsThis.equals(argsThat)) continue;
-
-            /*
-             * This is a synthetic non public constructor, which forwards to another constructor minus
-             * a single terminal argument.  If this argument is an inner class of one of our outers (or us)
-             * we assume it's a fake.
-             *
-             * This could be tricked.....
-             */
-            InnerClassInfo innerClassInfo = last.getInnerClassHereInfo();
-            if (!innerClassInfo.isInnerClass()) continue;
-
-            /* This is a bit of a hack (really?) to get around the fact that
-             * eclipse will use a class as its own synthetic friend.
-             */
-            if (classFile.getClassType() != last) {
-                innerClassInfo.hideSyntheticFriendClass();
-            }
-            prototype.hide(argsThis.size());
-            method.hideSynthetic();
-        }
-    }
-
-    /*
-     * Remove the first argument from inner class constructors.
-     *
-     * We expect that ALL constructors will have the same argument removed - if that's the case
-     * then we mark that as a synthetic outer.
-     */
-    private static void removeInnerClassOuterThis(ClassFile classFile) {
-        // This is a reasonable test, but SOME compilers may not honour it.
-        // See below where we check anonymous callers too.
-        if (classFile.testAccessFlag(AccessFlag.ACC_STATIC)) return;
-
-        /*
-         * First pass - verify that all constructors either have an outer arg,
-         * or are chained constructors.  If they're chained constructors, they should
-         * have the outer arg, but we can't verify that they assign to the field.
-         */
-
-
-        FieldVariable foundOuterThis = null;
-        ClassFileField classFileField = null;
-        for (Method method : classFile.getConstructors()) {
-            if (ConstructorUtils.isDelegating(method)) continue;
-            FieldVariable outerThis = StructuredClassTransforms.findInnerClassOuterThis(method, method.getAnalysis());
-            if (outerThis == null) return;
-            if (foundOuterThis == null) {
-                foundOuterThis = outerThis;
-                classFileField = foundOuterThis.getClassFileField();
-            } else if (classFileField != outerThis.getClassFileField()) {
-                return;
-            }
-        }
-        if (foundOuterThis == null) return;
-
-        // If the type we seek isn't a transitive inner class, then the outer this relationship doesn't hold.
-        JavaTypeInstance fieldType = foundOuterThis.getInferredJavaType().getJavaTypeInstance();
-        JavaTypeInstance classType = classFile.getClassType();
-        if (!classType.getInnerClassHereInfo().isTransitiveInnerClassOf(fieldType)) {
-            // The class has been falsely marked as instance - it's static!
-            classFile.getAccessFlags().add(AccessFlag.ACC_STATIC);
-            return;
-        }
-
-        // This is overly paranoid, need to create motivating example.
-        // What we're checking is - does this inner class pretend to be non static,
-        // but is called from a static method in its owner?
-//        // Do we have an anonymous use from a method belonging to foundOuterThis which is actually static?
-//        // If so, we are missing a static annotation!
-//        if (!anonUses.isEmpty()) {
-//            // Paranoid - only check if we actually have anonymous usages, and if so require all
-//            // of them to be static (even though there should only ever be 1).
-//            JavaTypeInstance foundOuterType = foundOuterThis.getInferredJavaType().getJavaTypeInstance();
-//            boolean isStatic = true;
-//            boolean isFound = false;
-//            for (AnonymousUse use : anonUses) {
-//                Method caller = use.getCaller();
-//                if (caller.getClassFile().getClassType() == foundOuterType) {
-//                    isFound = true;
-//                    if (!caller.testAccessFlag(AccessFlagMethod.ACC_STATIC)) {
-//                        isStatic = false;
-//                        break;
-//                    }
-//                }
-//            }
-//            if (isFound && isStatic) {
-//                classFile.getAccessFlags().add(AccessFlag.ACC_STATIC);
-//                return;
-//            }
-//        }
-
-        classFileField.markHidden();
-        classFileField.markSyntheticOuterRef();
-
-        for (Method method : classFile.getConstructors()) {
-            if (ConstructorUtils.isDelegating(method)) {
-                // Delegating inner-class constructors still expose the synthetic outer-this slot here.
-                MethodPrototype prototype = method.getMethodPrototype();
-                prototype.setInnerOuterThis();
-                prototype.hide(0);
-            }
-            StructuredClassTransforms.removeInnerClassOuterThis(method, method.getAnalysis());
-        }
-
-        String originalName = foundOuterThis.getFieldName();
-        /*
-         * FieldVariable here is a 'local' one - it has an expression object of 'this'.
-         *
-         * Find all instances of 'this'.fieldVariable in the class, and replace with
-         * OuterClassName.this
-         */
-        if (!(fieldType instanceof JavaRefTypeInstance)) {
-            return;
-        }
-        JavaRefTypeInstance fieldRefType = (JavaRefTypeInstance) fieldType.getDeGenerifiedType();
-        String name = fieldRefType.getRawShortName();
-        // This hack causes problems when renaming classes......
-        String explicitName = name + MiscConstants.DOT_THIS;
-        if (fieldRefType.getInnerClassHereInfo().isMethodScopedClass()) {
-            // We're referring to a value captured from the anonymous class.
-            // What we *Should* do is drop the field reference completely.
-            explicitName = MiscConstants.THIS;
-        }
-        classFileField.overrideName(explicitName);
-        classFileField.markSyntheticOuterRef();
-        /*
-         * Partially analysed classes may still hold the local field shell here, so keep it in sync with the
-         * resolved field variable when both objects are present.
-         */
-        try {
-            ClassFileField localClassFileField = classFile.getFieldByName(originalName, fieldType);
-            localClassFileField.overrideName(explicitName);
-            localClassFileField.markSyntheticOuterRef();
-        } catch (NoSuchFieldException ignore) {
-        }
-        classFile.getClassType().getInnerClassHereInfo().setHideSyntheticThis();
     }
 
     private static Method getStaticConstructor(ClassFile classFile) {
@@ -530,7 +276,7 @@ public class CodeAnalyserWholeClass {
         if (options.getOption(OptionsImpl.SUGAR_ASSERTS)) {
             resugarAsserts(classFile, options);
         }
-        tidyAnonymousConstructors(classFile);
+        StructuredClassTransforms.tidyAnonymousConstructors(classFile);
     }
 
     private static void applyInitializerLiftingAndLegacyResugaring(ClassFile classFile, DCCommonState state, Options options) {
@@ -549,9 +295,9 @@ public class CodeAnalyserWholeClass {
         }
         if (options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
             if (classFile.isInnerClass()) {
-                removeInnerClassOuterThis(classFile);
+                StructuredClassTransforms.removeInnerClassOuterThis(classFile);
             }
-            removeInnerClassSyntheticConstructorFriends(classFile);
+            StructuredClassTransforms.removeInnerClassSyntheticConstructorFriends(classFile);
         }
         if (options.getOption(OptionsImpl.SUGAR_RETRO_LAMBDA)) {
             resugarRetroLambda(classFile, state);
@@ -563,12 +309,7 @@ public class CodeAnalyserWholeClass {
         if (!options.getOption(OptionsImpl.REMOVE_INNER_CLASS_SYNTHETICS)) {
             return;
         }
-        if (classFile.isInnerClass()) {
-            fixInnerClassConstructorSyntheticOuterArgs(classFile);
-        }
-        replaceNestedSyntheticOuterRefs(classFile);
-        inlineAccessors(state, classFile);
-        renameAnonymousScopeHidingVariables(classFile, state.getClassCache());
+        StructuredClassTransforms.rewriteSyntheticInnerClassAccess(state, classFile);
     }
 
     private static void relinkConstantStringsIfConfigured(ClassFile classFile, DCCommonState state, Options options) {

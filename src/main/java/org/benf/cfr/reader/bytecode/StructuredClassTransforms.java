@@ -6,9 +6,11 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.InnerClassCons
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.LValueReplacingRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.PointlessStructuredExpressions;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ResourceReleaseDetector;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.ScopeHidingVariableRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SyntheticAccessorRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SyntheticOuterRefRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.ExpressionRewriterTransformer;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.ConstructorUtils;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
@@ -20,14 +22,24 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.FieldVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.types.InnerClassInfo;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
+import org.benf.cfr.reader.entities.AccessFlag;
+import org.benf.cfr.reader.entities.AccessFlagMethod;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.ClassFileField;
 import org.benf.cfr.reader.entities.Method;
+import org.benf.cfr.reader.state.ClassCache;
 import org.benf.cfr.reader.state.DCCommonState;
+import org.benf.cfr.reader.util.MiscConstants;
+import org.benf.cfr.reader.util.collections.Functional;
 import org.benf.cfr.reader.util.collections.MapFactory;
+import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.util.collections.SetUtil;
+import org.benf.cfr.reader.util.functors.Predicate;
+import org.benf.cfr.reader.util.functors.UnaryFunction;
 
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -53,6 +65,14 @@ public final class StructuredClassTransforms {
         root.transform(new ExpressionRewriterTransformer(new AnonymousClassConstructorRewriter()), new StructuredScope());
     }
 
+    static void tidyAnonymousConstructors(ClassFile classFile) {
+        for (Method method : classFile.getMethods()) {
+            if (method.hasCodeAttribute()) {
+                tidyAnonymousConstructors(method.getAnalysis());
+            }
+        }
+    }
+
     static void inlineSyntheticAccessors(DCCommonState state, Method method, Op04StructuredStatement root) {
         JavaTypeInstance classType = method.getClassFile().getClassType();
         new SyntheticAccessorRewriter(state, classType).rewrite(root);
@@ -72,6 +92,156 @@ public final class StructuredClassTransforms {
 
     public static boolean isTryWithResourceSynthetic(Method method, Op04StructuredStatement root) {
         return ResourceReleaseDetector.isResourceRelease(method, root);
+    }
+
+    static void rewriteSyntheticInnerClassAccess(DCCommonState state, ClassFile classFile) {
+        if (classFile.isInnerClass()) {
+            Set<MethodPrototype> processed = SetFactory.newSet();
+            for (Method constructor : classFile.getConstructors()) {
+                if (constructor.hasCodeAttribute()) {
+                    fixInnerClassConstructorSyntheticOuterArgs(
+                            classFile,
+                            constructor,
+                            constructor.getAnalysis(),
+                            processed
+                    );
+                }
+            }
+        }
+        for (Method method : classFile.getMethods()) {
+            if (!method.hasCodeAttribute()) {
+                continue;
+            }
+            Op04StructuredStatement root = method.getAnalysis();
+            replaceNestedSyntheticOuterRefs(root);
+            inlineSyntheticAccessors(state, method, root);
+        }
+        renameAnonymousScopeHidingVariables(classFile, state);
+    }
+
+    static void removeInnerClassSyntheticConstructorFriends(ClassFile classFile) {
+        for (Method method : classFile.getConstructors()) {
+            Set<AccessFlagMethod> flags = method.getAccessFlags();
+            if (!flags.contains(AccessFlagMethod.ACC_SYNTHETIC)) continue;
+            if (flags.contains(AccessFlagMethod.ACC_PUBLIC)) continue;
+
+            MethodPrototype chainPrototype = ConstructorUtils.getDelegatingPrototype(method);
+            if (chainPrototype == null) continue;
+            MethodPrototype prototype = method.getMethodPrototype();
+
+            List<JavaTypeInstance> argsThis = prototype.getArgs();
+            if (argsThis.isEmpty()) continue;
+            List<JavaTypeInstance> argsThat = chainPrototype.getArgs();
+            if (argsThis.size() != argsThat.size() + 1) continue;
+            JavaTypeInstance last = argsThis.get(argsThis.size() - 1);
+
+            UnaryFunction<JavaTypeInstance, JavaTypeInstance> degenerifier = new UnaryFunction<JavaTypeInstance, JavaTypeInstance>() {
+                @Override
+                public JavaTypeInstance invoke(JavaTypeInstance arg) {
+                    return arg.getDeGenerifiedType();
+                }
+            };
+            argsThis = Functional.map(argsThis, degenerifier);
+            argsThat = Functional.map(argsThat, degenerifier);
+            argsThis.remove(argsThis.size() - 1);
+
+            if (!argsThis.equals(argsThat)) continue;
+
+            InnerClassInfo innerClassInfo = last.getInnerClassHereInfo();
+            if (!innerClassInfo.isInnerClass()) continue;
+
+            if (classFile.getClassType() != last) {
+                innerClassInfo.hideSyntheticFriendClass();
+            }
+            prototype.hide(argsThis.size());
+            method.hideSynthetic();
+        }
+    }
+
+    static void removeInnerClassOuterThis(ClassFile classFile) {
+        if (classFile.testAccessFlag(AccessFlag.ACC_STATIC)) return;
+
+        FieldVariable foundOuterThis = null;
+        ClassFileField classFileField = null;
+        for (Method method : classFile.getConstructors()) {
+            if (ConstructorUtils.isDelegating(method)) continue;
+            FieldVariable outerThis = findInnerClassOuterThis(method, method.getAnalysis());
+            if (outerThis == null) return;
+            if (foundOuterThis == null) {
+                foundOuterThis = outerThis;
+                classFileField = foundOuterThis.getClassFileField();
+            } else if (classFileField != outerThis.getClassFileField()) {
+                return;
+            }
+        }
+        if (foundOuterThis == null) return;
+
+        JavaTypeInstance fieldType = foundOuterThis.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance classType = classFile.getClassType();
+        if (!classType.getInnerClassHereInfo().isTransitiveInnerClassOf(fieldType)) {
+            classFile.getAccessFlags().add(AccessFlag.ACC_STATIC);
+            return;
+        }
+
+        classFileField.markHidden();
+        classFileField.markSyntheticOuterRef();
+
+        for (Method method : classFile.getConstructors()) {
+            if (ConstructorUtils.isDelegating(method)) {
+                MethodPrototype prototype = method.getMethodPrototype();
+                prototype.setInnerOuterThis();
+                prototype.hide(0);
+            }
+            removeInnerClassOuterThis(method, method.getAnalysis());
+        }
+
+        String originalName = foundOuterThis.getFieldName();
+        if (!(fieldType instanceof JavaRefTypeInstance)) {
+            return;
+        }
+        JavaRefTypeInstance fieldRefType = (JavaRefTypeInstance) fieldType.getDeGenerifiedType();
+        String explicitName = fieldRefType.getRawShortName() + MiscConstants.DOT_THIS;
+        if (fieldRefType.getInnerClassHereInfo().isMethodScopedClass()) {
+            explicitName = MiscConstants.THIS;
+        }
+        classFileField.overrideName(explicitName);
+        classFileField.markSyntheticOuterRef();
+        try {
+            ClassFileField localClassFileField = classFile.getFieldByName(originalName, fieldType);
+            localClassFileField.overrideName(explicitName);
+            localClassFileField.markSyntheticOuterRef();
+        } catch (NoSuchFieldException ignore) {
+        }
+        classFile.getClassType().getInnerClassHereInfo().setHideSyntheticThis();
+    }
+
+    private static void renameAnonymousScopeHidingVariables(ClassFile classFile, DCCommonState state) {
+        List<ClassFileField> fields = Functional.filter(classFile.getFields(), new Predicate<ClassFileField>() {
+            @Override
+            public boolean test(ClassFileField in) {
+                return in.isSyntheticOuterRef();
+            }
+        });
+        if (fields.isEmpty()) {
+            return;
+        }
+        ClassCache classCache = state.getClassCache();
+        ModernFeatureStrategy modernFeatures = ModernFeatureStrategy.from(
+                state.getOptions(),
+                classFile.getClassFileVersion()
+        );
+        for (Method method : classFile.getMethods()) {
+            if (!method.hasCodeAttribute()) {
+                continue;
+            }
+            ScopeHidingVariableRewriter rewriter = new ScopeHidingVariableRewriter(
+                    fields,
+                    method,
+                    classCache,
+                    modernFeatures
+            );
+            rewriter.rewrite(method.getAnalysis());
+        }
     }
 
     static FieldVariable findInnerClassOuterThis(Method method, Op04StructuredStatement root) {

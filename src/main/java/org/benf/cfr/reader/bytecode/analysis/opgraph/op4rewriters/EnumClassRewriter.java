@@ -77,11 +77,7 @@ public class EnumClassRewriter {
      * Derived classes of enums (anonymous classes) still need to be processed.
      */
     private void removeAllRemainingSupers() {
-        List<Method> constructors = classFile.getConstructors();
-        EnumAllSuperRewriter enumSuperRewriter = new EnumAllSuperRewriter();
-        for (Method constructor : constructors) {
-            enumSuperRewriter.rewrite(constructor.getAnalysis());
-        }
+        rewriteConstructors(new EnumAllSuperRewriter());
     }
 
     private boolean rewrite() {
@@ -139,11 +135,7 @@ public class EnumClassRewriter {
         /*
          * And remove all the super calls from the constructors.... AND remove the first 2 arguments from each.
          */
-        List<Method> constructors = classFile.getConstructors();
-        EnumSuperRewriter enumSuperRewriter = new EnumSuperRewriter();
-        for (Method constructor : constructors) {
-            enumSuperRewriter.rewrite(constructor.getAnalysis());
-        }
+        rewriteConstructors(new EnumSuperRewriter());
 
         List<Pair<StaticVariable, AbstractConstructorInvokation>> entries = ListFactory.newList();
         for (Map.Entry<StaticVariable, MatchedEnumEntry> entry : entryMap.entrySet()) {
@@ -208,6 +200,12 @@ public class EnumClassRewriter {
         }
 
         return true;
+    }
+
+    private void rewriteConstructors(RedundantSuperRewriter rewriter) {
+        for (Method constructor : classFile.getConstructors()) {
+            rewriter.rewrite(constructor.getAnalysis());
+        }
     }
 
     /*
