@@ -38,4 +38,31 @@ class TryResourcesRewriteRegressionTest {
         Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-try-resources"));
         CfrDecompilerRegressionSupport.compileJava(decompiledDir, "TryResourcesRewriteSample", decompiled, "--release", "21");
     }
+
+    @Test
+    void shouldResugarLegacyJava8TryWithResourcesWithoutSyntheticFinallyScaffolding(@TempDir Path tempDir) throws IOException {
+        String source = """
+                import java.io.ByteArrayOutputStream;
+
+                public class TryResourcesLegacyRewriteSample {
+                    static int size() throws Exception {
+                        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                            output.write(1);
+                            return output.size();
+                        }
+                    }
+                }
+                """;
+
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(tempDir, "TryResourcesLegacyRewriteSample", source, "--release", "8");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
+
+        assertTrue(Pattern.compile("try \\(ByteArrayOutputStream \\w+ = new ByteArrayOutputStream\\(\\);?\\)").matcher(decompiled).find(), decompiled);
+        assertFalse(decompiled.contains("addSuppressed"), decompiled);
+        assertFalse(decompiled.contains(".close();"), decompiled);
+
+        Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-legacy-try-resources"));
+        CfrDecompilerRegressionSupport.compileJava(decompiledDir, "TryResourcesLegacyRewriteSample", decompiled, "--release", "21");
+    }
 }

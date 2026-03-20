@@ -37,8 +37,16 @@ import java.util.List;
 import java.util.Map;
 
 public class SwitchEnumRewriter implements Op04Rewriter {
-    private static final String MATCH_SWITCH = "switch";
-    private static final String MATCH_BODYLESS_SWITCH = "bodylessswitch";
+    private enum SwitchMatchKind {
+        SWITCH("switch"),
+        BODYLESS_SWITCH("bodylessswitch");
+
+        private final String matcherName;
+
+        SwitchMatchKind(String matcherName) {
+            this.matcherName = matcherName;
+        }
+    }
 
     private final DCCommonState dcCommonState;
     private final ClassFile classFile;
@@ -106,7 +114,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
     private Matcher<StructuredStatement> buildIndexedSwitchMatcher(WildcardMatch wcm) {
         return new ResetAfterTest(wcm,
-                new CollectMatch(MATCH_SWITCH, new StructuredSwitch(BytecodeLoc.NONE,
+                new CollectMatch(SwitchMatchKind.SWITCH.matcherName, new StructuredSwitch(BytecodeLoc.NONE,
                         new ArrayIndex(BytecodeLoc.NONE,
                                 wcm.getExpressionWildCard("lut"),
                                 wcm.getMemberFunction("fncall", "ordinal", wcm.getExpressionWildCard("object"))),
@@ -115,7 +123,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
     private Matcher<StructuredStatement> buildBodylessIndexedSwitchMatcher(WildcardMatch wcm) {
         return new ResetAfterTest(wcm,
-                new CollectMatch(MATCH_BODYLESS_SWITCH, new StructuredExpressionStatement(
+                new CollectMatch(SwitchMatchKind.BODYLESS_SWITCH.matcherName, new StructuredExpressionStatement(
                         BytecodeLoc.NONE,
                         new ArrayIndex(BytecodeLoc.NONE,
                                 wcm.getExpressionWildCard("lut"),
@@ -431,7 +439,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
     }
 
     private boolean rewriteIndexedSwitch(SwitchEnumMatchResultCollector mrc, boolean expression, Expression enumObject, SwitchForeignEnumMatchResultCollector matchResultCollector) {
-        Map<Integer, StaticVariable> reverseLut = matchResultCollector.getLUT();
+        Map<Integer, StaticVariable> reverseLut = matchResultCollector.getLookupValues();
         /*
          * Now, we rewrite the statement in the FIRST match (i.e in our original source file)
          * to use the reverse map of integer to enum value.
@@ -575,9 +583,9 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
         @Override
         public void collectStatement(String name, StructuredStatement statement) {
-            if (name.equals(MATCH_SWITCH)) {
+            if (SwitchMatchKind.SWITCH.matcherName.equals(name)) {
                 structuredSwitch = (StructuredSwitch) statement;
-            } else if (name.equals(MATCH_BODYLESS_SWITCH)) {
+            } else if (SwitchMatchKind.BODYLESS_SWITCH.matcherName.equals(name)) {
                 structuredExpressionStatement = (StructuredExpressionStatement)statement;
             }
         }
@@ -613,7 +621,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
             this.wcmCase = wcmCase;
         }
 
-        Map<Integer, StaticVariable> getLUT() {
+        Map<Integer, StaticVariable> getLookupValues() {
             return lutValues;
         }
 

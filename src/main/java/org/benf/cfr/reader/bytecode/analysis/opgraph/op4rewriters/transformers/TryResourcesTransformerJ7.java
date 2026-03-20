@@ -52,16 +52,6 @@ public class TryResourcesTransformerJ7 extends TryResourceTransformerFinally {
                                                                             WildcardMatch.LValueWildcard throwableLValue,
                                                                             WildcardMatch.LValueWildcard autoclose) {
         Matcher<StructuredStatement> releaseMatcher = ResourceReleaseDetector.buildStructuredStatementMatcher(wcm, throwableLValue, autoclose);
-        return new MatchOneOf(
-                new ResetAfterTest(wcm,
-                        new MatchSequence(
-                                new BeginBlock(null),
-                                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.TODO, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
-                                releaseMatcher,
-                                new EndBlock(null)
-                        )
-                ),
-                new ResetAfterTest(wcm, releaseMatcher)
-        );
+        return new ResetAfterTest(wcm, buildOptionalGuardedBlockMatcher(autoclose, releaseMatcher));
     }
 }

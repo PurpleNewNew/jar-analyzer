@@ -192,6 +192,18 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
         return matchesStatements(Collections.singletonList(statement), 1, checkClose, new EmptyMatchResultCollector());
     }
 
+    protected Matcher<StructuredStatement> buildOptionalGuardedBlockMatcher(LValue resource, Matcher<StructuredStatement> blockMatcher) {
+        return new MatchOneOf(
+                new MatchSequence(
+                        new BeginBlock(null),
+                        new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.NONE, new LValueExpression(resource), Literal.NULL, CompOp.NE), null),
+                        blockMatcher,
+                        new EndBlock(null)
+                ),
+                blockMatcher
+        );
+    }
+
     private static class LValueUsageCheckingRewriter extends AbstractExpressionRewriter {
         final Set<LValue> used = SetFactory.newSet();
         @Override

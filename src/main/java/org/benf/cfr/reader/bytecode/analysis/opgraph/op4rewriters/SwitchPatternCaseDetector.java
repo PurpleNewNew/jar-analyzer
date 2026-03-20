@@ -158,7 +158,7 @@ final class SwitchPatternCaseDetector {
                                     int bindingIndex,
                                     LValue indexLValue,
                                     StructuredWhile patternLoop) {
-        IndexedGuardIf guardIf = findMeaningfulGuardIf(statements, bindingIndex + 1);
+        IndexedGuardIf guardIf = findGuardIf(statements, bindingIndex + 1, false);
         if (guardIf == null) {
             return null;
         }
@@ -180,7 +180,7 @@ final class SwitchPatternCaseDetector {
                                                JavaTypeInstance expectedType,
                                                LValue indexLValue,
                                                StructuredWhile patternLoop) {
-        IndexedGuardIf guardIf = findLeadingGuardIf(statements);
+        IndexedGuardIf guardIf = findGuardIf(statements, 0, true);
         if (guardIf == null) {
             return null;
         }
@@ -215,25 +215,23 @@ final class SwitchPatternCaseDetector {
         return -1;
     }
 
-    private int nextLeadingGuardIndex(List<Op04StructuredStatement> statements) {
-        for (int x = 0; x < statements.size(); ++x) {
+    private int nextLeadingGuardIndex(List<Op04StructuredStatement> statements, int start) {
+        for (int x = start; x < statements.size(); ++x) {
             StructuredStatement statement = statements.get(x).getStatement();
-            if (statement.isEffectivelyNOP() || statement instanceof StructuredComment) {
+            if (isLeadingGuardPreludeStatement(statement)) {
                 continue;
             }
-            if (statement instanceof StructuredIf) {
-                return x;
-            }
-            if (statement instanceof StructuredDefinition) {
-                continue;
-            }
-            return -1;
+            return statement instanceof StructuredIf ? x : -1;
         }
         return -1;
     }
 
-    private IndexedGuardIf findMeaningfulGuardIf(List<Op04StructuredStatement> statements, int start) {
-        int ifIdx = nextMeaningfulIndex(statements, start);
+    private IndexedGuardIf findGuardIf(List<Op04StructuredStatement> statements,
+                                       int start,
+                                       boolean allowLeadingDefinitions) {
+        int ifIdx = allowLeadingDefinitions
+                ? nextLeadingGuardIndex(statements, start)
+                : nextMeaningfulIndex(statements, start);
         if (ifIdx == -1) {
             return null;
         }
@@ -244,16 +242,10 @@ final class SwitchPatternCaseDetector {
         return new IndexedGuardIf(ifIdx, (StructuredIf) statement);
     }
 
-    private IndexedGuardIf findLeadingGuardIf(List<Op04StructuredStatement> statements) {
-        int ifIdx = nextLeadingGuardIndex(statements);
-        if (ifIdx == -1) {
-            return null;
-        }
-        StructuredStatement statement = statements.get(ifIdx).getStatement();
-        if (!(statement instanceof StructuredIf)) {
-            return null;
-        }
-        return new IndexedGuardIf(ifIdx, (StructuredIf) statement);
+    private boolean isLeadingGuardPreludeStatement(StructuredStatement statement) {
+        return statement.isEffectivelyNOP()
+                || statement instanceof StructuredComment
+                || statement instanceof StructuredDefinition;
     }
 
     private boolean hasTrailingLoopGuard(List<Op04StructuredStatement> statements,

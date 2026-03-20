@@ -121,15 +121,7 @@ public class ResourceReleaseDetector {
     public static Matcher<StructuredStatement> buildSimpleStructuredStatementMatcher(WildcardMatch wcm, LValue throwableLValue, LValue autoclose) {
         LValueExpression autocloseExpression = new LValueExpression(autoclose);
         MatchOneOf closeExpression = buildCloseExpressionMatcher(wcm, autocloseExpression);
-
-        Matcher<StructuredStatement> matchsimple = new MatchOneOf(new MatchSequence(
-                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.NONE, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
-                new BeginBlock(null),
-                closeExpression,
-                new EndBlock(null)),
-                closeExpression);
-
-        return matchsimple;
+        return buildOptionalGuardedReleaseMatcher(autoclose, closeExpression);
     }
 
     public static MatchOneOf buildCloseExpressionMatcher(WildcardMatch wcm, LValueExpression autocloseExpression) {
@@ -137,5 +129,21 @@ public class ResourceReleaseDetector {
                     new StructuredExpressionStatement(BytecodeLoc.NONE, wcm.getMemberFunction("m1", "close", autocloseExpression), false),
                     new StructuredExpressionStatement(BytecodeLoc.NONE, wcm.getMemberFunction("m2", "close", wcm.getCastExpressionWildcard("cast", autocloseExpression)), false)
             );
+    }
+
+    private static Matcher<StructuredStatement> buildOptionalGuardedReleaseMatcher(LValue autoclose, Matcher<StructuredStatement> releaseMatcher) {
+        return new MatchOneOf(
+                buildGuardedReleaseMatcher(autoclose, releaseMatcher),
+                releaseMatcher
+        );
+    }
+
+    private static MatchSequence buildGuardedReleaseMatcher(LValue autoclose, Matcher<StructuredStatement> releaseMatcher) {
+        return new MatchSequence(
+                new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.NONE, new LValueExpression(autoclose), Literal.NULL, CompOp.NE), null),
+                new BeginBlock(null),
+                releaseMatcher,
+                new EndBlock(null)
+        );
     }
 }

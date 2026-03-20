@@ -297,7 +297,17 @@ public class RecordRewriter {
     }
 
     private static void hideDefaultGetter(Method method, ClassFileField classFileField, JavaRefTypeInstance thisType) {
-        if (matchReturnedField(method, thisType) != classFileField) return;
+        StructuredStatement item = getSingleCodeLine(method);
+        if (!(item instanceof StructuredReturn)) {
+            return;
+        }
+        Expression value = ((StructuredReturn) item).getValue();
+        if (!(value instanceof LValueExpression)) {
+            return;
+        }
+        if (getCFF(((LValueExpression) value).getLValue(), thisType) != classFileField) {
+            return;
+        }
         classFileField.markHidden();
 
         /*
@@ -429,18 +439,6 @@ public class RecordRewriter {
         return ((FieldVariable) lhs).getClassFileField();
     }
 
-    private static ClassFileField matchReturnedField(Method method, JavaRefTypeInstance thisType) {
-        StructuredStatement item = getSingleCodeLine(method);
-        if (!(item instanceof StructuredReturn)) {
-            return null;
-        }
-        Expression value = ((StructuredReturn) item).getValue();
-        if (!(value instanceof LValueExpression)) {
-            return null;
-        }
-        return getCFF(((LValueExpression) value).getLValue(), thisType);
-    }
-
     private static Block getStructuredCodeBlock(Method method) {
         if (method == null || method.getCodeAttribute() == null) return null;
         StructuredStatement topCode = method.getAnalysis().getStatement();
@@ -450,7 +448,31 @@ public class RecordRewriter {
     private static Method findCanonicalConstructor(List<Method> constructors, List<ClassFileField> fields) {
         Method canonical = null;
         for (Method constructor : constructors) {
-            if (!matchesCanonicalConstructor(constructor, fields)) {
+            Method.MethodConstructor constructorFlag = constructor.getConstructorFlag();
+            if (!constructorFlag.isConstructor() || constructorFlag.isEnumConstructor()) {
+                continue;
+            }
+            MethodPrototype proto = constructor.getMethodPrototype();
+            if (!proto.parametersComputed()) {
+                continue;
+            }
+            List<JavaTypeInstance> protoArgs = proto.getArgs();
+            if (protoArgs.size() != fields.size()) {
+                continue;
+            }
+            List<LocalVariable> parameters = proto.getComputedParameters();
+            if (parameters.size() != fields.size()) {
+                continue;
+            }
+            boolean matches = true;
+            for (int x = 0; x < fields.size(); ++x) {
+                JavaTypeInstance fieldType = fields.get(x).getField().getJavaTypeInstance();
+                if (!fieldType.equals(protoArgs.get(x))) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (!matches) {
                 continue;
             }
             if (canonical != null) {
@@ -459,21 +481,5 @@ public class RecordRewriter {
             canonical = constructor;
         }
         return canonical;
-    }
-
-    private static boolean matchesCanonicalConstructor(Method method, List<ClassFileField> fields) {
-        Method.MethodConstructor constructorFlag = method.getConstructorFlag();
-        if (!constructorFlag.isConstructor() || constructorFlag.isEnumConstructor()) return false;
-        MethodPrototype proto = method.getMethodPrototype();
-        if (!proto.parametersComputed()) return false;
-        List<JavaTypeInstance> protoArgs = proto.getArgs();
-        if (protoArgs.size() != fields.size()) return false;
-        List<LocalVariable> parameters = proto.getComputedParameters();
-        if (parameters.size() != fields.size()) return false;
-        for (int x = 0; x < fields.size(); ++x) {
-            JavaTypeInstance fieldType = fields.get(x).getField().getJavaTypeInstance();
-            if (!fieldType.equals(protoArgs.get(x))) return false;
-        }
-        return true;
     }
 }

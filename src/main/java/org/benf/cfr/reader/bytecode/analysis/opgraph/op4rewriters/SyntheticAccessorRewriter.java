@@ -106,17 +106,58 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         return res;
     }
 
-    private static final String RETURN_LVALUE = "returnlvalue";
-    private static final String MUTATION1 = "mutation1";
-    private static final String MUTATION2 = "mutation2";
-    private static final String MUTATION3 = "mutation3";
-    private static final String ASSIGNMENT1 = "assignment1";
-    private static final String PRE_INC = "preinc";
-    private static final String POST_INC = "postinc";
-    private static final String PRE_DEC = "predec";
-    private static final String POST_DEC = "postdec";
-    private static final String SUPER_INVOKE = "superinv";
-    private static final String SUPER_RETINVOKE = "superretinv";
+    private enum AccessorMatchKind {
+        RETURN_LVALUE("returnlvalue"),
+        MUTATION1("mutation1"),
+        MUTATION2("mutation2"),
+        MUTATION3("mutation3"),
+        ASSIGNMENT1("assignment1"),
+        PRE_INC("preinc"),
+        POST_INC("postinc"),
+        PRE_DEC("predec"),
+        POST_DEC("postdec"),
+        SUPER_INVOKE("superinv"),
+        SUPER_RETINVOKE("superretinv");
+
+        private final String matcherName;
+
+        AccessorMatchKind(String matcherName) {
+            this.matcherName = matcherName;
+        }
+
+        private static AccessorMatchKind fromMatcherName(String matcherName) {
+            for (AccessorMatchKind kind : values()) {
+                if (kind.matcherName.equals(matcherName)) {
+                    return kind;
+                }
+            }
+            return null;
+        }
+    }
+
+    private enum FunctionCallMatchKind {
+        STATIC_STATEMENT("ssub1", true),
+        STATIC_RETURN("sfun1", true),
+        MEMBER_STATEMENT("msub1", false),
+        MEMBER_RETURN("mfun1", false);
+
+        private final String matcherName;
+        private final boolean staticInvocation;
+
+        FunctionCallMatchKind(String matcherName, boolean staticInvocation) {
+            this.matcherName = matcherName;
+            this.staticInvocation = staticInvocation;
+        }
+
+        private static FunctionCallMatchKind fromMatcherName(String matcherName) {
+            for (FunctionCallMatchKind kind : values()) {
+                if (kind.matcherName.equals(matcherName)) {
+                    return kind;
+                }
+            }
+            return null;
+        }
+    }
 
     private static boolean validRelationship(JavaTypeInstance type1, JavaTypeInstance type2) {
         Set<JavaTypeInstance> parents1 = SetFactory.newSet();
@@ -195,7 +236,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         }
         AccessorMatchCollector accessorMatchCollector = new AccessorMatchCollector();
         if (!matchesSingleBlock(structuredStatements, buildAccessorMatcher(wcm, methodExprs), accessorMatchCollector)) return null;
-        if (accessorMatchCollector.matchType == null) return null;
+        if (accessorMatchCollector.matchKind == null) return null;
 
         boolean isStatic = (accessorMatchCollector.lValue instanceof StaticVariable);
         if (isStatic) {
@@ -214,21 +255,21 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
 
     private class AccessorMatchCollector extends AbstractMatchResultIterator {
 
-        String matchType;
+        AccessorMatchKind matchKind;
         LValue lValue;
         Expression rValue;
         ArithOp op;
 
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
-            this.matchType = name;
+            this.matchKind = AccessorMatchKind.fromMatcherName(name);
             this.lValue = wcm.getLValueWildCard("lvalue").getMatch();
-            this.rValue = readMatchedAccessorValue(matchType, wcm);
-            this.op = readMatchedAccessorOp(matchType, wcm);
+            this.rValue = readMatchedAccessorValue(matchKind, wcm);
+            this.op = readMatchedAccessorOp(matchKind, wcm);
         }
 
-        private Expression readMatchedAccessorValue(String matchType, WildcardMatch wcm) {
-            switch (matchType) {
+        private Expression readMatchedAccessorValue(AccessorMatchKind matchKind, WildcardMatch wcm) {
+            switch (matchKind) {
                 case MUTATION1:
                 case MUTATION2:
                 case ASSIGNMENT1:
@@ -242,16 +283,13 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
             }
         }
 
-        private ArithOp readMatchedAccessorOp(String matchType, WildcardMatch wcm) {
-            if (!MUTATION3.equals(matchType)) {
+        private ArithOp readMatchedAccessorOp(AccessorMatchKind matchKind, WildcardMatch wcm) {
+            if (matchKind != AccessorMatchKind.MUTATION3) {
                 return null;
             }
             return wcm.getArithmeticMutationWildcard("mutation").getOp().getMatch();
         }
     }
-
-    private static final String STA_SUB1 = "ssub1";
-    private static final String STA_FUN1 = "sfun1";
 
     private Expression tryRewriteFunctionCall(List<StructuredStatement> structuredStatements, JavaTypeInstance otherType,
                                               List<Expression> appliedArgs, List<LocalVariable> methodArgs) {
@@ -259,7 +297,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
 
         FuncMatchCollector funcMatchCollector = new FuncMatchCollector();
         if (!matchesSingleBlock(structuredStatements, buildFunctionCallMatcher(wcm, otherType), funcMatchCollector)) return null;
-        if (funcMatchCollector.matchType == null) return null;
+        if (funcMatchCollector.matchKind == null) return null;
 
         CloneHelper cloneHelper = buildCloneHelper(otherType, methodArgs, appliedArgs);
         return cloneHelper.replaceOrClone(funcMatchCollector.functionInvokation);
@@ -274,54 +312,49 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     }
 
     private Matcher<StructuredStatement> buildFunctionCallMatcher(WildcardMatch wcm, JavaTypeInstance otherType) {
-        String MEM_SUB1 = "msub1";
-        String MEM_FUN1 = "mfun1";
         return new MatchSequence(
                 new BeginBlock(null),
-                buildFunctionCallCases(wcm, otherType, MEM_SUB1, MEM_FUN1),
+                buildFunctionCallCases(wcm, otherType),
                 new EndBlock(null)
         );
     }
 
-    private MatchOneOf buildFunctionCallCases(WildcardMatch wcm,
-                                              JavaTypeInstance otherType,
-                                              String memberStatementName,
-                                              String memberReturnName) {
+    private MatchOneOf buildFunctionCallCases(WildcardMatch wcm, JavaTypeInstance otherType) {
         return new MatchOneOf(
-                memberFunctionCase(wcm, memberStatementName, false),
-                staticFunctionCase(wcm, STA_SUB1, otherType, false),
-                memberFunctionCase(wcm, memberReturnName, true),
-                staticFunctionCase(wcm, STA_FUN1, otherType, true)
+                memberFunctionCase(wcm, FunctionCallMatchKind.MEMBER_STATEMENT, false),
+                staticFunctionCase(wcm, FunctionCallMatchKind.STATIC_STATEMENT, otherType, false),
+                memberFunctionCase(wcm, FunctionCallMatchKind.MEMBER_RETURN, true),
+                staticFunctionCase(wcm, FunctionCallMatchKind.STATIC_RETURN, otherType, true)
         );
     }
 
     private MatchOneOf buildAccessorCases(WildcardMatch wcm, List<Expression> methodExprs) {
         return new MatchOneOf(
                 returnLValueCase(wcm),
-                assignmentAccessorCase(wcm, MUTATION1, true, false),
-                assignmentAccessorCase(wcm, ASSIGNMENT1, false, false),
-                assignmentAccessorCase(wcm, MUTATION2, false, true),
+                assignmentAccessorCase(wcm, AccessorMatchKind.MUTATION1, true, false),
+                assignmentAccessorCase(wcm, AccessorMatchKind.ASSIGNMENT1, false, false),
+                assignmentAccessorCase(wcm, AccessorMatchKind.MUTATION2, false, true),
                 arithmeticMutationCase(wcm),
-                unaryMutationReturnCase(wcm, PRE_INC, ArithOp.PLUS, true),
-                unaryMutationReturnCase(wcm, PRE_DEC, ArithOp.MINUS, true),
-                unaryMutationReturnCase(wcm, POST_INC, ArithOp.PLUS, false),
-                unaryMutationReturnCase(wcm, POST_DEC, ArithOp.MINUS, false),
-                unaryMutationStatementCase(wcm, POST_INC, ArithOp.PLUS),
+                unaryMutationReturnCase(wcm, AccessorMatchKind.PRE_INC, ArithOp.PLUS, true),
+                unaryMutationReturnCase(wcm, AccessorMatchKind.PRE_DEC, ArithOp.MINUS, true),
+                unaryMutationReturnCase(wcm, AccessorMatchKind.POST_INC, ArithOp.PLUS, false),
+                unaryMutationReturnCase(wcm, AccessorMatchKind.POST_DEC, ArithOp.MINUS, false),
+                unaryMutationStatementCase(wcm, AccessorMatchKind.POST_INC, ArithOp.PLUS),
                 stackPostIncrementCase(wcm),
-                unaryMutationStatementCase(wcm, POST_DEC, ArithOp.MINUS),
-                superAccessorCase(wcm, SUPER_INVOKE, methodExprs, false),
-                superAccessorCase(wcm, SUPER_RETINVOKE, methodExprs, true)
+                unaryMutationStatementCase(wcm, AccessorMatchKind.POST_DEC, ArithOp.MINUS),
+                superAccessorCase(wcm, AccessorMatchKind.SUPER_INVOKE, methodExprs, false),
+                superAccessorCase(wcm, AccessorMatchKind.SUPER_RETINVOKE, methodExprs, true)
         );
     }
 
     private Matcher<StructuredStatement> returnLValueCase(WildcardMatch wcm) {
-        return new ResetAfterTest(wcm, RETURN_LVALUE,
+        return new ResetAfterTest(wcm, AccessorMatchKind.RETURN_LVALUE.matcherName,
                 new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm.getLValueWildCard("lvalue")), null)
         );
     }
 
     private Matcher<StructuredStatement> assignmentAccessorCase(WildcardMatch wcm,
-                                                                String name,
+                                                                AccessorMatchKind matchKind,
                                                                 boolean returnLValue,
                                                                 boolean returnRValue) {
         List<Matcher<StructuredStatement>> sequence = new ArrayList<Matcher<StructuredStatement>>();
@@ -331,31 +364,31 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         } else if (returnRValue) {
             sequence.add(new StructuredReturn(BytecodeLoc.NONE, wcm.getExpressionWildCard("rvalue"), null));
         }
-        return new ResetAfterTest(wcm, name, new MatchSequence(sequence.toArray(new Matcher[0])));
+        return new ResetAfterTest(wcm, matchKind.matcherName, new MatchSequence(sequence.toArray(new Matcher[0])));
     }
 
     private Matcher<StructuredStatement> arithmeticMutationCase(WildcardMatch wcm) {
-        return new ResetAfterTest(wcm, MUTATION3,
+        return new ResetAfterTest(wcm, AccessorMatchKind.MUTATION3.matcherName,
                 new StructuredReturn(BytecodeLoc.NONE, wcm.getArithmeticMutationWildcard("mutation", wcm.getLValueWildCard("lvalue"), wcm.getExpressionWildCard("rvalue")), null)
         );
     }
 
     private Matcher<StructuredStatement> unaryMutationReturnCase(WildcardMatch wcm,
-                                                                 String name,
+                                                                 AccessorMatchKind matchKind,
                                                                  ArithOp op,
                                                                  boolean pre) {
         Expression expression = pre
                 ? new ArithmeticPreMutationOperation(BytecodeLoc.NONE, wcm.getLValueWildCard("lvalue"), op)
                 : new ArithmeticPostMutationOperation(BytecodeLoc.NONE, wcm.getLValueWildCard("lvalue"), op);
-        return new ResetAfterTest(wcm, name,
+        return new ResetAfterTest(wcm, matchKind.matcherName,
                 new StructuredReturn(BytecodeLoc.NONE, expression, null)
         );
     }
 
     private Matcher<StructuredStatement> unaryMutationStatementCase(WildcardMatch wcm,
-                                                                    String name,
+                                                                    AccessorMatchKind matchKind,
                                                                     ArithOp op) {
-        return new ResetAfterTest(wcm, name,
+        return new ResetAfterTest(wcm, matchKind.matcherName,
                 new MatchSequence(
                         new StructuredExpressionStatement(BytecodeLoc.NONE, new ArithmeticPostMutationOperation(BytecodeLoc.NONE, wcm.getLValueWildCard("lvalue"), op), false),
                         new StructuredReturn(BytecodeLoc.NONE, new LValueExpression(wcm.getLValueWildCard("lvalue")), null)
@@ -364,7 +397,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     }
 
     private Matcher<StructuredStatement> stackPostIncrementCase(WildcardMatch wcm) {
-        return new ResetAfterTest(wcm, POST_INC,
+        return new ResetAfterTest(wcm, AccessorMatchKind.POST_INC.matcherName,
                 new MatchSequence(
                         new StructuredAssignment(BytecodeLoc.NONE, wcm.getStackLabelWildcard("tmp"), new LValueExpression(wcm.getLValueWildCard("lvalue"))),
                         new StructuredAssignment(BytecodeLoc.NONE,
@@ -377,13 +410,13 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     }
 
     private Matcher<StructuredStatement> superAccessorCase(WildcardMatch wcm,
-                                                           String name,
+                                                           AccessorMatchKind matchKind,
                                                            List<Expression> methodExprs,
                                                            boolean returnsValue) {
         Expression superCall = wcm.getSuperFunction("super", methodExprs);
         return new ResetAfterTest(
                 wcm,
-                name,
+                matchKind.matcherName,
                 returnsValue
                         ? new StructuredReturn(BytecodeLoc.NONE, superCall, null)
                         : new StructuredExpressionStatement(BytecodeLoc.NONE, superCall, false)
@@ -391,12 +424,12 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     }
 
     private Matcher<StructuredStatement> memberFunctionCase(WildcardMatch wcm,
-                                                            String name,
+                                                            FunctionCallMatchKind matchKind,
                                                             boolean returnsValue) {
         Expression function = wcm.getMemberFunction("func", null, false, new LValueExpression(wcm.getLValueWildCard("lvalue")), null);
         return new ResetAfterTest(
                 wcm,
-                name,
+                matchKind.matcherName,
                 returnsValue
                         ? new StructuredReturn(BytecodeLoc.NONE, function, null)
                         : new StructuredExpressionStatement(BytecodeLoc.NONE, function, false)
@@ -404,13 +437,13 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     }
 
     private Matcher<StructuredStatement> staticFunctionCase(WildcardMatch wcm,
-                                                            String name,
+                                                            FunctionCallMatchKind matchKind,
                                                             JavaTypeInstance otherType,
                                                             boolean returnsValue) {
         Expression function = wcm.getStaticFunction("func", otherType, null, null, (List<Expression>) null);
         return new ResetAfterTest(
                 wcm,
-                name,
+                matchKind.matcherName,
                 returnsValue
                         ? new StructuredReturn(BytecodeLoc.NONE, function, null)
                         : new StructuredExpressionStatement(BytecodeLoc.NONE, function, false)
@@ -444,7 +477,7 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
     private Expression rewriteAccessorMatch(AccessorMatchCollector accessorMatchCollector,
                                             CloneHelper cloneHelper,
                                             JavaTypeInstance otherType) {
-        switch (accessorMatchCollector.matchType) {
+        switch (accessorMatchCollector.matchKind) {
             case MUTATION1:
             case MUTATION2:
             case ASSIGNMENT1:
@@ -498,17 +531,17 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
 
     private class FuncMatchCollector extends AbstractMatchResultIterator {
 
-        String matchType;
+        FunctionCallMatchKind matchKind;
         Expression functionInvokation;
 
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
-            this.matchType = name;
-            functionInvokation = getMatchedFunctionInvocation(name, wcm);
+            this.matchKind = FunctionCallMatchKind.fromMatcherName(name);
+            functionInvokation = getMatchedFunctionInvocation(matchKind, wcm);
         }
 
-        private Expression getMatchedFunctionInvocation(String name, WildcardMatch wcm) {
-            if (STA_FUN1.equals(name) || STA_SUB1.equals(name)) {
+        private Expression getMatchedFunctionInvocation(FunctionCallMatchKind matchKind, WildcardMatch wcm) {
+            if (matchKind != null && matchKind.staticInvocation) {
                 return wcm.getStaticFunction("func").getMatch();
             }
             return wcm.getMemberFunction("func").getMatch();

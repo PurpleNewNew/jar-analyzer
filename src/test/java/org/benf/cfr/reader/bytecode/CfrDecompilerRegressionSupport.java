@@ -3,11 +3,14 @@ package org.benf.cfr.reader.bytecode;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
 import org.benf.cfr.reader.api.SinkReturns;
+import org.eclipse.jdt.internal.compiler.batch.Main;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
+import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +56,30 @@ final class CfrDecompilerRegressionSupport {
         args[javacArgs.length + 4] = sourceFile.toString();
         int compileExit = compiler.run(null, null, null, args);
         assertEquals(0, compileExit);
+        Path compiledClassFile = resolveCompiledClassFile(tempDir, className, source);
+        assertTrue(Files.exists(compiledClassFile), "Compiled class not found: " + compiledClassFile);
+        return compiledClassFile;
+    }
+
+    static Path compileJavaWithEcj(Path tempDir, String className, String source, String... ecjArgs) throws IOException {
+        Path sourceFile = tempDir.resolve(className + ".java");
+        Files.writeString(sourceFile, source, StandardCharsets.UTF_8);
+
+        StringWriter stdOut = new StringWriter();
+        StringWriter stdErr = new StringWriter();
+        Main compiler = new Main(new PrintWriter(stdOut), new PrintWriter(stdErr), false, null, null);
+
+        String[] args = new String[ecjArgs.length + 5];
+        System.arraycopy(ecjArgs, 0, args, 0, ecjArgs.length);
+        args[ecjArgs.length] = "-proc:none";
+        args[ecjArgs.length + 1] = "-g";
+        args[ecjArgs.length + 2] = "-d";
+        args[ecjArgs.length + 3] = tempDir.toString();
+        args[ecjArgs.length + 4] = sourceFile.toString();
+
+        boolean compileSuccess = compiler.compile(args);
+        assertTrue(compileSuccess, () -> "ECJ compile failed\nstdout:\n" + stdOut + "\nstderr:\n" + stdErr);
+
         Path compiledClassFile = resolveCompiledClassFile(tempDir, className, source);
         assertTrue(Files.exists(compiledClassFile), "Compiled class not found: " + compiledClassFile);
         return compiledClassFile;

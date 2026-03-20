@@ -93,6 +93,7 @@
         <java.parser.version>3.28.0</java.parser.version>
         <csv.version>1.14.1</csv.version>
         <junit.version>5.14.2</junit.version>
+        <ecj.version>3.33.0</ecj.version>
         <compress.version>1.28.0</compress.version>
         <tomcat.jasper.version>10.1.18</tomcat.jasper.version>
         <ant.version>1.10.12</ant.version>
@@ -305,6 +306,12 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jdt</groupId>
+            <artifactId>ecj</artifactId>
+            <version>${ecj.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

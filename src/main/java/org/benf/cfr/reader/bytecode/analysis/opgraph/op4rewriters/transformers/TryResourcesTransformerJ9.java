@@ -49,24 +49,14 @@ public class TryResourcesTransformerJ9 extends TryResourceTransformerFinally {
     }
 
     private Matcher<StructuredStatement> buildFinallyResourceReleaseMatcher(WildcardMatch wcm) {
-        return new ResetAfterTest(wcm, buildOptionalGuardedReleaseMatcher(wcm));
+        return new ResetAfterTest(wcm, buildOptionalGuardedBlockMatcher(wcm.getLValueWildCard("resource"), buildBlockResourceReleaseMatcher(wcm)));
     }
 
-    private Matcher<StructuredStatement> buildOptionalGuardedReleaseMatcher(WildcardMatch wcm) {
-        return new MatchOneOf(
-                new MatchSequence(
-                        new BeginBlock(null),
-                        new StructuredIf(BytecodeLoc.NONE, new ComparisonOperation(BytecodeLoc.NONE, wcm.getExpressionWildCard("resource"), Literal.NULL, CompOp.NE), null),
-                        new BeginBlock(null),
-                        buildFakeEndResourceInvocationMatcher(wcm),
-                        new EndBlock(null),
-                        new EndBlock(null)
-                ),
-                new MatchSequence(
-                        new BeginBlock(null),
-                        buildFakeEndResourceInvocationMatcher(wcm),
-                        new EndBlock(null)
-                )
+    private Matcher<StructuredStatement> buildBlockResourceReleaseMatcher(WildcardMatch wcm) {
+        return new MatchSequence(
+                new BeginBlock(null),
+                buildFakeEndResourceInvocationMatcher(wcm),
+                new EndBlock(null)
         );
     }
 

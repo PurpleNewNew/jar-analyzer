@@ -720,8 +720,9 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
 
      */
     private boolean rollSingleDefault(RollState rollState) {
-        ClassifiedStatement emptySwitch = getSingleClassifiedStatement(rollState, ClassifyType.EMPTY_SWITCH);
-        if (emptySwitch == null) return false;
+        if (rollState.classifiedStatements.size() != 1) return false;
+        ClassifiedStatement emptySwitch = rollState.classifiedStatements.get(0);
+        if (emptySwitch.type != ClassifyType.EMPTY_SWITCH) return false;
         if (rollState.remainder.isEmpty()) return false;
         List<Expression> args = getConstructorChainArgs(rollState.remainder.get(0));
         if (args == null) return false;
@@ -743,7 +744,7 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         while (descending.hasNext()) {
             ClassifiedStatement curr = descending.next();
             if (last != null) {
-                if (shouldWrapSwitchExpressionInTrailingEmptySwitch(curr, last)) {
+                if (curr.type == ClassifyType.SWITCH_EXPRESSION && last.type == ClassifyType.EMPTY_SWITCH) {
                     combineSwitchExpressionWithOther(curr, last);
                     descending.remove();
                     doneWork = true;
@@ -819,7 +820,9 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         boolean doneWork = false;
         while (descending.hasNext()) {
             ClassifiedStatement curr = descending.next();
-            if (last != null && shouldPushTrailingCreationIntoEmptySwitch(curr, last)) {
+            if (last != null
+                    && curr.type == ClassifyType.EMPTY_SWITCH
+                    && (last.type == ClassifyType.OTHER_CREATION || last.type == ClassifyType.SWITCH_EXPRESSION)) {
                 combineEmptySwitchWithCreation(curr, last);
                 doneWork = true;
                 continue;
@@ -848,14 +851,10 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
         Expression rhs = stm.getRvalue();
         LValue lhs = stm.getLvalue();
         appendToEmptyDefaultSwitchCase(switchStm.stm, new Op04StructuredStatement(new StructuredAssignment(BytecodeLoc.TODO, lhs, rhs)));
-        replaceCreationWithEmptySwitch(assignStm, switchStm.stm.getStatement());
+        assignStm.stm.replaceStatement(switchStm.stm.getStatement());
         assignStm.type = ClassifyType.EMPTY_SWITCH;
         switchStm.stm.replaceStatement(new StructuredDefinition(lhs));
         switchStm.type = ClassifyType.DEFINITION;
-    }
-
-    private void replaceCreationWithEmptySwitch(ClassifiedStatement target, StructuredStatement replacement) {
-        target.stm.replaceStatement(replacement);
     }
 
     private boolean rollUpEmptySwitches(RollState rollState) {
@@ -866,7 +865,9 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
 
             ClassifiedStatement curr = classifiedStatements.get(x);
             ClassifiedStatement last = x + 1 < classifiedStatements.size() ? classifiedStatements.get(x + 1) : null;
-            if (last != null && shouldMergeAdjacentEmptySwitches(curr, last)) {
+            if (last != null
+                    && curr.type == ClassifyType.EMPTY_SWITCH
+                    && (last.type == ClassifyType.OTHER || last.type == ClassifyType.EMPTY_SWITCH)) {
                 appendToEmptyDefaultSwitchCase(curr.stm, last.stm);
                 last.stm = curr.stm;
                 last.type = ClassifyType.EMPTY_SWITCH;
@@ -880,32 +881,6 @@ public class SwitchExpressionRewriter extends AbstractExpressionRewriter impleme
             rollState.classifiedStatements.addAll(classifiedStatements);
         }
         return doneWork;
-    }
-
-    private ClassifiedStatement getSingleClassifiedStatement(RollState rollState, ClassifyType expectedType) {
-        if (rollState.classifiedStatements.size() != 1) {
-            return null;
-        }
-        ClassifiedStatement only = rollState.classifiedStatements.get(0);
-        return only.type == expectedType ? only : null;
-    }
-
-    private boolean shouldWrapSwitchExpressionInTrailingEmptySwitch(ClassifiedStatement current, ClassifiedStatement next) {
-        return current.type == ClassifyType.SWITCH_EXPRESSION && next.type == ClassifyType.EMPTY_SWITCH;
-    }
-
-    private boolean shouldPushTrailingCreationIntoEmptySwitch(ClassifiedStatement current, ClassifiedStatement next) {
-        if (current.type != ClassifyType.EMPTY_SWITCH) {
-            return false;
-        }
-        return next.type == ClassifyType.OTHER_CREATION || next.type == ClassifyType.SWITCH_EXPRESSION;
-    }
-
-    private boolean shouldMergeAdjacentEmptySwitches(ClassifiedStatement current, ClassifiedStatement next) {
-        if (current.type != ClassifyType.EMPTY_SWITCH) {
-            return false;
-        }
-        return next.type == ClassifyType.OTHER || next.type == ClassifyType.EMPTY_SWITCH;
     }
 
     private void appendToEmptyDefaultSwitchCase(Op04StructuredStatement swtch, Op04StructuredStatement add) {

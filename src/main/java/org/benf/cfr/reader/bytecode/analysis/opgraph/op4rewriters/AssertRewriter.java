@@ -156,7 +156,6 @@ public class AssertRewriter {
         Matcher<StructuredStatement> standardAssertMatcher = buildStandardAssertMatcher(wcm1);
         AssertUseCollector collector = new AssertUseCollector(wcm1);
 
-        Matcher<StructuredStatement> switchAssertMatcher = buildSwitchAssertMatcher(wcm1);
         SwitchAssertUseCollector swcollector = new SwitchAssertUseCollector();
 
         for (Method method : methods) {
@@ -191,29 +190,11 @@ public class AssertRewriter {
             // If we're looking for switch expression assertions, things get more interesting.
             // We can't search for a simple pattern any more, but we can find possible entry points.
             if (switchExpressions) {
-                mi = new MatchIterator<StructuredStatement>(statements);
-
-                while (mi.hasNext()) {
-                    mi.advance();
-                    if (switchAssertMatcher.match(mi, swcollector)) {
-                        mi.rewind1();
-                    }
+                for (StructuredStatement statement : statements) {
+                    swcollector.collectStatement(MATCH_SWITCH_ASSERT_ENTRY, statement);
                 }
             }
         }
-    }
-
-    private Matcher<StructuredStatement> buildSwitchAssertMatcher(WildcardMatch wcm1) {
-        return new ResetAfterTest(wcm1,
-            new CollectMatch(MATCH_SWITCH_ASSERT_ENTRY, new MatchSequence(
-                    new BeginBlock(null),
-                    new StructuredIf(BytecodeLoc.NONE,
-                            new NotOperation(BytecodeLoc.NONE, new BooleanExpression(new LValueExpression(assertionStatic))), null
-                    ),
-                    new BeginBlock(null),
-                    new StructuredSwitch(BytecodeLoc.NONE, wcm1.getExpressionWildCard("switchExpression"), null, wcm1.getBlockIdentifier("switchblock"))
-            ))
-        );
     }
 
     private Matcher<StructuredStatement> buildStandardAssertMatcher(WildcardMatch wcm1) {
@@ -341,22 +322,7 @@ public class AssertRewriter {
             if (context == null) {
                 return;
             }
-            StructuredStatement newAssert = null;
-            switch (context.switchAndThrow.size()) {
-                case 1:
-                    // switch, with throw rolled up into last case.
-                    newAssert = processSwitchEmbeddedThrow(context.ifStatement, context.outerBlock, context.switchBodyBlock, context.switchBody, context.structuredSwitch);
-                    break;
-                case 2:
-                    // switch, followed by throw.
-                    // In this version, if it ends up leaving the if, it's true.
-                    // if it ends up leaving the switch (so into the throw), it's false.
-                    newAssert = processSwitchAndThrow(context.ifStatement, context.outerBlock, context.switchBlock, context.switchBodyBlock, context.structuredSwitch, context.switchAndThrow.get(1));
-                    break;
-                default:
-                    // switch, with logic dropping off the last case.
-                    break;
-            }
+            StructuredStatement newAssert = rewriteSwitchAssertion(context);
             if (newAssert != null) {
                 context.ifContainer.replaceStatement(newAssert);
             }
@@ -367,11 +333,24 @@ public class AssertRewriter {
                 return null;
             }
             Block block = ((BeginBlock) statement).getBlock();
-            Pair<Boolean, Op04StructuredStatement> content = block.getOneStatementIfPresent();
-            if (content.getFirst()) {
+            List<Op04StructuredStatement> blockStatements = block.getFilteredBlockStatements();
+            if (blockStatements.isEmpty()) {
                 return null;
             }
-            StructuredStatement ifStatement = content.getSecond().getStatement();
+            SwitchAssertContext context = extractNestedSwitchAssertContext(block, blockStatements);
+            if (context != null) {
+                return context;
+            }
+            return extractControlFlowSwitchAssertContext(block, blockStatements);
+        }
+
+        private SwitchAssertContext extractNestedSwitchAssertContext(Block block,
+                                                                    List<Op04StructuredStatement> blockStatements) {
+            if (blockStatements.size() != 1) {
+                return null;
+            }
+            Op04StructuredStatement ifContainer = blockStatements.get(0);
+            StructuredStatement ifStatement = ifContainer.getStatement();
             if (!(ifStatement instanceof StructuredIf)) {
                 return null;
             }
@@ -400,14 +379,154 @@ public class AssertRewriter {
             }
             Block switchBodyBlock = (Block) switchBody.getStatement();
 
+            return createSwitchAssertContext(ifContainer, structuredIf, outerBlock, structuredSwitch, switchBody, switchBodyBlock, switchAndThrow, takenBlock);
+        }
+
+        private SwitchAssertContext extractControlFlowSwitchAssertContext(Block block,
+                                                                         List<Op04StructuredStatement> blockStatements) {
+            if (blockStatements.size() < 2) {
+                return null;
+            }
+            Op04StructuredStatement ifContainer = blockStatements.get(0);
+            StructuredStatement ifStatement = ifContainer.getStatement();
+            if (!(ifStatement instanceof StructuredIf)) {
+                return null;
+            }
+            StructuredIf structuredIf = (StructuredIf) ifStatement;
+            BlockIdentifier guardBreakTarget = getAssertionDisableBreakTarget(structuredIf);
+            if (guardBreakTarget == null) {
+                return null;
+            }
+            StructuredStatement switchStatement = blockStatements.get(1).getStatement();
+            if (!(switchStatement instanceof StructuredSwitch)) {
+                return null;
+            }
+            StructuredSwitch structuredSwitch = (StructuredSwitch) switchStatement;
+            Op04StructuredStatement switchBody = structuredSwitch.getBody();
+            if (!(switchBody.getStatement() instanceof Block)) {
+                return null;
+            }
+            Block switchBodyBlock = (Block) switchBody.getStatement();
+            List<Op04StructuredStatement> switchAndThrow = ListFactory.newList();
+            switchAndThrow.add(blockStatements.get(1));
+            for (int idx = 2; idx < blockStatements.size(); ++idx) {
+                switchAndThrow.add(blockStatements.get(idx));
+            }
+            return createSwitchAssertContext(ifContainer, structuredIf, guardBreakTarget, structuredSwitch, switchBody, switchBodyBlock, switchAndThrow, null);
+        }
+
+        private SwitchAssertContext createSwitchAssertContext(Op04StructuredStatement ifContainer,
+                                                              StructuredIf structuredIf,
+                                                              BlockIdentifier outerBlock,
+                                                              StructuredSwitch structuredSwitch,
+                                                              Op04StructuredStatement switchBody,
+                                                              Block switchBodyBlock,
+                                                              List<Op04StructuredStatement> switchAndThrow,
+                                                              Block rewriteBlock) {
             if (switchAndThrow.size() > 2) {
+                if (rewriteBlock == null) {
+                    return null;
+                }
                 switchAndThrow = tryCombineSwitch(switchAndThrow, outerBlock, structuredSwitch.getBlockIdentifier(), switchBodyBlock);
                 if (switchAndThrow.size() != 1) {
                     return null;
                 }
-                takenBlock.replaceBlockStatements(switchAndThrow);
+                rewriteBlock.replaceBlockStatements(switchAndThrow);
             }
-            return new SwitchAssertContext(content.getSecond(), structuredIf, outerBlock, structuredSwitch.getBlockIdentifier(), switchBody, structuredSwitch, switchBodyBlock, switchAndThrow);
+            return new SwitchAssertContext(ifContainer, structuredIf, outerBlock, structuredSwitch.getBlockIdentifier(), switchBody, structuredSwitch, switchBodyBlock, switchAndThrow);
+        }
+
+        private BlockIdentifier getAssertionDisableBreakTarget(StructuredIf structuredIf) {
+            if (structuredIf.hasElseBlock()) {
+                return null;
+            }
+            StructuredStatement ifTaken = structuredIf.getIfTaken().getStatement();
+            if (!(ifTaken instanceof Block)) {
+                return null;
+            }
+            List<Op04StructuredStatement> ifTakenStatements = ((Block) ifTaken).getFilteredBlockStatements();
+            if (ifTakenStatements.size() != 1) {
+                return null;
+            }
+            StructuredStatement breakStatement = ifTakenStatements.get(0).getStatement();
+            if (!(breakStatement instanceof StructuredBreak)) {
+                return null;
+            }
+            StructuredBreak structuredBreak = (StructuredBreak) breakStatement;
+            return structuredBreak.isLocalBreak() ? null : structuredBreak.getBreakBlock();
+        }
+
+        private StructuredStatement rewriteSwitchAssertion(SwitchAssertContext context) {
+            SwitchAssertionPlan plan = createSwitchAssertionPlan(context);
+            if (plan == null) {
+                return null;
+            }
+            List<SwitchExpression.Branch> branches = ListFactory.newList();
+            if (!extractSwitchBranches(
+                    plan.trueBlock,
+                    plan.falseBlock,
+                    context.switchBodyBlock,
+                    branches,
+                    plan.replacements,
+                    plan.addYieldTrue)) {
+                return null;
+            }
+            return buildSwitchAssertion(context.ifStatement, context.structuredSwitch, branches, plan.exceptArg);
+        }
+
+        private SwitchAssertionPlan createSwitchAssertionPlan(SwitchAssertContext context) {
+            switch (context.switchAndThrow.size()) {
+                case 1:
+                    return createEmbeddedSwitchAssertionPlan(context);
+                case 2:
+                    return createTrailingThrowSwitchAssertionPlan(context);
+                default:
+                    return null;
+            }
+        }
+
+        private SwitchAssertionPlan createTrailingThrowSwitchAssertionPlan(SwitchAssertContext context) {
+            Pair<Boolean, Expression> exceptionTest = extractAssertionThrowArgument(context.switchAndThrow.get(1).getStatement());
+            if (!exceptionTest.getFirst()) {
+                return null;
+            }
+            return new SwitchAssertionPlan(
+                    context.outerBlock,
+                    context.switchBlock,
+                    exceptionTest.getSecond(),
+                    MapFactory.<Op04StructuredStatement, StructuredExpressionYield>newOrderedMap(),
+                    false
+            );
+        }
+
+        private SwitchAssertionPlan createEmbeddedSwitchAssertionPlan(SwitchAssertContext context) {
+            Map<Op04StructuredStatement, StructuredExpressionYield> replacements = MapFactory.newOrderedMap();
+            AssertionTrackingControlFlowSwitchExpressionTransformer track =
+                    new AssertionTrackingControlFlowSwitchExpressionTransformer(context.switchBlock, context.outerBlock, replacements);
+            context.switchBody.transform(track, new StructuredScope());
+            if (track.failed || track.assertionThrows.size() > 1) {
+                return null;
+            }
+
+            Expression exceptArg = null;
+            replacements.clear();
+            if (track.assertionThrows.size() == 1) {
+                StructuredStatement throwStatement = track.assertionThrows.get(0);
+                Pair<Boolean, Expression> exceptionTest = extractAssertionThrowArgument(throwStatement);
+                if (!exceptionTest.getFirst()) {
+                    return null;
+                }
+                exceptArg = exceptionTest.getSecond();
+                replacements.put(throwStatement.getContainer(), new StructuredExpressionYield(BytecodeLoc.TODO, Literal.FALSE));
+            }
+
+            return new SwitchAssertionPlan(
+                    context.switchBlock,
+                    context.switchBlock,
+                    exceptArg,
+                    replacements,
+                    true
+            );
         }
 
         private final class SwitchAssertContext {
@@ -436,6 +555,26 @@ public class AssertRewriter {
                 this.structuredSwitch = structuredSwitch;
                 this.switchBodyBlock = switchBodyBlock;
                 this.switchAndThrow = switchAndThrow;
+            }
+        }
+
+        private final class SwitchAssertionPlan {
+            private final BlockIdentifier trueBlock;
+            private final BlockIdentifier falseBlock;
+            private final Expression exceptArg;
+            private final Map<Op04StructuredStatement, StructuredExpressionYield> replacements;
+            private final boolean addYieldTrue;
+
+            private SwitchAssertionPlan(BlockIdentifier trueBlock,
+                                        BlockIdentifier falseBlock,
+                                        Expression exceptArg,
+                                        Map<Op04StructuredStatement, StructuredExpressionYield> replacements,
+                                        boolean addYieldTrue) {
+                this.trueBlock = trueBlock;
+                this.falseBlock = falseBlock;
+                this.exceptArg = exceptArg;
+                this.replacements = replacements;
+                this.addYieldTrue = addYieldTrue;
             }
         }
 
@@ -480,22 +619,6 @@ public class AssertRewriter {
                 return Pair.make(false, null);
             }
             return Pair.make(true, exceptArg);
-        }
-
-        private StructuredStatement processSwitchAndThrow(StructuredStatement ifStm, BlockIdentifier outer, BlockIdentifier swiBlockIdentifier, Block swBodyBlock, StructuredSwitch struSwi, Op04StructuredStatement throwStm) {
-            // First, we need to verify that the throw expression really is one
-            Pair<Boolean, Expression> excepTest = extractAssertionThrowArgument(throwStm.getStatement());
-            if (!excepTest.getFirst()) return null;
-            Expression exceptArg = excepTest.getSecond();
-
-            // The switch should have only BREAK immediate, BREAK outer, or THROW exits.
-            // break immediate -> yield false
-            // break outer -> yield true
-            // However, the switch could itself have complex content in it.
-            List<SwitchExpression.Branch> branches = ListFactory.newList();
-            Map<Op04StructuredStatement, StructuredExpressionYield> replacements = MapFactory.newOrderedMap();
-            if (!extractSwitchBranches(outer, swiBlockIdentifier, swBodyBlock, branches, replacements, false)) return null;
-            return buildSwitchAssertion((StructuredIf) ifStm, struSwi, branches, exceptArg);
         }
 
         @SuppressWarnings("BooleanMethodIsAlwaysInverted")
@@ -576,39 +699,6 @@ public class AssertRewriter {
                                                         Expression exceptArg) {
             SwitchExpression sw = new SwitchExpression(BytecodeLoc.TODO, boolIjt, structuredSwitch.getSwitchOn(), branches);
             return ifStm.convertToAssertion(StructuredAssert.mkStructuredAssert(BytecodeLoc.TODO, new BooleanExpression(sw), exceptArg));
-        }
-
-        private StructuredStatement processSwitchEmbeddedThrow(StructuredStatement ifStm, BlockIdentifier outer, Block swBodyBlock, Op04StructuredStatement switchStm, StructuredSwitch struSwi) {
-            // Soooo - if there's only ONE Assertion error that gets thrown, we can be pretty confident that
-            // that's the assertion.
-            // If there are multiple?
-            // If they're identical, then we COULD consider them the same.  If not, give up, go home.
-            // Also, don't forget to add a 'yield true' at the end of the last block, if there's not a yield or a throw there already!
-            Map<Op04StructuredStatement, StructuredExpressionYield> replacements = MapFactory.newOrderedMap();
-            BlockIdentifier swiBlockIdentifier = struSwi.getBlockIdentifier();
-            AssertionTrackingControlFlowSwitchExpressionTransformer track = new AssertionTrackingControlFlowSwitchExpressionTransformer(swiBlockIdentifier, outer, replacements);
-            switchStm.transform(track, new StructuredScope());
-            if (track.failed) return null;
-            if (track.assertionThrows.size() > 1) {
-                return null;
-            }
-
-            replacements.clear();
-            Expression exceptArg = null;
-            if (track.assertionThrows.size() == 1) {
-                StructuredStatement throwStm = track.assertionThrows.get(0);
-                Pair<Boolean, Expression> excepTest = extractAssertionThrowArgument(throwStm);
-                if (!excepTest.getFirst()) return null;
-                exceptArg = excepTest.getSecond();
-                replacements.put(throwStm.getContainer(), new StructuredExpressionYield(BytecodeLoc.TODO, Literal.FALSE));
-            }
-
-            List<SwitchExpression.Branch> branches = ListFactory.newList();
-            if (!extractSwitchBranches(swiBlockIdentifier, swiBlockIdentifier, swBodyBlock, branches, replacements, true)) return null;
-            // And add yield true to the end of every branch that could roll off.
-
-            return buildSwitchAssertion((StructuredIf) ifStm, struSwi, branches, exceptArg);
-
         }
     }
 
