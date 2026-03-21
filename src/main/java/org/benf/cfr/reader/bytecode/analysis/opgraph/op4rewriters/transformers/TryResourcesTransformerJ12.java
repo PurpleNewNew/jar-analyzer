@@ -80,7 +80,7 @@ public class TryResourcesTransformerJ12 extends TryResourcesTransformerBase {
                 finallyBlock,
                 2,
                 wcm,
-                wrapBlockMatcher(ResourceReleaseDetector.buildSimpleStructuredStatementMatcher(wcm, throwableLValue, autoclose))
+                wrapBlockMatcher(ResourceReleaseDetector.buildSimpleStructuredStatementMatcher(wcm, autoclose))
         );
         if (collector == null) return null;
         return new ResourceMatch(null, collector.resource, collector.throwable, false, Collections.<Op04StructuredStatement>emptyList());

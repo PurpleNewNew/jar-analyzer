@@ -52,7 +52,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
     private final ClassFile classFile;
     private final ClassFileVersion classFileVersion;
     private final BlockIdentifierFactory blockIdentifierFactory;
-    private final static JavaTypeInstance expectedLUTType = new JavaArrayTypeInstance(1, RawJavaType.INT);
+    private final static JavaTypeInstance expectedLookupTableType = new JavaArrayTypeInstance(1, RawJavaType.INT);
 
     public SwitchEnumRewriter(DCCommonState dcCommonState, ClassFile classFile, BlockIdentifierFactory blockIdentifierFactory) {
         this.dcCommonState = dcCommonState;
@@ -101,7 +101,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
             return;
         }
         MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(candidateStatements);
-        SwitchEnumMatchResultCollector collector = new SwitchEnumMatchResultCollector();
+        SwitchRewriteTargetCollector collector = new SwitchRewriteTargetCollector();
         while (iterator.hasNext()) {
             iterator.advance();
             collector.clear();
@@ -154,7 +154,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
      */
 
-    private void rewriteMatchedEnumSwitch(SwitchEnumMatchResultCollector matchResultCollector, boolean expression) {
+    private void rewriteMatchedEnumSwitch(SwitchRewriteTargetCollector matchResultCollector, boolean expression) {
         LookupRewritePlan plan = createLookupRewritePlan(matchResultCollector);
         if (plan == null) {
             return;
@@ -165,7 +165,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         applyLookupCleanup(plan);
     }
 
-    private LookupRewritePlan createLookupRewritePlan(SwitchEnumMatchResultCollector matchResultCollector) {
+    private LookupRewritePlan createLookupRewritePlan(SwitchRewriteTargetCollector matchResultCollector) {
         Expression lookup = matchResultCollector.getLookupTable();
         if (lookup instanceof LValueExpression) {
             return createJavacLookupRewritePlan(matchResultCollector.getEnumObject(), ((LValueExpression) lookup).getLValue());
@@ -190,7 +190,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         if (lookupMethod == null || !isSyntheticStaticLookupMethod(lookupMethod)) {
             return null;
         }
-        if (!lookupMethod.getMethodPrototype().getReturnType().equals(expectedLUTType)) {
+        if (!lookupMethod.getMethodPrototype().getReturnType().equals(expectedLookupTableType)) {
             return null;
         }
 
@@ -198,35 +198,35 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         if (lookupStatements == null) return null;
 
         WildcardMatch sharedWildcardMatch = new WildcardMatch();
-        EclipseVarResultCollector assignment = matchEclipseLookupAssignment(lookupStatements, enumObject, enumObjectIsNullLiteral, sharedWildcardMatch);
+        EclipseLookupAssignmentCollector assignment = matchEclipseLookupAssignment(lookupStatements, enumObject, enumObjectIsNullLiteral, sharedWildcardMatch);
         if (assignment == null) {
             return null;
         }
 
-        ClassFileField hiddenField = getSyntheticStaticLookupField(assignment.field);
+        ClassFileField hiddenField = getSyntheticStaticLookupField(assignment.lookupField);
         if (hiddenField == null) {
             return null;
         }
 
         Expression rewrittenEnumObject = enumObject;
         if (enumObjectIsNullLiteral) {
-            JavaTypeInstance enumType = assignment.arrayLen.getClazz();
+            JavaTypeInstance enumType = assignment.valuesMethod.getClazz();
             rewrittenEnumObject = new CastExpression(BytecodeLoc.NONE, new InferredJavaType(enumType, InferredJavaType.Source.TRANSFORM), enumObject);
         }
 
-        return new LookupRewritePlan(rewrittenEnumObject, assignment.lookup, lookupStatements, sharedWildcardMatch, hiddenField, lookupMethod, null);
+        return new LookupRewritePlan(rewrittenEnumObject, assignment.lookupTable, lookupStatements, sharedWildcardMatch, hiddenField, lookupMethod, null);
     }
 
-    private static class EclipseVarResultCollector implements MatchResultCollector {
-        LValue lookup;
-        LValue field;
-        StaticFunctionInvokation arrayLen;
+    private static class EclipseLookupAssignmentCollector implements MatchResultCollector {
+        LValue lookupTable;
+        LValue lookupField;
+        StaticFunctionInvokation valuesMethod;
 
         @Override
         public void clear() {
-            lookup = null;
-            field = null;
-            arrayLen = null;
+            lookupTable = null;
+            lookupField = null;
+            valuesMethod = null;
         }
 
         @Override
@@ -236,9 +236,9 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
-            lookup = wcm.getLValueWildCard("lookup").getMatch();
-            field = wcm.getLValueWildCard("static").getMatch();
-            arrayLen = wcm.getStaticFunction("func").getMatch();
+            lookupTable = wcm.getLValueWildCard("lookup").getMatch();
+            lookupField = wcm.getLValueWildCard("static").getMatch();
+            valuesMethod = wcm.getStaticFunction("func").getMatch();
         }
     }
 
@@ -311,10 +311,10 @@ public class SwitchEnumRewriter implements Op04Rewriter {
                 && method.testAccessFlag(AccessFlagMethod.ACC_STATIC);
     }
 
-    private EclipseVarResultCollector matchEclipseLookupAssignment(List<StructuredStatement> lookupStatements,
-                                                                  Expression enumObject,
-                                                                  boolean enumObjectIsNullLiteral,
-                                                                  WildcardMatch wcm) {
+    private EclipseLookupAssignmentCollector matchEclipseLookupAssignment(List<StructuredStatement> lookupStatements,
+                                                                         Expression enumObject,
+                                                                         boolean enumObjectIsNullLiteral,
+                                                                         WildcardMatch wcm) {
         JavaTypeInstance enumType = enumObjectIsNullLiteral ? null : enumObject.getInferredJavaType().getJavaTypeInstance();
         Matcher<StructuredStatement> matcher =
                 new ResetAfterTest(wcm,
@@ -339,7 +339,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
                                         RawJavaType.INT)))
                 );
         MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(lookupStatements);
-        EclipseVarResultCollector collector = new EclipseVarResultCollector();
+        EclipseLookupAssignmentCollector collector = new EclipseLookupAssignmentCollector();
         while (iterator.hasNext()) {
             iterator.advance();
             collector.clear();
@@ -376,7 +376,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
             Field field = enumLookupOwner
                     .getFieldByName(staticLookupTable.getFieldName(), staticLookupTable.getInferredJavaType().getJavaTypeInstance())
                     .getField();
-            return field.getJavaTypeInstance().equals(expectedLUTType);
+            return field.getJavaTypeInstance().equals(expectedLookupTableType);
         } catch (NoSuchFieldException e) {
             return false;
         }
@@ -394,7 +394,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         }
     }
 
-    private boolean rewriteLookupSwitch(SwitchEnumMatchResultCollector mrc,
+    private boolean rewriteLookupSwitch(SwitchRewriteTargetCollector mrc,
                                         boolean expression,
                                         Expression enumObject,
                                         LValue lookupTable,
@@ -402,7 +402,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
                                         WildcardMatch sharedWildcardMatch) {
         WildcardMatch caseMatch = new WildcardMatch();
         Matcher<StructuredStatement> matcher = buildEnumLookupMatcher(lookupTable, enumObject, sharedWildcardMatch, caseMatch);
-        SwitchForeignEnumMatchResultCollector matchResultCollector = new SwitchForeignEnumMatchResultCollector(caseMatch);
+        LookupValueCollector matchResultCollector = new LookupValueCollector(caseMatch);
         if (!matchLookupInitialisation(structuredStatements, matcher, matchResultCollector)) {
             return false;
         }
@@ -426,7 +426,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
 
     private boolean matchLookupInitialisation(List<StructuredStatement> structuredStatements,
                                               Matcher<StructuredStatement> matcher,
-                                              SwitchForeignEnumMatchResultCollector collector) {
+                                              LookupValueCollector collector) {
         MatchIterator<StructuredStatement> iterator = new MatchIterator<StructuredStatement>(structuredStatements);
         while (iterator.hasNext()) {
             iterator.advance();
@@ -438,7 +438,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         return false;
     }
 
-    private boolean rewriteIndexedSwitch(SwitchEnumMatchResultCollector mrc, boolean expression, Expression enumObject, SwitchForeignEnumMatchResultCollector matchResultCollector) {
+    private boolean rewriteIndexedSwitch(SwitchRewriteTargetCollector mrc, boolean expression, Expression enumObject, LookupValueCollector matchResultCollector) {
         Map<Integer, StaticVariable> reverseLut = matchResultCollector.getLookupValues();
         /*
          * Now, we rewrite the statement in the FIRST match (i.e in our original source file)
@@ -468,7 +468,7 @@ public class SwitchEnumRewriter implements Op04Rewriter {
             for (Op04StructuredStatement caseOuter : caseStatements) {
                 StructuredStatement caseInner = caseOuter.getStatement();
                 if (!(caseInner instanceof StructuredCase)) {
-                    return true;
+                    return false;
                 }
                 StructuredCase caseStmt = (StructuredCase) caseInner;
                 List<Expression> values = caseStmt.getValues();
@@ -563,14 +563,14 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         return (Integer) typedLiteral.getValue();
     }
 
-    private static class SwitchEnumMatchResultCollector extends AbstractMatchResultIterator {
+    private static class SwitchRewriteTargetCollector extends AbstractMatchResultIterator {
 
         private Expression lookupTable;
         private Expression enumObject;
         private StructuredSwitch structuredSwitch;
         private StructuredExpressionStatement structuredExpressionStatement;
 
-        private SwitchEnumMatchResultCollector() {
+        private SwitchRewriteTargetCollector() {
         }
 
         @Override
@@ -613,11 +613,11 @@ public class SwitchEnumRewriter implements Op04Rewriter {
         }
     }
 
-    private class SwitchForeignEnumMatchResultCollector extends AbstractMatchResultIterator {
+    private class LookupValueCollector extends AbstractMatchResultIterator {
         private final WildcardMatch wcmCase;
         private final Map<Integer, StaticVariable> lutValues = MapFactory.newMap();
 
-        private SwitchForeignEnumMatchResultCollector(WildcardMatch wcmCase) {
+        private LookupValueCollector(WildcardMatch wcmCase) {
             this.wcmCase = wcmCase;
         }
 

@@ -158,9 +158,9 @@ public class RecordRewriter {
      * NB: This default may change - this is the existing behaviour as of 14-ea+34-1452
      */
     private static void hideDefaultUtilityMethods(ClassFile classFile, JavaTypeInstance thisType, List<ClassFileField> instances) {
-        Method equalsMethod = getMethod(classFile, Collections.<JavaTypeInstance>singletonList(TypeConstants.OBJECT), MiscConstants.EQUALS);
-        Method toStringMethod = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.TOSTRING);
-        Method hashCodeMethod = getMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.HASHCODE);
+        Method equalsMethod = findPublicMethod(classFile, Collections.<JavaTypeInstance>singletonList(TypeConstants.OBJECT), MiscConstants.EQUALS);
+        Method toStringMethod = findPublicMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.TOSTRING);
+        Method hashCodeMethod = findPublicMethod(classFile, Collections.<JavaTypeInstance>emptyList(), MiscConstants.HASHCODE);
 
         hideDefaultObjectMethod(
                 thisType,
@@ -219,14 +219,14 @@ public class RecordRewriter {
                 resultType
         );
 
-        StructuredStatement item = getSingleCodeLine(method);
+        StructuredStatement item = getSingleStructuredStatement(method);
         if (!stm.equals(item)) return;
         if (!matchesObjectMethodBootstrapArgs(wcm.getExpressionWildCard("array").getMatch(), thisType, fields)) return;
         if (!MiscUtils.isThis(wcm.getExpressionWildCard("this").getMatch(), thisType)) return;
         method.hideDead();
     }
 
-    private static boolean stringArgEq(Expression expression, String name) {
+    private static boolean matchesStringBootstrapArg(Expression expression, String name) {
         Literal l = expression.getComputedLiteral(null);
         if (l == null) return false;
         TypedLiteral tl = l.getValue();
@@ -235,7 +235,7 @@ public class RecordRewriter {
         return val.equals(QuotingUtils.enquoteString(name));
     }
 
-    private static boolean methodHandleEq(Expression expression, String name) {
+    private static boolean matchesMethodHandleBootstrapArg(Expression expression, String name) {
         Literal l = expression.getComputedLiteral(null);
         if (l == null) return false;
         TypedLiteral tl = l.getValue();
@@ -246,7 +246,7 @@ public class RecordRewriter {
         return name.equals(fName);
     }
 
-    private static boolean classArgEq(Expression expression, JavaTypeInstance thisType) {
+    private static boolean matchesClassBootstrapArg(Expression expression, JavaTypeInstance thisType) {
         Literal l = expression.getComputedLiteral(null);
         if (l == null) return false;
         TypedLiteral tl = l.getValue();
@@ -261,7 +261,7 @@ public class RecordRewriter {
         List<Expression> cmpValues = ((NewAnonymousArray) cmpArgs).getValues();
         if (cmpValues.size() != instances.size() + 2) return false;
 
-        if (!classArgEq(cmpValues.get(0), thisType)) return false;
+        if (!matchesClassBootstrapArg(cmpValues.get(0), thisType)) return false;
 
         StringBuilder semi = new StringBuilder();
         int idx = 2;
@@ -269,14 +269,14 @@ public class RecordRewriter {
             if (idx != 2) semi.append(";");
             Expression arg = cmpValues.get(idx++);
             String name = field.getFieldName();
-            if (!methodHandleEq(arg, name)) return false;
+            if (!matchesMethodHandleBootstrapArg(arg, name)) return false;
             semi.append(name);
         }
-        if (!stringArgEq(cmpValues.get(1), semi.toString())) return false;
+        if (!matchesStringBootstrapArg(cmpValues.get(1), semi.toString())) return false;
         return true;
     }
 
-    private static Method getMethod(ClassFile classFile, final List<JavaTypeInstance> args, String name) {
+    private static Method findPublicMethod(ClassFile classFile, final List<JavaTypeInstance> args, String name) {
         List<Method> methods = classFile.getMethodsByNameOrNull(name);
         if (methods == null) return null;
         methods = Functional.filter(methods, new Predicate<Method>() {
@@ -289,7 +289,7 @@ public class RecordRewriter {
         return methods.size() == 1 ? methods.get(0) : null;
     }
 
-    private static StructuredStatement getSingleCodeLine(Method method) {
+    private static StructuredStatement getSingleStructuredStatement(Method method) {
         Block block = getStructuredCodeBlock(method);
         if (block == null) return null;
         Optional<Op04StructuredStatement> content = block.getMaybeJustOneStatement();
@@ -298,7 +298,7 @@ public class RecordRewriter {
     }
 
     private static void hideDefaultGetter(Method method, ClassFileField classFileField, JavaRefTypeInstance thisType) {
-        StructuredStatement item = getSingleCodeLine(method);
+        StructuredStatement item = getSingleStructuredStatement(method);
         if (!(item instanceof StructuredReturn)) {
             return;
         }

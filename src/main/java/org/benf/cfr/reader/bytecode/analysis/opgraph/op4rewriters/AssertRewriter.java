@@ -46,7 +46,7 @@ public class AssertRewriter {
     private final ClassFile classFile;
     private StaticVariable assertionStatic = null;
     private final boolean switchExpressions;
-    private InferredJavaType boolIjt = new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION);
+    private final InferredJavaType booleanType = new InferredJavaType(RawJavaType.BOOLEAN, InferredJavaType.Source.EXPRESSION);
 
     public AssertRewriter(ClassFile classFile, Options options) {
         this.classFile = classFile;
@@ -706,14 +706,14 @@ public class AssertRewriter {
         private Expression getBranchValue(Op04StructuredStatement body, ControlFlowSwitchExpressionTransformer transformer) {
             return transformer.totalStatements == 0
                     ? transformer.singleValue
-                    : new StructuredStatementExpression(boolIjt, body.getStatement());
+                    : new StructuredStatementExpression(booleanType, body.getStatement());
         }
 
         private StructuredStatement buildSwitchAssertion(StructuredIf ifStm,
                                                         StructuredSwitch structuredSwitch,
                                                         List<SwitchExpression.Branch> branches,
                                                         Expression exceptArg) {
-            SwitchExpression sw = new SwitchExpression(BytecodeLoc.TODO, boolIjt, structuredSwitch.getSwitchOn(), branches);
+            SwitchExpression sw = new SwitchExpression(BytecodeLoc.TODO, booleanType, structuredSwitch.getSwitchOn(), branches);
             return ifStm.convertToAssertion(StructuredAssert.mkStructuredAssert(BytecodeLoc.TODO, new BooleanExpression(sw), exceptArg));
         }
     }
@@ -823,7 +823,7 @@ public class AssertRewriter {
 
     private class AssertUseCollector extends AbstractMatchResultIterator {
 
-        private StructuredStatement ass2throw;
+        private StructuredStatement assertionThrow;
 
         private final WildcardMatch wcm;
 
@@ -833,7 +833,7 @@ public class AssertRewriter {
 
         @Override
         public void clear() {
-            ass2throw = null;
+            assertionThrow = null;
         }
 
         @Override
@@ -849,7 +849,7 @@ public class AssertRewriter {
                     rewriteControlFlowAssert((StructuredIf) statement, arg);
                     break;
                 case MATCH_ASSERT_CONTROL_FLOW_THROW:
-                    ass2throw = statement;
+                    assertionThrow = statement;
                     break;
                 case MATCH_ASSERT_DISABLED_ONLY:
                     rewriteDisabledOnlyAssert((StructuredIf) statement, arg);
@@ -880,7 +880,7 @@ public class AssertRewriter {
         }
 
         private void rewriteControlFlowAssert(StructuredIf ifStatement, Expression arg) {
-            if (ass2throw == null) throw new IllegalStateException();
+            if (assertionThrow == null) throw new IllegalStateException();
             WildcardMatch.ConditionalExpressionWildcard wcard = wcm.getConditionalExpressionWildcard("condition2");
             ConditionalExpression conditionalExpression = wcard.getMatch();
             if (conditionalExpression == null) {
@@ -888,7 +888,7 @@ public class AssertRewriter {
             }
             StructuredStatement structuredAssert = StructuredAssert.mkStructuredAssert(BytecodeLoc.TODO, conditionalExpression, arg);
             ifStatement.getContainer().replaceStatement(structuredAssert);
-            ass2throw.getContainer().replaceStatement(ifStatement.getIfTaken().getStatement());
+            assertionThrow.getContainer().replaceStatement(ifStatement.getIfTaken().getStatement());
         }
 
         private void rewriteDisabledOnlyAssert(StructuredIf ifStatement, Expression arg) {

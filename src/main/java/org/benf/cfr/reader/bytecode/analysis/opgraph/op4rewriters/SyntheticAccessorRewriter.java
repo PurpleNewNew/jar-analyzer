@@ -235,7 +235,9 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
                 buildAccessorCases(wcm, methodExprs),
                 new EndBlock(null)
         );
-        if (!matchesSingleBlock(structuredStatements, matcher, accessorMatchCollector)) return null;
+        MatchIterator<StructuredStatement> matchIterator = new MatchIterator<StructuredStatement>(structuredStatements);
+        matchIterator.advance();
+        if (!matcher.match(matchIterator, accessorMatchCollector)) return null;
         if (accessorMatchCollector.matchKind == null) return null;
 
         boolean isStatic = (accessorMatchCollector.lValue instanceof StaticVariable);
@@ -295,17 +297,19 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
                                               List<Expression> appliedArgs, List<LocalVariable> methodArgs) {
         WildcardMatch wcm = new WildcardMatch();
 
-        FuncMatchCollector funcMatchCollector = new FuncMatchCollector();
+        FunctionCallMatchCollector functionCallMatchCollector = new FunctionCallMatchCollector();
         Matcher<StructuredStatement> matcher = new MatchSequence(
                 new BeginBlock(null),
                 buildFunctionCallCases(wcm, otherType),
                 new EndBlock(null)
         );
-        if (!matchesSingleBlock(structuredStatements, matcher, funcMatchCollector)) return null;
-        if (funcMatchCollector.matchKind == null) return null;
+        MatchIterator<StructuredStatement> matchIterator = new MatchIterator<StructuredStatement>(structuredStatements);
+        matchIterator.advance();
+        if (!matcher.match(matchIterator, functionCallMatchCollector)) return null;
+        if (functionCallMatchCollector.matchKind == null) return null;
 
         CloneHelper cloneHelper = buildCloneHelper(otherType, methodArgs, appliedArgs);
-        return cloneHelper.replaceOrClone(funcMatchCollector.functionInvokation);
+        return cloneHelper.replaceOrClone(functionCallMatchCollector.functionInvocation);
     }
 
     private MatchOneOf buildFunctionCallCases(WildcardMatch wcm, JavaTypeInstance otherType) {
@@ -439,14 +443,6 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         );
     }
 
-    private boolean matchesSingleBlock(List<StructuredStatement> structuredStatements,
-                                       Matcher<StructuredStatement> matcher,
-                                       AbstractMatchResultIterator collector) {
-        MatchIterator<StructuredStatement> mi = new MatchIterator<StructuredStatement>(structuredStatements);
-        mi.advance();
-        return matcher.match(mi, collector);
-    }
-
     private CloneHelper buildCloneHelper(JavaTypeInstance otherType,
                                          List<LocalVariable> methodArgs,
                                          List<Expression> appliedArgs) {
@@ -513,15 +509,15 @@ public class SyntheticAccessorRewriter extends AbstractExpressionRewriter implem
         }
     }
 
-    private class FuncMatchCollector extends AbstractMatchResultIterator {
+    private class FunctionCallMatchCollector extends AbstractMatchResultIterator {
 
         FunctionCallMatchKind matchKind;
-        Expression functionInvokation;
+        Expression functionInvocation;
 
         @Override
         public void collectMatches(String name, WildcardMatch wcm) {
             this.matchKind = FunctionCallMatchKind.fromMatcherName(name);
-            functionInvokation = matchKind != null && matchKind.staticInvocation
+            functionInvocation = matchKind != null && matchKind.staticInvocation
                     ? wcm.getStaticFunction("func").getMatch()
                     : wcm.getMemberFunction("func").getMatch();
         }
