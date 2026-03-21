@@ -867,7 +867,7 @@ public final class ProjectRegistryService {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            temp = Files.createTempFile(parent, target.getFileName() + ".tmp-", ".json");
+            temp = target.resolveSibling(target.getFileName() + ".tmp");
             Files.writeString(temp, json, StandardCharsets.UTF_8);
             replaceRegistryFile(temp, target);
             setRegistryStatusLocked(REGISTRY_STATE_OK, "");

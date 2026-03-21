@@ -105,6 +105,18 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
             castType = ((JavaWildcardTypeInstance) castType).getUnderlyingType();
         }
         if (forced) {
+            if (child instanceof MemberFunctionInvokation) {
+                MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) child;
+                DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(castType);
+                if (ExpressionTypeHintHelper.shouldSuppressExpectedMemberCast(
+                        memberFunctionInvokation,
+                        castType,
+                        resolution
+                )) {
+                    d.dump(child);
+                    return d;
+                }
+            }
             if (castType == RawJavaType.NULL) {
                 child.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
             } else {
@@ -123,6 +135,14 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
             DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(castType);
             JavaTypeInstance displayType = resolution.getResolvedType();
             requiresExplicitFunctionCast = resolution.requiresExplicitCast();
+            if (requiresExplicitFunctionCast
+                    && ExpressionTypeHintHelper.shouldSuppressExpectedMemberCast(
+                    memberFunctionInvokation,
+                    castType,
+                    resolution
+            )) {
+                requiresExplicitFunctionCast = false;
+            }
             if (displayType != null) {
                 childType = displayType;
             }

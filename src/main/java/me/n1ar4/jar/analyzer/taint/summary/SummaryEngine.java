@@ -125,6 +125,10 @@ public final class SummaryEngine {
         }
     }
 
+    private void ensureRuleContext() {
+        ensureRuleContext(null);
+    }
+
     private MethodSummary loadFromDb(MethodReference.Handle handle) {
         try {
             String key = buildCacheKey(handle);

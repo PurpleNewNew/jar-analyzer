@@ -31,10 +31,10 @@ public class AnalysisResultSuccessful implements AnalysisResult {
         this.anonymousClassUsage = anonymousClassUsage;
         this.comments = comments;
         this.code = code;
-        this.structureRecoveryTrace = structureRecoveryTrace;
-        this.variableRecoveryTrace = variableRecoveryTrace;
-        this.typeRecoveryTrace = typeRecoveryTrace;
-        this.methodDecompileRecord = methodDecompileRecord;
+        this.structureRecoveryTrace = structureRecoveryTrace == null ? StructureRecoveryTrace.empty() : structureRecoveryTrace;
+        this.variableRecoveryTrace = variableRecoveryTrace == null ? VariableRecoveryTrace.empty() : variableRecoveryTrace;
+        this.typeRecoveryTrace = typeRecoveryTrace == null ? TypeRecoveryTrace.empty() : typeRecoveryTrace;
+        this.methodDecompileRecord = methodDecompileRecord == null ? MethodDecompileRecord.empty() : methodDecompileRecord;
         this.lutByOffset = Collections.unmodifiableSortedMap(new TreeMap<Integer, Integer>(lutByOffset));
         boolean failed = false;
         boolean exception = false;

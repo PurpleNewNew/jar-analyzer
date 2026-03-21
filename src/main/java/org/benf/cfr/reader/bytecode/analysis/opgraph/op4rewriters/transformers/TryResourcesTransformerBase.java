@@ -24,7 +24,9 @@ import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.util.collections.SetUtil;
 
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /*
@@ -33,6 +35,7 @@ import java.util.Set;
 public abstract class TryResourcesTransformerBase implements StructuredStatementTransformer {
 
     private final ClassFile classFile;
+    private final Map<Op04StructuredStatement, List<StructuredStatement>> linearizedStatements = new IdentityHashMap<Op04StructuredStatement, List<StructuredStatement>>();
     private boolean success = false;
 
     TryResourcesTransformerBase(ClassFile classFile) {
@@ -40,9 +43,15 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
     }
 
     public boolean transform(Op04StructuredStatement root) {
-        StructuredScope structuredScope = new StructuredScope();
-        root.transform(this, structuredScope);
-        return success;
+        success = false;
+        linearizedStatements.clear();
+        try {
+            StructuredScope structuredScope = new StructuredScope();
+            root.transform(this, structuredScope);
+            return success;
+        } finally {
+            linearizedStatements.clear();
+        }
     }
 
     @Override
@@ -167,7 +176,11 @@ public abstract class TryResourcesTransformerBase implements StructuredStatement
     }
 
     protected List<StructuredStatement> linearizeStatements(Op04StructuredStatement statement) {
-        return statement == null ? null : org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools.linearise(statement);
+        if (statement == null) return null;
+        return linearizedStatements.computeIfAbsent(
+                statement,
+                key -> org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools.linearise(key)
+        );
     }
 
     protected boolean matchesStatements(List<StructuredStatement> statements,

@@ -23,6 +23,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.R
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.SwitchExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TernaryCastCleaner;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesCollapser;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerBase;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerJ12;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerJ7;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.TryResourcesTransformerJ9;
@@ -62,6 +63,7 @@ import org.benf.cfr.reader.util.getopt.OptionsImpl;
 import org.benf.cfr.reader.util.collections.SetFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.List;
@@ -209,9 +211,10 @@ final class StructuredSemanticTransforms {
     }
 
     static void removeEndResource(ClassFile classFile, Op04StructuredStatement root, DecompilerComments comments) {
-        boolean transformed = new TryResourcesTransformerJ9(classFile).transform(root);
-        transformed |= new TryResourcesTransformerJ7(classFile).transform(root);
-        transformed |= new TryResourcesTransformerJ12(classFile).transform(root);
+        boolean transformed = false;
+        for (TryResourcesTransformerBase transformer : getTryResourcesTransformers(classFile)) {
+            transformed |= transformer.transform(root);
+        }
         if (transformed) {
             new TryResourcesCollapser().transform(root);
             if (comments != null) {
@@ -295,15 +298,7 @@ final class StructuredSemanticTransforms {
                 context.constantPool.getClassCache(),
                 context.modernFeatures
         );
-        if (context.options.getOption(OptionsImpl.CONST_OBF)) {
-            rewriteExpressions(block, ConstantFoldingRewriter.INSTANCE);
-        }
-        transformStructured(block, new NakedNullCaster());
-        transformStructured(block, new LambdaCleaner());
-        transformStructured(block, new TernaryCastCleaner());
-        transformStructured(block, new InvalidBooleanCastCleaner());
-        transformStructured(block, new HexLiteralTidier());
-        rewriteExpressions(block, LiteralRewriter.INSTANCE);
+        rewriteExpressions(block, buildExpressionPolishRewriters(context));
         transformStructured(block, new InvalidExpressionStatementCleaner(context.variableFactory));
         structureRecoveryPipeline.applyOutputPolish(block, context);
     }
@@ -331,6 +326,103 @@ final class StructuredSemanticTransforms {
 
     private static void rewriteExpressions(Op04StructuredStatement root, ExpressionRewriter rewriter) {
         new ExpressionRewriterTransformer(rewriter).transform(root);
+    }
+
+    private static void rewriteExpressions(Op04StructuredStatement root, ExpressionRewriter... rewriters) {
+        if (rewriters.length == 0) return;
+        if (rewriters.length == 1) {
+            rewriteExpressions(root, rewriters[0]);
+            return;
+        }
+        new ExpressionRewriterTransformer(new ChainedExpressionRewriter(rewriters)).transform(root);
+    }
+
+    private static List<TryResourcesTransformerBase> getTryResourcesTransformers(ClassFile classFile) {
+        // Do not prune this list purely by classfile version. Older javac/ecj outputs can still
+        // match the newer structural recoveries, and the whole point of this stage is to try the
+        // known bytecode shapes until one resugars cleanly.
+        return List.of(
+                new TryResourcesTransformerJ9(classFile),
+                new TryResourcesTransformerJ7(classFile),
+                new TryResourcesTransformerJ12(classFile)
+        );
+    }
+
+    private static ExpressionRewriter[] buildExpressionPolishRewriters(MethodAnalysisContext context) {
+        List<ExpressionRewriter> rewriters = new ArrayList<ExpressionRewriter>();
+        if (context.options.getOption(OptionsImpl.CONST_OBF)) {
+            rewriters.add(ConstantFoldingRewriter.INSTANCE);
+        }
+        rewriters.add(new NakedNullCaster());
+        rewriters.add(new LambdaCleaner());
+        rewriters.add(new TernaryCastCleaner());
+        rewriters.add(new InvalidBooleanCastCleaner());
+        rewriters.add(new HexLiteralTidier());
+        rewriters.add(LiteralRewriter.INSTANCE);
+        return rewriters.toArray(new ExpressionRewriter[0]);
+    }
+
+    private static final class ChainedExpressionRewriter implements ExpressionRewriter {
+        private final ExpressionRewriter[] rewriters;
+
+        private ChainedExpressionRewriter(ExpressionRewriter[] rewriters) {
+            this.rewriters = rewriters;
+        }
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            Expression rewritten = expression;
+            for (ExpressionRewriter rewriter : rewriters) {
+                rewritten = rewriter.rewriteExpression(rewritten, ssaIdentifiers, statementContainer, flags);
+            }
+            return rewritten;
+        }
+
+        @Override
+        public org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression rewriteExpression(org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression expression,
+                                                                                                             SSAIdentifiers ssaIdentifiers,
+                                                                                                             StatementContainer statementContainer,
+                                                                                                             ExpressionRewriterFlags flags) {
+            org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression rewritten = expression;
+            for (ExpressionRewriter rewriter : rewriters) {
+                rewritten = rewriter.rewriteExpression(rewritten, ssaIdentifiers, statementContainer, flags);
+            }
+            return rewritten;
+        }
+
+        @Override
+        public LValue rewriteExpression(LValue lValue,
+                                        SSAIdentifiers ssaIdentifiers,
+                                        StatementContainer statementContainer,
+                                        ExpressionRewriterFlags flags) {
+            LValue rewritten = lValue;
+            for (ExpressionRewriter rewriter : rewriters) {
+                rewritten = rewriter.rewriteExpression(rewritten, ssaIdentifiers, statementContainer, flags);
+            }
+            return rewritten;
+        }
+
+        @Override
+        public org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel rewriteExpression(org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel lValue,
+                                                                                                  SSAIdentifiers ssaIdentifiers,
+                                                                                                  StatementContainer statementContainer,
+                                                                                                  ExpressionRewriterFlags flags) {
+            org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel rewritten = lValue;
+            for (ExpressionRewriter rewriter : rewriters) {
+                rewritten = rewriter.rewriteExpression(rewritten, ssaIdentifiers, statementContainer, flags);
+            }
+            return rewritten;
+        }
+
+        @Override
+        public void handleStatement(StatementContainer statementContainer) {
+            for (ExpressionRewriter rewriter : rewriters) {
+                rewriter.handleStatement(statementContainer);
+            }
+        }
     }
 
     private static final class LambdaCaptureCollector extends AbstractExpressionRewriter {

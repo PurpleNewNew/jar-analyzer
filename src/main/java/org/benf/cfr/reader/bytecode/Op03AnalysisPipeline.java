@@ -226,8 +226,7 @@ final class Op03AnalysisPipeline {
             Op03Rewriters.replaceReturningIfs(state.op03SimpleParseNodes, false);
         }
 
-        state.op03SimpleParseNodes = Cleaner.sortAndRenumber(state.op03SimpleParseNodes);
-        state.op03SimpleParseNodes = Cleaner.removeUnreachableCode(state.op03SimpleParseNodes, true);
+        state.op03SimpleParseNodes = Cleaner.removeUnreachableAndSort(state.op03SimpleParseNodes, true);
         BreakRewriter.classifyLoopExits(state.op03SimpleParseNodes);
         Op03Rewriters.normalizeLoopShapes(context.options, state.op03SimpleParseNodes);
         Op03Rewriters.removeSynchronizedCatchBlocks(context.options, state.op03SimpleParseNodes);
@@ -285,7 +284,6 @@ final class Op03AnalysisPipeline {
 
         SynchronizedBlocks.findSynchronizedBlocks(state.op03SimpleParseNodes);
         Op03SimpleStatement.removePointlessSwitchDefaults(state.op03SimpleParseNodes);
-        state.op03SimpleParseNodes = Cleaner.removeDetachedStatements(state.op03SimpleParseNodes);
         rewriteExpressions(state.op03SimpleParseNodes, new StringBuilderRewriter(context.options, context.classFileVersion));
         rewriteExpressions(state.op03SimpleParseNodes, new XorRewriter());
         state.op03SimpleParseNodes = Cleaner.removeUnreachableCode(state.op03SimpleParseNodes, true);

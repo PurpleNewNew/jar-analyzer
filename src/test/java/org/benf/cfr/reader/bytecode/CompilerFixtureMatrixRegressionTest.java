@@ -19,6 +19,8 @@ class CompilerFixtureMatrixRegressionTest {
         assertLegacySwitchFixture(tempDir, fixture("compiler-matrix", "LegacySwitchSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"));
         assertEnumSwitchFixture(tempDir, fixture("compiler-matrix", "EnumSwitchMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"));
         assertModernSwitchExpressionFixture(tempDir, fixture("compiler-matrix", "ModernSwitchExpressionSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "21"));
+        assertLabelledSwitchFixture(tempDir, fixture("compiler-matrix", "LabelledSwitchLoopMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "8"));
+        assertLabelledSwitchFixture(tempDir, fixture("compiler-matrix", "LabelledSwitchLoopMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"));
     }
 
     @Test
@@ -26,6 +28,7 @@ class CompilerFixtureMatrixRegressionTest {
         assertPatternFixture(tempDir, fixture("pattern-recovery", "SwitchPatternSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "21"));
         assertRecordFixture(tempDir, fixture("record-object-methods", "SimpleRecordSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "17"));
         assertRecordFixture(tempDir, fixture("record-object-methods", "SimpleRecordSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"));
+        assertLocalEnumFixture(tempDir, fixture("modern-output-polish", "TestLocalEnum", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "21"));
     }
 
     @Test
@@ -36,6 +39,13 @@ class CompilerFixtureMatrixRegressionTest {
         assertTryResourcesFixture(tempDir, fixture("compiler-matrix", "LegacyTryResourcesMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "8"), "ByteArrayOutputStream", false, false);
         assertTryResourcesFixture(tempDir, fixture("compiler-matrix", "ModernTryResourcesMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "21"), "StringWriter", false, true);
         assertTryResourcesFixture(tempDir, fixture("compiler-matrix", "ModernTryResourcesMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"), "StringWriter", false, false);
+        assertTryResourcesFinallyFixture(tempDir, fixture("compiler-matrix", "TryResourcesFinallyMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "17"), "Scanner");
+    }
+
+    @Test
+    void shouldKeepPrecisionAndOutputContractFixturesStableAcrossCompilerBands(@TempDir Path tempDir) throws IOException {
+        assertFloatPrecisionFixture(tempDir, fixture("compiler-matrix", "FloatPrecisionMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.JAVAC, "8"));
+        assertFloatPrecisionFixture(tempDir, fixture("compiler-matrix", "FloatPrecisionMatrixSample", CfrDecompilerRegressionSupport.SourceCompiler.ECJ, "17"));
     }
 
     private void assertLegacySwitchFixture(Path tempDir, FixtureVariant variant) throws IOException {
@@ -67,6 +77,15 @@ class CompilerFixtureMatrixRegressionTest {
         roundTripDecompiled(tempDir, variant, decompiled);
     }
 
+    private void assertLabelledSwitchFixture(Path tempDir, FixtureVariant variant) throws IOException {
+        String decompiled = decompileFixture(tempDir, variant);
+        assertTrue(decompiled.contains("switch (i)"), decompiled);
+        assertFalse(Pattern.compile("(?m)^\\s*block\\d+:").matcher(decompiled).find(), decompiled);
+        assertFalse(Pattern.compile("\\bbreak block\\d+;").matcher(decompiled).find(), decompiled);
+        assertFalse(decompiled.contains("** GOTO"), decompiled);
+        roundTripDecompiled(tempDir, variant, decompiled);
+    }
+
     private void assertPatternFixture(Path tempDir, FixtureVariant variant) throws IOException {
         String decompiled = decompileFixture(tempDir, variant);
         assertTrue(decompiled.contains("case String s:" ) || decompiled.contains("case String s ->"), decompiled);
@@ -80,6 +99,13 @@ class CompilerFixtureMatrixRegressionTest {
         assertTrue(decompiled.contains("record SimpleRecordSample(String name, int age)"), decompiled);
         assertFalse(decompiled.contains("ObjectMethods.bootstrap"), decompiled);
         assertFalse(decompiled.contains("public String name()"), decompiled);
+        roundTripDecompiled(tempDir, variant, decompiled);
+    }
+
+    private void assertLocalEnumFixture(Path tempDir, FixtureVariant variant) throws IOException {
+        String decompiled = decompileFixture(tempDir, variant);
+        assertTrue(decompiled.contains("enum Type"), decompiled);
+        assertFalse(decompiled.contains("static enum Type"), decompiled);
         roundTripDecompiled(tempDir, variant, decompiled);
     }
 
@@ -113,6 +139,23 @@ class CompilerFixtureMatrixRegressionTest {
         if (requireRoundTrip) {
             roundTripDecompiled(tempDir, variant, decompiled);
         }
+    }
+
+    private void assertTryResourcesFinallyFixture(Path tempDir,
+                                                  FixtureVariant variant,
+                                                  String resourceType) throws IOException {
+        String decompiled = decompileFixture(tempDir, variant);
+        assertTrue(Pattern.compile("try \\(" + resourceType + " \\w+ = new " + resourceType + "\\([^)]*\\)\\)\\s*\\{").matcher(decompiled).find(), decompiled);
+        assertFalse(decompiled.contains("Removed try catching itself"), decompiled);
+        assertFalse(decompiled.contains(";){"), decompiled);
+        roundTripDecompiled(tempDir, variant, decompiled);
+    }
+
+    private void assertFloatPrecisionFixture(Path tempDir, FixtureVariant variant) throws IOException {
+        String decompiled = decompileFixture(tempDir, variant);
+        assertTrue(decompiled.contains("double x"), decompiled);
+        assertFalse(decompiled.contains("float x = 0.2f;"), decompiled);
+        roundTripDecompiled(tempDir, variant, decompiled);
     }
 
     private String decompileFixture(Path tempDir, FixtureVariant variant) throws IOException {

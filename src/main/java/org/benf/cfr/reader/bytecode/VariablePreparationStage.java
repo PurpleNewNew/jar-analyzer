@@ -8,6 +8,10 @@ final class VariablePreparationStage {
             return;
         }
         for (VariableRecoveryPasses.VariablePassPlan preparationPlan : VariableRecoveryPasses.preparationPlans()) {
+            if (!context.capturesObservability()) {
+                preparationPlan.apply(block, context);
+                continue;
+            }
             StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
             preparationPlan.apply(block, context);
             context.variableRecoveryTrace.record(

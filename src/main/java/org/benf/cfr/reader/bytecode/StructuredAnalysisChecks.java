@@ -31,6 +31,15 @@ final class StructuredAnalysisChecks {
     static boolean checkTypeClashes(Op04StructuredStatement block,
                                     BytecodeMeta bytecodeMeta,
                                     StructureRecoveryTrace trace) {
+        if (trace == null) {
+            LValueTypeClashCheck clashCheck = new LValueTypeClashCheck();
+            clashCheck.processOp04Statement(block);
+            Set<Integer> clashes = clashCheck.getClashes();
+            if (!clashes.isEmpty()) {
+                bytecodeMeta.informLivenessClashes(clashes);
+            }
+            return !clashes.isEmpty();
+        }
         StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
         StructureRecoveryTrace.PhaseTrace phaseTrace = trace.beginPhase(PHASE, INPUT_REQUIREMENT, before);
         phaseTrace.recordInvariant("input-requirement", true, "accepted " + INPUT_REQUIREMENT + " with " + before);

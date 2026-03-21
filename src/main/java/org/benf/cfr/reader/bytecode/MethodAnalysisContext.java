@@ -32,6 +32,7 @@ final class MethodAnalysisContext {
     final VariableRecoveryTrace variableRecoveryTrace;
     final TypeRecoveryTrace typeRecoveryTrace;
     final MethodDecompileRecord methodDecompileRecord;
+    final boolean captureObservability;
 
     MethodAnalysisContext(DCCommonState commonState,
                           Options options,
@@ -46,7 +47,8 @@ final class MethodAnalysisContext {
                           SortedMap<Integer, Integer> lutByOffset,
                           ConstantPool constantPool,
                           BlockIdentifierFactory blockIdentifierFactory,
-                          ModernFeatureStrategy modernFeatures) {
+                          ModernFeatureStrategy modernFeatures,
+                          boolean captureObservability) {
         this(
                 commonState,
                 options,
@@ -62,10 +64,11 @@ final class MethodAnalysisContext {
                 constantPool,
                 blockIdentifierFactory,
                 modernFeatures,
-                new StructureRecoveryTrace(),
-                new VariableRecoveryTrace(),
-                new TypeRecoveryTrace(),
-                new MethodDecompileRecord()
+                captureObservability ? new StructureRecoveryTrace() : null,
+                captureObservability ? new VariableRecoveryTrace() : null,
+                captureObservability ? new TypeRecoveryTrace() : null,
+                captureObservability ? new MethodDecompileRecord() : null,
+                captureObservability
         );
     }
 
@@ -86,7 +89,8 @@ final class MethodAnalysisContext {
                           StructureRecoveryTrace structureRecoveryTrace,
                           VariableRecoveryTrace variableRecoveryTrace,
                           TypeRecoveryTrace typeRecoveryTrace,
-                          MethodDecompileRecord methodDecompileRecord) {
+                          MethodDecompileRecord methodDecompileRecord,
+                          boolean captureObservability) {
         this.commonState = commonState;
         this.options = options;
         this.method = method;
@@ -105,5 +109,10 @@ final class MethodAnalysisContext {
         this.variableRecoveryTrace = variableRecoveryTrace;
         this.typeRecoveryTrace = typeRecoveryTrace;
         this.methodDecompileRecord = methodDecompileRecord;
+        this.captureObservability = captureObservability;
+    }
+
+    boolean capturesObservability() {
+        return captureObservability;
     }
 }

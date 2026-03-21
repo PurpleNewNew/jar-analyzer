@@ -533,6 +533,11 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
         return requireAnalysisResult();
     }
 
+    public AnalysisResult getAnalysisResultWithObservability() {
+        if (codeAttribute == null) throw new ConfusedCFRException("No code in this method to analyze");
+        return codeAttribute.analyseResultWithObservability();
+    }
+
     private AnalysisResult requireAnalysisResult() {
         if (codeAttribute == null) throw new ConfusedCFRException("No code in this method to analyze");
         return codeAttribute.analyseResult();
@@ -593,6 +598,10 @@ public class Method implements KnowsRawSize, TypeUsageCollectable {
         } else {
             this.comments.addComments(comments.getCommentCollection());
         }
+    }
+
+    public DecompilationQuality getDecompilationQuality() {
+        return comments == null ? DecompilationQuality.CLEAN : comments.getQuality();
     }
 
     private void addComment(DecompilerComment comment) {

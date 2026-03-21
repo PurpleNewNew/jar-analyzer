@@ -31,6 +31,8 @@ public class CodeAnalyser {
 
     private Op04StructuredStatement analysed;
     private AnalysisResult analysisResult;
+    private AnalysisResult observabilityAnalysisResult;
+    private boolean analysing;
     private static final Op04StructuredStatement POISON = new Op04StructuredStatement(new StructuredComment("Analysis utterly failed (Recursive inlining?)"));
 
     public CodeAnalyser(AttributeCode attributeCode) {
@@ -113,29 +115,64 @@ public class CodeAnalyser {
      * This method should not throw.  If it does, something serious has gone wrong.
      */
     public Op04StructuredStatement getAnalysis(DCCommonState dcCommonState) {
-        if (analysed == POISON) {
-            /*
-             * We shouldn't get here, unless a method needs to inline a copy of itself.
-             * (which can't end well!)
-             *
-             * Seen when decompiling scala - a lambda which (to java) looks like an
-             * intermediate.
-             */
+        return getOrCreateAnalysisResult(dcCommonState, false).getCode();
+    }
+
+    public AnalysisResult getAnalysisResult(DCCommonState dcCommonState) {
+        return getOrCreateAnalysisResult(dcCommonState, false);
+    }
+
+    public AnalysisResult getAnalysisResultWithObservability(DCCommonState dcCommonState) {
+        return getOrCreateAnalysisResult(dcCommonState, true);
+    }
+
+    private AnalysisResult getOrCreateAnalysisResult(DCCommonState dcCommonState, boolean captureObservability) {
+        if (!captureObservability) {
+            if (analysisResult != null) {
+                return analysisResult;
+            }
+            if (observabilityAnalysisResult != null) {
+                analysisResult = observabilityAnalysisResult;
+                analysed = analysisResult.getCode();
+                return analysisResult;
+            }
+        } else if (observabilityAnalysisResult != null) {
+            return observabilityAnalysisResult;
+        }
+
+        if (analysing) {
             throw new ConfusedCFRException("Recursive analysis");
         }
-        if (analysed != null) {
-            return analysed;
-        }
-        analysed = POISON;
 
+        analysing = true;
+        analysed = POISON;
+        try {
+            AnalysisResult res = analyseInternal(dcCommonState, captureObservability);
+            if (res.getComments() != null) {
+                method.setComments(res.getComments());
+            }
+            res.getAnonymousClassUsage().useNotes();
+            analysed = res.getCode();
+            if (captureObservability) {
+                observabilityAnalysisResult = res;
+                if (analysisResult == null) {
+                    analysisResult = res;
+                }
+            } else {
+                analysisResult = res;
+            }
+            return res;
+        } finally {
+            analysing = false;
+        }
+    }
+
+    private AnalysisResult analyseInternal(DCCommonState dcCommonState, boolean captureObservability) {
         Options options = dcCommonState.getOptions();
         List<Op01WithProcessedDataAndByteJumps> instrs = getInstrs();
 
         AnalysisResult res;
 
-        /*
-         * Very quick scan to check for presence of certain instructions.
-         */
         BytecodeMeta bytecodeMeta = new BytecodeMeta(instrs, originalCodeAttribute, options);
 
         if (options.optionIsSet(OptionsImpl.FORCE_PASS)) {
@@ -144,24 +181,20 @@ public class CodeAnalyser {
                 throw new IllegalArgumentException("Illegal recovery pass idx");
             }
             RecoveryOptions.Applied applied = recoveryOptionsArr[pass].apply(dcCommonState, options, bytecodeMeta);
-            res = getAnalysisOrWrapFail(pass, instrs, dcCommonState, applied.options, applied.comments, bytecodeMeta);
+            res = getAnalysisOrWrapFail(pass, instrs, dcCommonState, applied.options, applied.comments, bytecodeMeta, captureObservability);
         } else {
-
-            res = getAnalysisOrWrapFail(0, instrs, dcCommonState, options, null, bytecodeMeta);
-
+            res = getAnalysisOrWrapFail(0, instrs, dcCommonState, options, null, bytecodeMeta, captureObservability);
             if (res.isFailed() && options.getOption(OptionsImpl.RECOVER)) {
                 int passIdx = 1;
                 for (RecoveryOptions recoveryOptions : recoveryOptionsArr) {
                     RecoveryOptions.Applied applied = recoveryOptions.apply(dcCommonState, options, bytecodeMeta);
                     if (!applied.valid) continue;
-                    AnalysisResult nextRes = getAnalysisOrWrapFail(passIdx++, instrs, dcCommonState, applied.options, applied.comments, bytecodeMeta);
+                    AnalysisResult nextRes = getAnalysisOrWrapFail(passIdx++, instrs, dcCommonState, applied.options, applied.comments, bytecodeMeta, captureObservability);
                     if (res.isFailed() && nextRes.isFailed()) {
                         if (!nextRes.isThrown()) {
                             if (res.isThrown()) {
-                                // If they both failed, only replace if the later failure is not an exception, and the earlier one was.
                                 res = nextRes;
                             } else if (res.getComments().contains(DecompilerComment.UNABLE_TO_STRUCTURE) && !nextRes.getComments().contains(DecompilerComment.UNABLE_TO_STRUCTURE)) {
-                                // Or if we've failed, but managed to structure.
                                 res = nextRes;
                             }
                         }
@@ -173,24 +206,7 @@ public class CodeAnalyser {
                 }
             }
         }
-
-        if (res.getComments() != null) {
-            method.setComments(res.getComments());
-        }
-
-        /*
-         * Take the anonymous usages from the selected result.
-         */
-        res.getAnonymousClassUsage().useNotes();
-
-        analysisResult = res;
-        analysed = res.getCode();
-        return analysed;
-    }
-
-    public AnalysisResult getAnalysisResult(DCCommonState dcCommonState) {
-        getAnalysis(dcCommonState);
-        return analysisResult;
+        return res;
     }
 
     /*
@@ -218,9 +234,15 @@ public class CodeAnalyser {
         return instrs;
     }
 
-    private AnalysisResult getAnalysisOrWrapFail(int passIdx, List<Op01WithProcessedDataAndByteJumps> instrs, DCCommonState commonState, Options options, List<DecompilerComment> extraComments, BytecodeMeta bytecodeMeta) {
+    private AnalysisResult getAnalysisOrWrapFail(int passIdx,
+                                                 List<Op01WithProcessedDataAndByteJumps> instrs,
+                                                 DCCommonState commonState,
+                                                 Options options,
+                                                 List<DecompilerComment> extraComments,
+                                                 BytecodeMeta bytecodeMeta,
+                                                 boolean captureObservability) {
         try {
-            AnalysisResult res = getAnalysisInner(instrs, commonState, options, bytecodeMeta, passIdx);
+            AnalysisResult res = getAnalysisInner(instrs, commonState, options, bytecodeMeta, passIdx, captureObservability);
             if (extraComments != null) res.getComments().addComments(extraComments);
             return res;
         } catch (RuntimeException e) {
@@ -233,7 +255,12 @@ public class CodeAnalyser {
      *
      * passIdx is only useful for breakpointing.
      */
-    private AnalysisResult getAnalysisInner(List<Op01WithProcessedDataAndByteJumps> instrs, DCCommonState dcCommonState, Options options, BytecodeMeta bytecodeMeta, int passIdx) {
+    private AnalysisResult getAnalysisInner(List<Op01WithProcessedDataAndByteJumps> instrs,
+                                            DCCommonState dcCommonState,
+                                            Options options,
+                                            BytecodeMeta bytecodeMeta,
+                                            int passIdx,
+                                            boolean captureObservability) {
 
         boolean willSort = options.getOption(OptionsImpl.FORCE_TOPSORT) == Troolean.TRUE;
 
@@ -278,7 +305,8 @@ public class CodeAnalyser {
                 pipelineState.lutByOffset,
                 cp,
                 pipelineState.blockIdentifierFactory,
-                modernFeatures
+                modernFeatures,
+                captureObservability
         );
         Op04StructuredStatement block;
         try (TypeRecoveryTracing.Scope ignored = TypeRecoveryTracing.activate(analysisContext.typeRecoveryTrace)) {
@@ -315,5 +343,6 @@ public class CodeAnalyser {
     public void releaseCode() {
         analysed = null;
         analysisResult = null;
+        observabilityAnalysisResult = null;
     }
 }

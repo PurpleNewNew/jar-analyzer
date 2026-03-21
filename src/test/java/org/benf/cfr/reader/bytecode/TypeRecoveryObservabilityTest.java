@@ -47,10 +47,9 @@ class TypeRecoveryObservabilityTest {
                 "--release", "21");
 
         ClassFile loadedClass = loadClass(classFile);
-        loadedClass.dump(new ToStringDumper());
-
         Method method = loadedClass.getMethodByName("indexByValue").get(0);
-        AnalysisResult analysisResult = method.getAnalysisResult();
+        AnalysisResult analysisResult = method.getAnalysisResultWithObservability();
+        loadedClass.dump(new ToStringDumper());
         TypeRecoveryTrace trace = analysisResult.getTypeRecoveryTrace();
         MethodDecompileRecord record = analysisResult.getMethodDecompileRecord();
 
@@ -87,10 +86,9 @@ class TypeRecoveryObservabilityTest {
                 "--release", "21");
 
         ClassFile loadedClass = loadClass(classFile);
-        loadedClass.dump(new ToStringDumper());
-
         Method method = loadedClass.getMethodByName("chooseCollection").get(0);
-        TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
+        TypeRecoveryTrace trace = method.getAnalysisResultWithObservability().getTypeRecoveryTrace();
+        loadedClass.dump(new ToStringDumper());
 
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "ternary-branch-target-constraint".equals(pass.getPass().getDescriptor().getName())
@@ -111,11 +109,10 @@ class TypeRecoveryObservabilityTest {
                 "--release", "21");
 
         ClassFile loadedClass = loadClass(classFile);
-        loadedClass.dump(new ToStringDumper());
-
         Method method = loadedClass.getMethodByName("choose").get(0);
-        MethodDecompileRecord record = method.getAnalysisResult().getMethodDecompileRecord();
-        TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
+        MethodDecompileRecord record = method.getAnalysisResultWithObservability().getMethodDecompileRecord();
+        TypeRecoveryTrace trace = method.getAnalysisResultWithObservability().getTypeRecoveryTrace();
+        loadedClass.dump(new ToStringDumper());
 
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "return-target-constraint".equals(pass.getPass().getDescriptor().getName())
@@ -143,10 +140,9 @@ class TypeRecoveryObservabilityTest {
                 "--release", "21");
 
         ClassFile loadedClass = loadClass(classFile);
-        loadedClass.dump(new ToStringDumper());
-
         Method method = loadedClass.getMethodByName("collect").get(0);
-        TypeRecoveryTrace trace = method.getAnalysisResult().getTypeRecoveryTrace();
+        TypeRecoveryTrace trace = method.getAnalysisResultWithObservability().getTypeRecoveryTrace();
+        loadedClass.dump(new ToStringDumper());
 
         assertTrue(trace.getPasses().stream()
                 .anyMatch(pass -> "display-type-static-binder".equals(pass.getPass().getDescriptor().getName())

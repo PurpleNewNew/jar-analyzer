@@ -83,6 +83,10 @@ final class MethodDecompilePipeline {
                           Op04StructuredStatement block,
                           MethodAnalysisContext context,
                           Runnable action) {
+        if (!context.capturesObservability()) {
+            action.run();
+            return;
+        }
         StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
         int beforeStructurePhaseCount = context.structureRecoveryTrace.getPhases().size();
         int beforeVariablePassCount = context.variableRecoveryTrace.getPasses().size();
@@ -110,6 +114,9 @@ final class MethodDecompilePipeline {
                            Op04StructuredStatement block,
                            MethodAnalysisContext context,
                            String reason) {
+        if (!context.capturesObservability()) {
+            return;
+        }
         context.methodDecompileRecord.recordSkippedStage(
                 stage,
                 inputRequirement,

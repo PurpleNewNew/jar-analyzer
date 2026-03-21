@@ -409,6 +409,19 @@ final class StructureRecoveryPipeline {
         }
 
         void run(Op04StructuredStatement block, MethodAnalysisContext context) {
+            if (!context.capturesObservability()) {
+                if (!inputRequirement.accepts(block)) {
+                    return;
+                }
+                if (maxRounds == 1) {
+                    for (RecoverySubphase subphase : subphases) {
+                        subphase.run(block, context, phaseName, inputRequirement, null);
+                    }
+                    return;
+                }
+                runToFixedPointWithoutTracing(block, context);
+                return;
+            }
             StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
             if (!inputRequirement.accepts(block)) {
                 context.structureRecoveryTrace.recordSkippedPhase(
@@ -476,6 +489,23 @@ final class StructureRecoveryPipeline {
             phaseTrace.finish(current);
         }
 
+        private void runToFixedPointWithoutTracing(Op04StructuredStatement block,
+                                                   MethodAnalysisContext context) {
+            StructureRecoverySnapshot current = StructureRecoverySnapshot.capture(block);
+            Set<StructureRecoverySnapshot> seen = new HashSet<StructureRecoverySnapshot>();
+            seen.add(current);
+            for (int round = 0; round < maxRounds && !current.isFullyStructured(); ++round) {
+                for (RecoverySubphase subphase : subphases) {
+                    subphase.run(block, context, phaseName, inputRequirement, null);
+                }
+                StructureRecoverySnapshot next = StructureRecoverySnapshot.capture(block);
+                if (next.equals(current) || !seen.add(next)) {
+                    return;
+                }
+                current = next;
+            }
+        }
+
         private void runRound(Op04StructuredStatement block,
                               MethodAnalysisContext context,
                               StructureRecoveryTrace.PhaseTrace phaseTrace,
@@ -540,6 +570,12 @@ final class StructureRecoveryPipeline {
                         inputRequirement.describe(),
                         pass.descriptor()
                 );
+                if (roundTrace == null) {
+                    if (pass.enabled(block, context)) {
+                        pass.apply(block, context);
+                    }
+                    continue;
+                }
                 StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
                 boolean enabled = pass.enabled(block, context);
                 if (enabled) {

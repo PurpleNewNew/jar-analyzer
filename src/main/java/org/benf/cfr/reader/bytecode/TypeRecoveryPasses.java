@@ -170,6 +170,9 @@ public final class TypeRecoveryPasses {
         }
         LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
         StructuredAssignment.TypeConstraintEffect effect = assignment.applyTypeConstraints();
+        if (context.typeRecoveryTrace == null) {
+            return;
+        }
         context.typeRecoveryTrace.record(
                 VARIABLE_ASSIGNMENT_CONSTRAINT,
                 "LocalVariable",

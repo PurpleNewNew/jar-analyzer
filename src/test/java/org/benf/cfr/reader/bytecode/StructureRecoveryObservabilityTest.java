@@ -87,7 +87,7 @@ class StructureRecoveryObservabilityTest {
         ClassFile loadedClass = dcCommonState.loadClassFileAtPath(classFile.toString());
         Method method = loadedClass.getMethodByName("demo").get(0);
 
-        AnalysisResult analysisResult = method.getAnalysisResult();
+        AnalysisResult analysisResult = method.getAnalysisResultWithObservability();
         StructureRecoveryTrace trace = analysisResult.getStructureRecoveryTrace();
         VariableRecoveryTrace variableTrace = analysisResult.getVariableRecoveryTrace();
         MethodDecompileRecord record = analysisResult.getMethodDecompileRecord();

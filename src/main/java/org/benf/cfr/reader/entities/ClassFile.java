@@ -66,6 +66,7 @@ import org.benf.cfr.reader.state.TypeUsageInformation;
 import org.benf.cfr.reader.util.CannotLoadClassException;
 import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.ConfusedCFRException;
+import org.benf.cfr.reader.util.DecompilationQuality;
 import org.benf.cfr.reader.util.DecompilerComment;
 import org.benf.cfr.reader.util.DecompilerComments;
 import org.benf.cfr.reader.util.MiscConstants;
@@ -411,6 +412,10 @@ public class ClassFile implements Dumpable, TypeUsageCollectable {
 
     public DecompilerComments getNullableDecompilerComments() {
         return decompilerComments;
+    }
+
+    public DecompilationQuality getDecompilationQuality() {
+        return decompilerComments == null ? DecompilationQuality.CLEAN : decompilerComments.getQuality();
     }
 
     public DecompilerComments ensureDecompilerComments() {

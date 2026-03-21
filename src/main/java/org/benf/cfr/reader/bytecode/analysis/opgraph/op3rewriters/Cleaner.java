@@ -116,9 +116,19 @@ public class Cleaner {
     }
 
     static void sortAndRenumberInPlace(List<Op03SimpleStatement> statements) {
-        // Sort result by existing index.
-        Collections.sort(statements, new CompareByIndex());
+        if (!isSortedByIndex(statements)) {
+            Collections.sort(statements, new CompareByIndex());
+        }
         reindexInPlace(statements);
+    }
+
+    private static boolean isSortedByIndex(List<Op03SimpleStatement> statements) {
+        for (int idx = 1; idx < statements.size(); ++idx) {
+            if (statements.get(idx - 1).getIndex().compareTo(statements.get(idx).getIndex()) > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static void reindexInPlace(List<Op03SimpleStatement> statements) {

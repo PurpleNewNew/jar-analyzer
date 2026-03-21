@@ -16,6 +16,10 @@ final class VariableRecoveryStage {
                          MethodAnalysisContext context,
                          StructuredPassEntry pass,
                          Runnable action) {
+        if (!context.capturesObservability()) {
+            action.run();
+            return;
+        }
         StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
         action.run();
         context.variableRecoveryTrace.record(pass, before, StructureRecoverySnapshot.capture(block));

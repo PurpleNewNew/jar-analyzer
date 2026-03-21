@@ -14,6 +14,15 @@ final class OutputPolishStage {
     }
 
     void apply(Op04StructuredStatement block, MethodAnalysisContext context) {
+        if (!context.capturesObservability()) {
+            if (!block.isFullyStructured()) {
+                return;
+            }
+            for (StructuredSemanticTransforms.OutputPolishPlan plan : plans) {
+                plan.apply(block, context);
+            }
+            return;
+        }
         StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(block);
         if (!block.isFullyStructured()) {
             context.structureRecoveryTrace.recordSkippedPhase(

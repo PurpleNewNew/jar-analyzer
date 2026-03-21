@@ -109,6 +109,18 @@ final class PatternSemanticsRewriter {
         }
 
         private void runPhase(PatternSemanticContext context, PatternSemanticPhase phase) {
+            if (context.getTrace() == null) {
+                for (PatternSemanticPass pass : passes) {
+                    StructuredPassEntry entry = pass.entry(phase);
+                    if (entry == null) {
+                        continue;
+                    }
+                    if (pass.enabled(context)) {
+                        pass.apply(context, phase);
+                    }
+                }
+                return;
+            }
             StructureRecoverySnapshot before = StructureRecoverySnapshot.capture(context.getRoot());
             StructureRecoveryTrace.PhaseTrace phaseTrace = context.getTrace().beginPhase(
                     "pattern-semantics." + phase.name().toLowerCase(),

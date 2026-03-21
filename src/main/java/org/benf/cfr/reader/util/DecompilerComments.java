@@ -5,7 +5,9 @@ import org.benf.cfr.reader.util.output.Dumpable;
 import org.benf.cfr.reader.util.output.Dumper;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class DecompilerComments implements Dumpable {
     private Set<DecompilerComment> comments = SetFactory.newOrderedSet();
@@ -47,6 +49,24 @@ public class DecompilerComments implements Dumpable {
 
     public Collection<DecompilerComment> getCommentCollection() {
         return comments;
+    }
+
+    public DecompilationQuality getQuality() {
+        DecompilationQuality quality = DecompilationQuality.CLEAN;
+        for (DecompilerComment comment : comments) {
+            quality = DecompilationQuality.max(quality, comment.getQuality());
+        }
+        return quality;
+    }
+
+    public boolean isDegraded() {
+        return getQuality() != DecompilationQuality.CLEAN;
+    }
+
+    public List<DecompilerComment> getDegradingComments() {
+        return comments.stream()
+                .filter(DecompilerComment::isDegraded)
+                .collect(Collectors.toList());
     }
 
 }

@@ -294,8 +294,10 @@ public final class ExpressionTypeHintHelper {
             return expression;
         }
         if (expression instanceof MemberFunctionInvokation) {
-            DisplayTypeResolution resolution = ((MemberFunctionInvokation) expression).resolveDisplayReturnType(normalizedExpectedType);
-            if (resolution.requiresExplicitCast()) {
+            MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
+            DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            if (resolution.requiresExplicitCast()
+                    && !shouldSuppressExpectedMemberCast(memberFunctionInvokation, normalizedExpectedType, resolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
                         new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),
@@ -317,6 +319,25 @@ public final class ExpressionTypeHintHelper {
             }
         }
         return expression;
+    }
+
+    static boolean shouldSuppressExpectedMemberCast(MemberFunctionInvokation invokation,
+                                                    JavaTypeInstance expectedType,
+                                                    DisplayTypeResolution resolution) {
+        JavaTypeInstance resolvedType = resolution.getResolvedType();
+        if (expectedType == null || resolvedType == null) {
+            return false;
+        }
+        JavaTypeInstance receiverType = getDisplayType(invokation.getObject(), null);
+        if (!canDisplayTypeArguments(receiverType) || isObjectOnlyGenericType(receiverType)) {
+            return false;
+        }
+        JavaTypeInstance expectedBaseType = expectedType.getDeGenerifiedType();
+        JavaTypeInstance resolvedBaseType = resolvedType.getDeGenerifiedType();
+        return expectedBaseType != null
+                && resolvedBaseType != null
+                && expectedBaseType.equals(resolvedBaseType)
+                && canDisplayTypeArguments(expectedType);
     }
 
     public static boolean needsExpectedCast(Expression expression, JavaTypeInstance expectedType) {

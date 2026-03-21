@@ -35,7 +35,10 @@ public final class Neo4jProjectStore {
     private static final Neo4jProjectStore INSTANCE = new Neo4jProjectStore();
     private static final String TEMP_DB_DIR = "neo4j-temp";
     private static final String PROJECT_DB_DIR = "neo4j-projects";
-    private static final int DELETE_RETRY_COUNT = 5;
+    // Neo4j may release log/file handles slightly after shutdown on Windows.
+    // Deleting project stores is part of registry rollback, so give the store
+    // a longer window to quiesce instead of leaking half-created homes.
+    private static final int DELETE_RETRY_COUNT = 20;
     private static final long DELETE_RETRY_DELAY_MS = 200L;
 
     private final Map<String, StoreRuntime> runtimes = new ConcurrentHashMap<>();
