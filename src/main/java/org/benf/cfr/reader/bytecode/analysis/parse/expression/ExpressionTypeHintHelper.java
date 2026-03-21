@@ -309,7 +309,8 @@ public final class ExpressionTypeHintHelper {
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
             DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
-            if (resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType)) {
+            if ((resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType))
+                    && !shouldSuppressExpectedStaticCast(staticFunctionInvokation, normalizedExpectedType, resolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
                         new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),
@@ -338,6 +339,27 @@ public final class ExpressionTypeHintHelper {
                 && resolvedBaseType != null
                 && expectedBaseType.equals(resolvedBaseType)
                 && canDisplayTypeArguments(expectedType);
+    }
+
+    static boolean shouldSuppressExpectedStaticCast(StaticFunctionInvokation invokation,
+                                                    JavaTypeInstance expectedType,
+                                                    DisplayTypeResolution resolution) {
+        JavaTypeInstance resolvedType = resolution.getResolvedType();
+        if (expectedType == null || resolvedType == null) {
+            return false;
+        }
+        if (!canDisplayTypeArguments(expectedType) || isObjectOnlyGenericType(expectedType)) {
+            return false;
+        }
+        JavaTypeInstance expectedBaseType = expectedType.getDeGenerifiedType();
+        JavaTypeInstance resolvedBaseType = resolvedType.getDeGenerifiedType();
+        if (expectedBaseType == null || !expectedBaseType.equals(resolvedBaseType)) {
+            return false;
+        }
+        if (invokation.needsExpectedReturnCast(expectedType)) {
+            return false;
+        }
+        return true;
     }
 
     public static boolean needsExpectedCast(Expression expression, JavaTypeInstance expectedType) {

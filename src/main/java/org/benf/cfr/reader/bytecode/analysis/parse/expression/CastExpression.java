@@ -117,6 +117,26 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
                     return d;
                 }
             }
+            if (child instanceof StaticFunctionInvokation) {
+                StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) child;
+                DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(castType);
+                if (ExpressionTypeHintHelper.shouldSuppressExpectedStaticCast(
+                        staticFunctionInvokation,
+                        castType,
+                        resolution
+                )) {
+                    d.dump(child);
+                    return d;
+                }
+            }
+            if (child instanceof ConstructorInvokationSimple) {
+                JavaTypeInstance constructorType = ExpressionTypeHintHelper.getDisplayType(child, castType);
+                if (constructorType != null
+                        && constructorType.implicitlyCastsTo(castType, null)) {
+                    d.dump(child);
+                    return d;
+                }
+            }
             if (castType == RawJavaType.NULL) {
                 child.dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
             } else {
@@ -162,6 +182,14 @@ public class CastExpression extends AbstractExpression implements BoxingProcesso
             return d;
         }
         if (child instanceof AbstractFunctionInvokation
+                && childType != null
+                && childType.implicitlyCastsTo(castType, null)
+                && !requiresExplicitFunctionCast) {
+            d.dump(child);
+            return d;
+        }
+        if (!(castType instanceof RawJavaType)
+                && !(childType instanceof RawJavaType)
                 && childType != null
                 && childType.implicitlyCastsTo(castType, null)
                 && !requiresExplicitFunctionCast) {

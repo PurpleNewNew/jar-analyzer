@@ -8,8 +8,12 @@ import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.MemberFunctionInvokation;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.StaticFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.TernaryExpression;
 import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
@@ -22,6 +26,8 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscov
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
+import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
@@ -84,6 +90,8 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     }
 
     private Dumper dumpAssignment(Dumper dumper, boolean resourceContext) {
+        Expression displayRValue = rvalue;
+        JavaTypeInstance creatorOverrideType = null;
         if (shouldInlineSyntheticCreator()) {
             AssignmentExpression assignmentExpression = (AssignmentExpression) rvalue;
             ExpressionTypeHintHelper.improveExpressionType(
@@ -98,16 +106,93 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             return dumper;
         }
         if (isEffectiveCreator()) {
+            LocalVariable creatorLocalVariable = lvalue instanceof LocalVariable ? (LocalVariable) lvalue : null;
+            ForcedCreatorDisplay forcedCreatorDisplay = extractForcedCreatorDisplay(creatorLocalVariable, displayRValue);
+            if (forcedCreatorDisplay != null) {
+                creatorOverrideType = forcedCreatorDisplay.declarationType;
+                displayRValue = forcedCreatorDisplay.expression;
+            }
             if (lvalue.isFinal()) dumper.print("final ");
-            LValue.Creation.dump(dumper, lvalue);
+            LValue.Creation.dump(dumper, lvalue, creatorOverrideType);
         } else {
             dumper.dump(lvalue);
         }
-        dumper.operator(" = ").dump(rvalue);
+        dumper.operator(" = ").dump(displayRValue);
         if (!resourceContext) {
             dumper.endCodeln();
         }
         return dumper;
+    }
+
+    private ForcedCreatorDisplay extractForcedCreatorDisplay(LocalVariable localVariable, Expression expression) {
+        if (!(expression instanceof CastExpression)) {
+            return null;
+        }
+        CastExpression castExpression = (CastExpression) expression;
+        JavaTypeInstance castType = castExpression.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance declarationType = chooseForcedCreatorDeclarationType(localVariable, castType);
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(declarationType)) {
+            return null;
+        }
+        Expression child = castExpression.getChild();
+        JavaTypeInstance childType = ExpressionTypeHintHelper.getDisplayType(child, declarationType);
+        if (!isRedundantCreatorCast(childType, declarationType)
+                && !isSuppressibleCreatorCastChild(child, declarationType)) {
+            return null;
+        }
+        return new ForcedCreatorDisplay(declarationType, child);
+    }
+
+    private boolean isRedundantCreatorCast(JavaTypeInstance childType, JavaTypeInstance castType) {
+        if (childType == null || castType == null) {
+            return false;
+        }
+        if (childType.implicitlyCastsTo(castType, null)) {
+            return true;
+        }
+        BindingSuperContainer bindingSupers = childType.getBindingSupers();
+        if (bindingSupers == null) {
+            return false;
+        }
+        JavaTypeInstance castBaseType = castType.getDeGenerifiedType();
+        if (castBaseType == null) {
+            return false;
+        }
+        JavaGenericRefTypeInstance boundSuper = bindingSupers.getBoundSuperForBase(castBaseType);
+        return boundSuper != null && boundSuper.equals(castType);
+    }
+
+    private JavaTypeInstance chooseForcedCreatorDeclarationType(LocalVariable localVariable, JavaTypeInstance castType) {
+        if (localVariable == null || castType == null) {
+            return castType;
+        }
+        JavaTypeInstance creatorType = localVariable.getCustomCreationJavaType();
+        if (creatorType != null
+                && creatorType.getDeGenerifiedType() != null
+                && creatorType.getDeGenerifiedType().equals(castType.getDeGenerifiedType())) {
+            return ExpressionTypeHintHelper.preferResolvedType(castType, creatorType);
+        }
+        JavaTypeInstance inferredType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (inferredType != null
+                && inferredType.getDeGenerifiedType() != null
+                && inferredType.getDeGenerifiedType().equals(castType.getDeGenerifiedType())) {
+            return ExpressionTypeHintHelper.preferResolvedType(castType, inferredType);
+        }
+        return castType;
+    }
+
+    private boolean isSuppressibleCreatorCastChild(Expression child, JavaTypeInstance declarationType) {
+        if (child instanceof ConstructorInvokationSimple) {
+            return true;
+        }
+        if (child instanceof MemberFunctionInvokation || child instanceof StaticFunctionInvokation) {
+            JavaTypeInstance childDisplayType = ExpressionTypeHintHelper.getDisplayType(child, declarationType);
+            return childDisplayType != null
+                    && (childDisplayType.equals(declarationType)
+                    || childDisplayType.implicitlyCastsTo(declarationType, null)
+                    || declarationType.implicitlyCastsTo(childDisplayType, null));
+        }
+        return false;
     }
 
     public void applyTargetExpressionConstraints() {
@@ -712,5 +797,8 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         public JavaTypeInstance getDisplayType() {
             return displayType;
         }
+    }
+
+    private record ForcedCreatorDisplay(JavaTypeInstance declarationType, Expression expression) {
     }
 }

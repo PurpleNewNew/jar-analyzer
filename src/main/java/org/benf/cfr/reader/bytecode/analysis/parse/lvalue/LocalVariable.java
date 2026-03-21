@@ -13,6 +13,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
@@ -176,6 +177,9 @@ public class LocalVariable extends AbstractLValue {
     }
 
     public void setCustomCreationJavaType(JavaTypeInstance customCreationJavaType) {
+        if (shouldPreserveExistingCreationType(this.customCreationJavaType, customCreationJavaType)) {
+            return;
+        }
         this.customCreationJavaType = customCreationJavaType;
     }
 
@@ -278,5 +282,23 @@ public class LocalVariable extends AbstractLValue {
     // fabric
     public Ident getIdent() {
         return ident;
+    }
+
+    private boolean shouldPreserveExistingCreationType(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
+        if (currentType == null || candidateType == null || currentType.equals(candidateType)) {
+            return false;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
+        if (currentBaseType == null || !currentBaseType.equals(candidateBaseType)) {
+            return false;
+        }
+        if (!(currentType instanceof JavaGenericBaseInstance)) {
+            return false;
+        }
+        if (candidateType instanceof JavaGenericBaseInstance) {
+            return false;
+        }
+        return !((JavaGenericBaseInstance) currentType).hasUnbound();
     }
 }

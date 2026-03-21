@@ -3,6 +3,8 @@ package org.benf.cfr.reader.bytecode;
 import me.n1ar4.jar.analyzer.core.CallGraphPlan;
 import me.n1ar4.jar.analyzer.core.DiscoveryRunner;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCall;
+import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.engine.ClassLookupService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -54,10 +56,14 @@ class SelfDecompileRegressionTest {
                         "BuildBytecodeWorkspace",
                         CfrDecompilerRegressionSupport.locateClassFile(BuildBytecodeWorkspace.class),
                         new String[]{
-                                "cancelRemaining("
+                                "cancelRemaining(",
+                                "Future<List<ParsedClass>> future = futures.get(",
+                                "Future<List<ParsedClass>> pending = futures.get(i);"
                         },
                         new String[]{
-                                "+ true"
+                                "+ true",
+                                "Future future =",
+                                "Future pending ="
                         }),
                 () -> assertSelfDecompileCompilable(
                         tempDir,
@@ -70,6 +76,32 @@ class SelfDecompileRegressionTest {
                                 "Exception decompiling",
                                 "throw new IllegalStateException(\"Decompilation failed\")",
                                 "ArrayList futures = new ArrayList();"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "IdentifyCall",
+                        CfrDecompilerRegressionSupport.locateClassFile(IdentifyCall.class),
+                        new String[]{
+                                "List<SourceValue> pending",
+                                "SourceValue sv = pending.get(pIx);",
+                                "Set<SourceValue> dep = sources.get(instruction);",
+                                "Analyzer<SourceValue> analyzer = new Analyzer<SourceValue>(i)"
+                        },
+                        new String[]{
+                                "List pending =",
+                                "(List<SourceValue>)new ArrayList<SourceValue>(",
+                                "Set dep =",
+                                "(Interpreter)i"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "IdentifyCallEngine",
+                        CfrDecompilerRegressionSupport.locateClassFile(IdentifyCallEngine.class),
+                        new String[]{
+                                "return Collections.emptyList();"
+                        },
+                        new String[]{
+                                "(List<Level>)Collections.emptyList()"
                         })
         );
     }
