@@ -36,8 +36,44 @@ final class CfrDecompilerRegressionSupport {
     private CfrDecompilerRegressionSupport() {
     }
 
+    enum SourceCompiler {
+        JAVAC {
+            @Override
+            Path compile(Path tempDir, String className, String source, String release) throws IOException {
+                return compileJava(tempDir, className, source, "--release", release);
+            }
+        },
+        ECJ {
+            @Override
+            Path compile(Path tempDir, String className, String source, String release) throws IOException {
+                return compileJavaWithEcj(tempDir, className, source, ecjReleaseArgs(release));
+            }
+        };
+
+        abstract Path compile(Path tempDir, String className, String source, String release) throws IOException;
+    }
+
+    private static String[] ecjReleaseArgs(String release) {
+        int releaseVersion = Integer.parseInt(release);
+        if (releaseVersion > 19) {
+            throw new IllegalArgumentException("Current ECJ fixture support only reaches release 19");
+        }
+        if (releaseVersion <= 17) {
+            return new String[]{"-" + release};
+        }
+        return new String[]{"-source", release, "-target", release};
+    }
+
     static Path compileFixture(Path tempDir, String fixtureSuite, String className, String... javacArgs) throws IOException {
         return compileJava(tempDir, className, loadFixtureSource(fixtureSuite, className), javacArgs);
+    }
+
+    static Path compileFixture(Path tempDir,
+                               String fixtureSuite,
+                               String className,
+                               SourceCompiler compiler,
+                               String release) throws IOException {
+        return compiler.compile(tempDir, className, loadFixtureSource(fixtureSuite, className), release);
     }
 
     static Path compileJava(Path tempDir, String className, String source, String... javacArgs) throws IOException {
@@ -83,6 +119,14 @@ final class CfrDecompilerRegressionSupport {
         Path compiledClassFile = resolveCompiledClassFile(tempDir, className, source);
         assertTrue(Files.exists(compiledClassFile), "Compiled class not found: " + compiledClassFile);
         return compiledClassFile;
+    }
+
+    static Path compileJava(Path tempDir,
+                            String className,
+                            String source,
+                            SourceCompiler compiler,
+                            String release) throws IOException {
+        return compiler.compile(tempDir, className, source, release);
     }
 
     private static String loadFixtureSource(String fixtureSuite, String className) throws IOException {
