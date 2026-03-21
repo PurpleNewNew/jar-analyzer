@@ -26,7 +26,7 @@ public class StructuredWhile extends AbstractStructuredConditionalLoopStatement 
 
     @Override
     public Dumper dump(Dumper dumper) {
-        if (block.hasForeignReferences()) dumper.label(block.getName(), true);
+        if (block.hasForeignReferences()) dumper.label(block.getDisplayName(), true);
         dumper.print("while (");
         if (condition == null) {
             dumper.print("true");

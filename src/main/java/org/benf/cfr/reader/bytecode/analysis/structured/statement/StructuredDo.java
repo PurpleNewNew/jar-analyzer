@@ -17,7 +17,7 @@ public class StructuredDo extends AbstractStructuredConditionalLoopStatement {
 
     @Override
     public Dumper dump(Dumper dumper) {
-        if (block.hasForeignReferences()) dumper.label(block.getName(), true);
+        if (block.hasForeignReferences()) dumper.label(block.getDisplayName(), true);
         dumper.print("do ");
         getBody().dump(dumper);
         dumper.removePendingCarriageReturn();

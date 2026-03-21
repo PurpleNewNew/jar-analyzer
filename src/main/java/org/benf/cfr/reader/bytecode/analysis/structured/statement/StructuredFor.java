@@ -59,7 +59,7 @@ public class StructuredFor extends AbstractStructuredBlockStatement {
 
     @Override
     public Dumper dump(Dumper dumper) {
-        if (block.hasForeignReferences()) dumper.label(block.getName(), true);
+        if (block.hasForeignReferences()) dumper.label(block.getDisplayName(), true);
         dumper.keyword("for ").separator("(");
         if (initial != null) {
             if (isCreator) {

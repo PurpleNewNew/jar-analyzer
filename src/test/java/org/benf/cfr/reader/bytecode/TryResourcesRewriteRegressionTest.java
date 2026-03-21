@@ -65,4 +65,34 @@ class TryResourcesRewriteRegressionTest {
         Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-legacy-try-resources"));
         CfrDecompilerRegressionSupport.compileJava(decompiledDir, "TryResourcesLegacyRewriteSample", decompiled, "--release", "21");
     }
+
+    @Test
+    void shouldResugarTryWithResourcesFinallyWithoutTrailingResourceSemicolonOrLoopWarning(@TempDir Path tempDir) throws IOException {
+        String source = """
+                import java.io.File;
+                import java.io.FileNotFoundException;
+                import java.util.Scanner;
+
+                public class TryResourcesFinallyRewriteSample {
+                    public void test(File file) throws FileNotFoundException {
+                        try (Scanner scanner = new Scanner(file)) {
+                            scanner.next();
+                        } finally {
+                            System.out.println("Hello");
+                        }
+                    }
+                }
+                """;
+
+        Path classFile = CfrDecompilerRegressionSupport.compileJava(tempDir, "TryResourcesFinallyRewriteSample", source, "--release", "16");
+
+        String decompiled = CfrDecompilerRegressionSupport.decompileJava(classFile);
+
+        assertTrue(decompiled.contains("try (Scanner scanner = new Scanner(file))"), decompiled);
+        assertFalse(decompiled.contains("try (Scanner scanner = new Scanner(file);)"), decompiled);
+        assertFalse(decompiled.contains("Removed try catching itself"), decompiled);
+
+        Path decompiledDir = Files.createDirectories(tempDir.resolve("decompiled-try-resources-finally"));
+        CfrDecompilerRegressionSupport.compileJava(decompiledDir, "TryResourcesFinallyRewriteSample", decompiled, "--release", "21");
+    }
 }

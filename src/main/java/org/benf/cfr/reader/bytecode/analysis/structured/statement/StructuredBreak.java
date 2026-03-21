@@ -35,7 +35,7 @@ public class StructuredBreak extends AbstractStructuredStatement {
         if (localBreak) {
             dumper.keyword("break").print(";");
         } else {
-            dumper.keyword("break ").print(breakBlock.getName() + ";");
+            dumper.keyword("break ").print(breakBlock.getDisplayName() + ";");
         }
         dumper.newln();
         return dumper;

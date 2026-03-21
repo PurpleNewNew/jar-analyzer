@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,6 +32,8 @@ class StructureFailureRegressionTest {
         assertFalse(decompiled.contains("lbl3:"), decompiled);
         assertTrue(decompiled.contains("if (!bool) {"), decompiled);
         assertTrue(decompiled.contains("} else {"), decompiled);
+        assertTrue(decompiled.contains("double cFake = 0.01;"), decompiled);
+        assertTrue(decompiled.contains("System.out.println(cFake);"), decompiled);
         assertTrue(decompiled.contains("c += 5.0;"), decompiled);
         assertTrue(decompiled.contains("boolean x = d > 0.0;") || decompiled.contains("if (x = d > 0.0)"), decompiled);
         assertTrue(decompiled.contains("System.out.println(d);"), decompiled);
@@ -43,12 +46,14 @@ class StructureFailureRegressionTest {
                 tempDir,
                 "structure-failure",
                 "TestSwitchLoop",
-                "--release", "21");
+                "--release", "8");
 
         String decompiled = CfrDecompilerRegressionSupport.decompile(classFile);
 
         assertFalse(decompiled.contains("Unable to fully structure code"), decompiled);
         assertFalse(decompiled.contains("** GOTO"), decompiled);
+        assertFalse(Pattern.compile("(?m)^\\s*block\\d+:").matcher(decompiled).find(), decompiled);
+        assertFalse(Pattern.compile("\\bbreak block\\d+;").matcher(decompiled).find(), decompiled);
         assertTrue(decompiled.contains("switch (i)"), decompiled);
     }
 

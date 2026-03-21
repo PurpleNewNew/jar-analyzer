@@ -33,6 +33,9 @@ final class StructuredLocalVariableRecoverySupport {
         if (expected == null || actual == null) {
             return false;
         }
+        if (hasConflictingReadableNames(expected, actual)) {
+            return false;
+        }
         if (expected.matchesReadableAlias(actual)) {
             return true;
         }
@@ -59,6 +62,23 @@ final class StructuredLocalVariableRecoverySupport {
         String expectedName = expected.getName().getStringName();
         String actualName = actual.getName().getStringName();
         return expectedName != null && expectedName.equals(actualName);
+    }
+
+    private static boolean hasConflictingReadableNames(LocalVariable expected, LocalVariable actual) {
+        if (expected.getName() == null
+                || actual.getName() == null
+                || !expected.getName().isGoodName()
+                || !actual.getName().isGoodName()) {
+            return false;
+        }
+        // Once both sides have real source-level names, a name mismatch is evidence that these are
+        // different locals sharing a slot, not two views of the same late-resolved variable. Allowing
+        // them to alias here caused declarations such as cFake/c to be merged only halfway.
+        String expectedName = expected.getName().getStringName();
+        String actualName = actual.getName().getStringName();
+        return expectedName != null
+                && actualName != null
+                && !expectedName.equals(actualName);
     }
 
     static boolean isNullLike(Expression expression) {

@@ -129,7 +129,7 @@ final class StructuredSemanticTransforms {
                 modernPlan((block, context) -> rewriteExplicitTypeUsages(block, context.anonymousClassUsage, context.modernFeatures)),
                 modernPlan(
                         context -> context.options.getOption(OptionsImpl.REWRITE_TRY_RESOURCES, context.classFileVersion),
-                        (block, context) -> removeEndResource(context.classFile, block)
+                        (block, context) -> removeEndResource(context.classFile, block, context.comments)
                 ),
                 modernPlan((block, context) -> patternSemanticsRewriter.rewrite(block, context.bytecodeMeta, context.structureRecoveryTrace)),
                 modernPlan(
@@ -208,12 +208,18 @@ final class StructuredSemanticTransforms {
         transformStructured(root, transformer);
     }
 
-    static void removeEndResource(ClassFile classFile, Op04StructuredStatement root) {
+    static void removeEndResource(ClassFile classFile, Op04StructuredStatement root, DecompilerComments comments) {
         boolean transformed = new TryResourcesTransformerJ9(classFile).transform(root);
         transformed |= new TryResourcesTransformerJ7(classFile).transform(root);
         transformed |= new TryResourcesTransformerJ12(classFile).transform(root);
         if (transformed) {
             new TryResourcesCollapser().transform(root);
+            if (comments != null) {
+                // LOOPING_EXCEPTIONS is emitted before try-with-resources recovery, when the synthetic release
+                // scaffolding still looks like a suspicious self-catching loop. Once we have successfully
+                // resugared the construct, keeping that warning becomes misleading noise.
+                comments.removeComment(DecompilerComment.LOOPING_EXCEPTIONS);
+            }
         }
     }
 

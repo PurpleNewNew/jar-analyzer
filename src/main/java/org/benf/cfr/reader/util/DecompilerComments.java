@@ -26,6 +26,10 @@ public class DecompilerComments implements Dumpable {
         this.comments.addAll(comments);
     }
 
+    public boolean removeComment(DecompilerComment comment) {
+        return comments.remove(comment);
+    }
+
     @Override
     public Dumper dump(Dumper d) {
         if (comments.isEmpty()) return d;

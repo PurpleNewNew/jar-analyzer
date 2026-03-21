@@ -31,6 +31,13 @@ public class BlockIdentifier implements Comparable<BlockIdentifier> {
         return "block" + index;
     }
 
+    public String getDisplayName() {
+        // Keep the internal identifier stable for structure recovery, but never leak raw block ids into
+        // user-facing Java output. The remaining labelled-break cases are still legitimate source labels,
+        // just not internal "blockN" implementation details.
+        return "label" + Math.abs(index);
+    }
+
     public int getIndex() {
         return index;
     }

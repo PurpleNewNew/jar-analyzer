@@ -551,7 +551,7 @@ public class Block extends AbstractStructuredStatement {
         boolean isIndenting = isIndenting();
         if (blockIdentifier != null) {
             if (blockIdentifier.hasForeignReferences()) {
-                d.label(blockIdentifier.getName(), true);
+                d.label(blockIdentifier.getDisplayName(), true);
                 isIndenting = true;
             } else {
                 isIndenting = false;

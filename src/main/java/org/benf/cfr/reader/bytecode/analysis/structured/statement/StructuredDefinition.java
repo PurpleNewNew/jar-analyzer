@@ -37,11 +37,22 @@ public class StructuredDefinition extends AbstractStructuredStatement {
 
     @Override
     public Dumper dump(Dumper dumper) {
+        return dumpDefinition(dumper, false);
+    }
+
+    public Dumper dumpAsResource(Dumper dumper) {
+        return dumpDefinition(dumper, true);
+    }
+
+    private Dumper dumpDefinition(Dumper dumper, boolean resourceContext) {
         Class<?> clazz = scopedEntity.getClass();
         if (clazz == LocalVariable.class) {
             LValue.Creation.dump(dumper, scopedEntity);
-            appendDefaultInitializer(dumper, (LocalVariable) scopedEntity);
-            return dumper.endCodeln();
+            if (!resourceContext) {
+                appendDefaultInitializer(dumper, (LocalVariable) scopedEntity);
+                return dumper.endCodeln();
+            }
+            return dumper;
         } else if (clazz == SentinelLocalClassLValue.class) {
             JavaTypeInstance type = ((SentinelLocalClassLValue) scopedEntity).getLocalClassType().getDeGenerifiedType();
             if (type instanceof JavaRefTypeInstance) {

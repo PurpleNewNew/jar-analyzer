@@ -23,6 +23,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
@@ -75,6 +76,14 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
 
     @Override
     public Dumper dump(Dumper dumper) {
+        return dumpAssignment(dumper, false);
+    }
+
+    public Dumper dumpAsResource(Dumper dumper) {
+        return dumpAssignment(dumper, true);
+    }
+
+    private Dumper dumpAssignment(Dumper dumper, boolean resourceContext) {
         if (shouldInlineSyntheticCreator()) {
             AssignmentExpression assignmentExpression = (AssignmentExpression) rvalue;
             ExpressionTypeHintHelper.improveExpressionType(
@@ -82,7 +91,10 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
                     assignmentExpression.getUpdatedLValue().getInferredJavaType().getJavaTypeInstance(),
                     TypeRecoveryPasses.INLINE_SYNTHETIC_CREATOR_HINT
             );
-            dumper.dump(rvalue).endCodeln();
+            dumper.dump(rvalue);
+            if (!resourceContext) {
+                dumper.endCodeln();
+            }
             return dumper;
         }
         if (isEffectiveCreator()) {
@@ -91,7 +103,10 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         } else {
             dumper.dump(lvalue);
         }
-        dumper.operator(" = ").dump(rvalue).endCodeln();
+        dumper.operator(" = ").dump(rvalue);
+        if (!resourceContext) {
+            dumper.endCodeln();
+        }
         return dumper;
     }
 
@@ -148,6 +163,13 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         }
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
         if (!ExpressionTypeHintHelper.canDefineLocalType(displayType)) {
+            return;
+        }
+        if (shouldPreserveFixedWidthPrimitiveDeclaration(currentType, displayType)) {
+            // Display-type prettification is allowed to improve generic/raw declarations, but not to rewrite
+            // fixed-width primitive locals after the storage type has already been proven by bytecode. Without
+            // this guard, `double x = 0.2F;` could degrade into a `float` declaration just because the literal
+            // itself is representable as float syntax.
             return;
         }
         if (localVariable.hasConflictingGenericDeclaration()
@@ -284,6 +306,22 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         return candidateType;
     }
 
+    private boolean shouldPreserveFixedWidthPrimitiveDeclaration(JavaTypeInstance currentType,
+                                                                 JavaTypeInstance displayType) {
+        RawJavaType currentRawType = currentType == null ? null : currentType.getRawTypeOfSimpleType();
+        RawJavaType displayRawType = displayType == null ? null : displayType.getRawTypeOfSimpleType();
+        if (currentRawType == null || displayRawType == null || currentRawType == displayRawType) {
+            return false;
+        }
+        return isFixedWidthPrimitive(currentRawType) || isFixedWidthPrimitive(displayRawType);
+    }
+
+    private boolean isFixedWidthPrimitive(RawJavaType rawJavaType) {
+        return rawJavaType == RawJavaType.LONG
+                || rawJavaType == RawJavaType.FLOAT
+                || rawJavaType == RawJavaType.DOUBLE;
+    }
+
     private boolean sharesGenericBase(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
         if (currentType == null || candidateType == null) {
             return false;
@@ -387,6 +425,9 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         if (expected == null || actual == null) {
             return false;
         }
+        if (hasConflictingReadableNames(expected, actual)) {
+            return false;
+        }
         if (expected.matchesReadableAlias(actual)) {
             return true;
         }
@@ -406,6 +447,23 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         }
         return expected.getOriginalRawOffset() >= 0
                 && expected.getOriginalRawOffset() == actual.getOriginalRawOffset();
+    }
+
+    private boolean hasConflictingReadableNames(LocalVariable expected, LocalVariable actual) {
+        if (expected.getName() == null
+                || actual.getName() == null
+                || !expected.getName().isGoodName()
+                || !actual.getName().isGoodName()) {
+            return false;
+        }
+        // Creator reconciliation runs before later naming/metadata passes have fully settled, so it must be
+        // conservative: two readable locals with different names are much more likely to be distinct source
+        // variables than aliases of the same slot.
+        String expectedName = expected.getName().getStringName();
+        String actualName = actual.getName().getStringName();
+        return expectedName != null
+                && actualName != null
+                && !expectedName.equals(actualName);
     }
 
     private LocalVariable preferCreatorLocal(LocalVariable scopedLocalVariable,

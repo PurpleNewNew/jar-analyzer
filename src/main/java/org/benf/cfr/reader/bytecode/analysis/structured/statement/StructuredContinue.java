@@ -28,7 +28,7 @@ public class StructuredContinue extends AbstractStructuredContinue {
         if (localContinue) {
             dumper.keyword("continue").print(";");
         } else {
-            dumper.keyword("continue ").print(continueTgt.getName() + ";");
+            dumper.keyword("continue ").print(continueTgt.getDisplayName() + ";");
         }
         dumper.newln();
         return dumper;

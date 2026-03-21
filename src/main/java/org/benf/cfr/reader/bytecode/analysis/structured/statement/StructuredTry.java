@@ -69,8 +69,10 @@ public class StructuredTry extends AbstractStructuredStatement {
             dumper.separator("(");
             boolean first = true;
             for (Op04StructuredStatement resource : resourceBlock) {
-                if (!first) dumper.print("     ");
-                resource.dump(dumper);
+                if (!first) {
+                    dumper.separator("; ");
+                }
+                dumpResource(dumper, resource);
                 first = false;
             }
             dumper.removePendingCarriageReturn();
@@ -86,6 +88,20 @@ public class StructuredTry extends AbstractStructuredStatement {
             finallyBlock.dump(dumper);
         }
         return dumper;
+    }
+
+    private void dumpResource(Dumper dumper, Op04StructuredStatement resource) {
+        StructuredStatement statement = resource.getStatement();
+        if (statement instanceof StructuredAssignment) {
+            ((StructuredAssignment) statement).dumpAsResource(dumper);
+            return;
+        }
+        if (statement instanceof StructuredDefinition) {
+            ((StructuredDefinition) statement).dumpAsResource(dumper);
+            return;
+        }
+        resource.dump(dumper);
+        dumper.removePendingCarriageReturn();
     }
 
     @Override
