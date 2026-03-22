@@ -1,11 +1,13 @@
 package org.benf.cfr.reader.bytecode.analysis.opgraph;
 
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.InstanceOfAssignRewriter;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
@@ -20,7 +22,10 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.Block;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDo;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionStatement;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredIf;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredWhile;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.util.collections.ListFactory;
@@ -396,6 +401,10 @@ public final class StructuredCreatorRecovery {
                             extractedAssignments)) {
                         continue;
                     }
+                    if (isConditionDefinedLocal(targetStatement, assignment.localVariable)
+                            || usesConditionDefinedLocal(targetStatement, assignment.assignmentExpression.getrValue())) {
+                        continue;
+                    }
                     int currentIndex = statements.indexOf(targetContainer);
                     if (currentIndex <= 0) {
                         break;
@@ -429,6 +438,9 @@ public final class StructuredCreatorRecovery {
                                                               int assignmentIndex,
                                                               Expression expression,
                                                               Set<LocalVariable> extractedAssignments) {
+            if (containsNestedAssignment(expression)) {
+                return true;
+            }
             for (int idx = 0; idx < assignmentIndex; ++idx) {
                 EmbeddedAssignment earlierAssignment = assignments.get(idx);
                 if (extractedAssignments.contains(earlierAssignment.localVariable)) {
@@ -439,6 +451,68 @@ public final class StructuredCreatorRecovery {
                 }
             }
             return false;
+        }
+
+        private boolean containsNestedAssignment(Expression expression) {
+            if (expression == null) {
+                return false;
+            }
+            NestedAssignmentFinder finder = new NestedAssignmentFinder();
+            finder.rewriteExpression(expression, null, null, null);
+            return finder.found;
+        }
+
+        private boolean isConditionDefinedLocal(StructuredStatement targetStatement, LocalVariable localVariable) {
+            ConditionalExpression condition = getConditionalExpression(targetStatement);
+            if (condition == null || localVariable == null) {
+                return false;
+            }
+            ConditionDefinedLocalCollector collector = new ConditionDefinedLocalCollector();
+            collector.rewriteExpression(condition, null, null, null);
+            return collector.defines(localVariable)
+                    || InstanceOfAssignRewriter.hasInstanceOf(condition)
+                    && new InstanceOfAssignRewriter(localVariable).isMatchFor(condition);
+        }
+
+        private boolean usesConditionDefinedLocal(StructuredStatement targetStatement, Expression expression) {
+            ConditionalExpression condition = getConditionalExpression(targetStatement);
+            if (condition == null || expression == null) {
+                return false;
+            }
+            LValueUsageCollectorSimple collector = new LValueUsageCollectorSimple();
+            expression.collectUsedLValues(collector);
+            if (collector.getUsedLValues().isEmpty()) {
+                return false;
+            }
+            ConditionDefinedLocalCollector conditionCollector = new ConditionDefinedLocalCollector();
+            conditionCollector.rewriteExpression(condition, null, null, null);
+            boolean hasInstanceOf = InstanceOfAssignRewriter.hasInstanceOf(condition);
+            for (LValue used : collector.getUsedLValues()) {
+                if (!(used instanceof LocalVariable)) {
+                    continue;
+                }
+                LocalVariable localVariable = (LocalVariable) used;
+                if (conditionCollector.defines(localVariable)) {
+                    return true;
+                }
+                if (hasInstanceOf && new InstanceOfAssignRewriter(localVariable).isMatchFor(condition)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private ConditionalExpression getConditionalExpression(StructuredStatement targetStatement) {
+            if (targetStatement instanceof StructuredIf) {
+                return ((StructuredIf) targetStatement).getConditionalExpression();
+            }
+            if (targetStatement instanceof StructuredWhile) {
+                return ((StructuredWhile) targetStatement).getCondition();
+            }
+            if (targetStatement instanceof StructuredDo) {
+                return ((StructuredDo) targetStatement).getCondition();
+            }
+            return null;
         }
 
         private PrefixAssignmentCandidate findPrefixCandidate(List<Op04StructuredStatement> statements,
@@ -641,6 +715,52 @@ public final class StructuredCreatorRecovery {
                             assignmentExpression
                     ));
                 }
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+    }
+
+    private static final class ConditionDefinedLocalCollector extends AbstractExpressionRewriter {
+        private final List<LocalVariable> definedLocals = ListFactory.newList();
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (expression instanceof AssignmentExpression) {
+                LValue updated = ((AssignmentExpression) expression).getUpdatedLValue();
+                if (updated instanceof LocalVariable) {
+                    definedLocals.add((LocalVariable) updated);
+                }
+            }
+            return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
+        }
+
+        private boolean defines(LocalVariable candidate) {
+            for (LocalVariable defined : definedLocals) {
+                if (StructuredLocalVariableRecoverySupport.matchesLateResolvedLocal(candidate, defined)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static final class NestedAssignmentFinder extends AbstractExpressionRewriter {
+        private boolean found;
+
+        @Override
+        public Expression rewriteExpression(Expression expression,
+                                            SSAIdentifiers ssaIdentifiers,
+                                            StatementContainer statementContainer,
+                                            ExpressionRewriterFlags flags) {
+            if (found) {
+                return expression;
+            }
+            if (expression instanceof AssignmentExpression) {
+                found = true;
+                return expression;
             }
             return super.rewriteExpression(expression, ssaIdentifiers, statementContainer, flags);
         }

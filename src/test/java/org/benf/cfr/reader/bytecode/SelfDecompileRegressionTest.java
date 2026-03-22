@@ -14,6 +14,9 @@ import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCall;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.engine.ClassLookupService;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.LocalVariableMetadataTransformer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.AbstractMemberFunctionInvokation;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -195,7 +198,25 @@ class SelfDecompileRegressionTest {
                         },
                         new String[]{
                                 "(List<Object>)List.of("
-                        })
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "AbstractMemberFunctionInvokation",
+                        CfrDecompilerRegressionSupport.locateClassFile(AbstractMemberFunctionInvokation.class),
+                        new String[0],
+                        new String[0]),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "ExpressionTypeHintHelper",
+                        CfrDecompilerRegressionSupport.locateClassFile(ExpressionTypeHintHelper.class),
+                        new String[0],
+                        new String[0]),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "LocalVariableMetadataTransformer",
+                        CfrDecompilerRegressionSupport.locateClassFile(LocalVariableMetadataTransformer.class),
+                        new String[0],
+                        new String[0])
         );
     }
 

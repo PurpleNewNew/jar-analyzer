@@ -47,6 +47,24 @@ final class StructuredLocalVariableRecoverySupport {
         if (!hasCompatibleLateResolvedType(expected, actual)) {
             return false;
         }
+        if (sharesStableLocalIdentity(expected, actual)) {
+            return true;
+        }
+        if (hasStableLocalIdentity(expected) && hasStableLocalIdentity(actual)) {
+            return false;
+        }
+        if (!expected.getName().isGoodName() || !actual.getName().isGoodName()) {
+            return false;
+        }
+        String expectedName = expected.getName().getStringName();
+        String actualName = actual.getName().getStringName();
+        return expectedName != null && expectedName.equals(actualName);
+    }
+
+    private static boolean sharesStableLocalIdentity(LocalVariable expected, LocalVariable actual) {
+        if (expected == null || actual == null) {
+            return false;
+        }
         if (expected.getIdx() >= 0
                 && actual.getIdx() >= 0
                 && expected.getIdx() == actual.getIdx()) {
@@ -61,12 +79,8 @@ final class StructuredLocalVariableRecoverySupport {
         if (expected.getIdent() != null && expected.getIdent().equals(actual.getIdent())) {
             return true;
         }
-        if (!expected.getName().isGoodName() || !actual.getName().isGoodName()) {
-            return false;
-        }
-        String expectedName = expected.getName().getStringName();
-        String actualName = actual.getName().getStringName();
-        return expectedName != null && expectedName.equals(actualName);
+        return expected.getOriginalRawOffset() >= 0
+                && expected.getOriginalRawOffset() == actual.getOriginalRawOffset();
     }
 
     private static boolean hasConflictingReadableNames(LocalVariable expected, LocalVariable actual) {
@@ -266,6 +280,12 @@ final class StructuredLocalVariableRecoverySupport {
             return true;
         }
         return localVariable.getName() == null || !localVariable.getName().isGoodName();
+    }
+
+    private static boolean hasStableLocalIdentity(LocalVariable localVariable) {
+        return localVariable != null
+                && localVariable.getIdx() >= 0
+                && (localVariable.getIdent() != null || localVariable.getOriginalRawOffset() >= 0);
     }
 
     static final class LiftedAssignmentConditionRewriter extends AbstractExpressionRewriter {

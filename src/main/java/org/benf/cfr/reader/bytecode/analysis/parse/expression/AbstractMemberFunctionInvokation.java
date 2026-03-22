@@ -189,29 +189,23 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         GenericTypeBinder genericTypeBinder = getExpectedTypeBinder(methodPrototype, expectedType);
         JavaTypeInstance resolvedReturnType = null;
         String selectedSource = null;
-        JavaTypeInstance objectResolvedReturnType = null;
-        if (objectType != null) {
-            objectResolvedReturnType = methodPrototype.getReturnType(objectType, args);
-            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectResolvedReturnType)) {
-                resolvedReturnType = objectResolvedReturnType;
-                selectedSource = "object-resolved-return";
-            }
+        JavaTypeInstance objectResolvedReturnType =
+                objectType == null ? null : methodPrototype.getReturnType(objectType, args);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectResolvedReturnType)) {
+            resolvedReturnType = objectResolvedReturnType;
+            selectedSource = "object-resolved-return";
         }
-        JavaTypeInstance objectBoundReturnType = null;
-        if (objectTypeBinder != null) {
-            objectBoundReturnType = objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectBoundReturnType)) {
-                resolvedReturnType = objectBoundReturnType;
-                selectedSource = "object-bound-return";
-            }
+        JavaTypeInstance objectBoundReturnType =
+                objectTypeBinder == null ? null : objectTypeBinder.getBindingFor(methodPrototype.getReturnType());
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, objectBoundReturnType)) {
+            resolvedReturnType = objectBoundReturnType;
+            selectedSource = "object-bound-return";
         }
-        JavaTypeInstance expectedBoundReturnType = null;
-        if (genericTypeBinder != null) {
-            expectedBoundReturnType = genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
-            if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, expectedBoundReturnType)) {
-                resolvedReturnType = expectedBoundReturnType;
-                selectedSource = "expected-bound-return";
-            }
+        JavaTypeInstance expectedBoundReturnType =
+                genericTypeBinder == null ? null : genericTypeBinder.getBindingFor(methodPrototype.getReturnType());
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, expectedBoundReturnType)) {
+            resolvedReturnType = expectedBoundReturnType;
+            selectedSource = "expected-bound-return";
         }
         JavaTypeInstance declaredReturnType = methodPrototype.getReturnType();
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(resolvedReturnType, declaredReturnType)) {
@@ -415,17 +409,19 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             }
         }
         if (expression instanceof MemberFunctionInvokation) {
-            MemberFunctionInvokation invokation = (MemberFunctionInvokation) expression;
-            JavaTypeInstance displayReturnType = invokation.resolveDisplayReturnType(null).getResolvedType();
-            if (displayReturnType != null) {
-                return displayReturnType;
+            MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
+            JavaTypeInstance memberDisplayReturnType =
+                    memberFunctionInvokation.resolveDisplayReturnType(null).getResolvedType();
+            if (memberDisplayReturnType != null) {
+                return memberDisplayReturnType;
             }
         }
         if (expression instanceof StaticFunctionInvokation) {
-            StaticFunctionInvokation invokation = (StaticFunctionInvokation) expression;
-            JavaTypeInstance displayReturnType = invokation.resolveDisplayReturnType(null).getResolvedType();
-            if (displayReturnType != null) {
-                return displayReturnType;
+            StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
+            JavaTypeInstance staticDisplayReturnType =
+                    staticFunctionInvokation.resolveDisplayReturnType(null).getResolvedType();
+            if (staticDisplayReturnType != null) {
+                return staticDisplayReturnType;
             }
         }
         return expression.getInferredJavaType().getJavaTypeInstance();

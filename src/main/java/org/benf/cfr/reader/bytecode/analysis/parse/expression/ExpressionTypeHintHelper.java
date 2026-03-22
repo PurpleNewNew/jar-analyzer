@@ -305,10 +305,11 @@ public final class ExpressionTypeHintHelper {
         }
         if (expression instanceof MemberFunctionInvokation) {
             MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
-            DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
-            if (requiresPrimitiveNarrowingCast(normalizedExpectedType, resolution.getResolvedType())
-                    || resolution.requiresExplicitCast()
-                    && !shouldSuppressExpectedMemberCast(memberFunctionInvokation, normalizedExpectedType, resolution)) {
+            DisplayTypeResolution memberResolution =
+                    memberFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            if (requiresPrimitiveNarrowingCast(normalizedExpectedType, memberResolution.getResolvedType())
+                    || memberResolution.requiresExplicitCast()
+                    && !shouldSuppressExpectedMemberCast(memberFunctionInvokation, normalizedExpectedType, memberResolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
                         new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),
@@ -319,10 +320,11 @@ public final class ExpressionTypeHintHelper {
         }
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
-            DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
-            if ((requiresPrimitiveNarrowingCast(normalizedExpectedType, resolution.getResolvedType())
-                    || resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType))
-                    && !shouldSuppressExpectedStaticCast(staticFunctionInvokation, normalizedExpectedType, resolution)) {
+            DisplayTypeResolution staticResolution =
+                    staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
+            if ((requiresPrimitiveNarrowingCast(normalizedExpectedType, staticResolution.getResolvedType())
+                    || staticResolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType))
+                    && !shouldSuppressExpectedStaticCast(staticFunctionInvokation, normalizedExpectedType, staticResolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
                         new InferredJavaType(normalizedExpectedType, InferredJavaType.Source.EXPRESSION, true),

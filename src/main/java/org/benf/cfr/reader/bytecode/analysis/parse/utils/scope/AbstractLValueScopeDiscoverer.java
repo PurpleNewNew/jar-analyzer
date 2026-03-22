@@ -260,6 +260,9 @@ public abstract class AbstractLValueScopeDiscoverer implements LValueScopeDiscov
                             commonScope = commonScope.subList(0, commonScope.size()-2);
                         }
                     }
+                    if (defineInsideIndependentChildScopes(scopedEntity, definitions, commonScope)) {
+                        continue creation;
+                    }
 
                     creationContainer = commonScope.get(commonScope.size() - 1);
                 }
@@ -289,6 +292,45 @@ public abstract class AbstractLValueScopeDiscoverer implements LValueScopeDiscov
                 fallbackContainer.getStatement().markCreator(scopedEntity, creationContainer);
             }
         }
+    }
+
+    private boolean defineInsideIndependentChildScopes(LValue scopedEntity,
+                                                       List<ScopeDefinition> definitions,
+                                                       List<StatementContainer<StructuredStatement>> commonScope) {
+        if (commonScope == null || commonScope.isEmpty() || definitions.size() < 2) {
+            return false;
+        }
+        int commonScopeSize = commonScope.size();
+        Set<StatementContainer<StructuredStatement>> childScopes = SetFactory.newIdentitySet();
+        Set<StatementContainer<StructuredStatement>> usedChildScopes = SetFactory.newIdentitySet();
+        List<Pair<StatementContainer<StructuredStatement>, StatementContainer<StructuredStatement>>> placements = ListFactory.newList();
+        for (ScopeDefinition definition : definitions) {
+            List<StatementContainer<StructuredStatement>> nestedScope = definition.getNestedScope();
+            if (nestedScope == null || nestedScope.size() <= commonScopeSize) {
+                return false;
+            }
+            StatementContainer<StructuredStatement> childScope = nestedScope.get(commonScopeSize);
+            if (childScope == null || !childScope.getStatement().canDefine(scopedEntity, factCache)) {
+                return false;
+            }
+            StatementContainer<StructuredStatement> placement = childScope;
+            if (nestedScope.size() == commonScopeSize + 1 && definition.exactStatement != null) {
+                placement = definition.exactStatement;
+            }
+            childScopes.add(childScope);
+            if (usedChildScopes.add(childScope)) {
+                placements.add(Pair.make(childScope, placement));
+            }
+        }
+        if (childScopes.size() < 2) {
+            return false;
+        }
+        for (Pair<StatementContainer<StructuredStatement>, StatementContainer<StructuredStatement>> placement : placements) {
+            StatementContainer<StructuredStatement> scopeContainer = placement.getFirst();
+            StatementContainer<StructuredStatement> exactPlacement = placement.getSecond();
+            scopeContainer.getStatement().markCreator(scopedEntity, exactPlacement);
+        }
+        return true;
     }
 
     private StatementContainer<StructuredStatement> resolveFallbackCreationContainer(

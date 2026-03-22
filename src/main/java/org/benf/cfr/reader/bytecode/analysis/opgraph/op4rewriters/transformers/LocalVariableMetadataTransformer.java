@@ -78,23 +78,23 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 vis == null ? null : vis.getAnnotationsFor(type_localvar, type_resourcevar),
                 invis == null ? null : invis.getAnnotationsFor(type_localvar, type_resourcevar)));
         if (localVariableTable != null) {
-            for (LocalVariableEntry entry : localVariableTable.getLocalVariableEntryList()) {
-                TreeSet<LocalVariableEntry> entries = localVariableEntries.get(entry.getIndex());
-                if (entries == null) {
-                    entries = new TreeSet<LocalVariableEntry>(new OrderLocalVariables());
-                    localVariableEntries.put(entry.getIndex(), entries);
+            for (LocalVariableEntry localEntry : localVariableTable.getLocalVariableEntryList()) {
+                TreeSet<LocalVariableEntry> localEntries = localVariableEntries.get(localEntry.getIndex());
+                if (localEntries == null) {
+                    localEntries = new TreeSet<LocalVariableEntry>(new OrderLocalVariables());
+                    localVariableEntries.put(localEntry.getIndex(), localEntries);
                 }
-                entries.add(entry);
+                localEntries.add(localEntry);
             }
         }
         if (localVariableTypeTable != null) {
-            for (LocalVariableTypeEntry entry : localVariableTypeTable.getLocalVariableTypeEntryList()) {
-                TreeSet<LocalVariableTypeEntry> entries = localVariableTypeEntries.get(entry.getIndex());
-                if (entries == null) {
-                    entries = new TreeSet<LocalVariableTypeEntry>(new OrderLocalVariableTypes());
-                    localVariableTypeEntries.put(entry.getIndex(), entries);
+            for (LocalVariableTypeEntry localTypeEntry : localVariableTypeTable.getLocalVariableTypeEntryList()) {
+                TreeSet<LocalVariableTypeEntry> localTypeEntries = localVariableTypeEntries.get(localTypeEntry.getIndex());
+                if (localTypeEntries == null) {
+                    localTypeEntries = new TreeSet<LocalVariableTypeEntry>(new OrderLocalVariableTypes());
+                    localVariableTypeEntries.put(localTypeEntry.getIndex(), localTypeEntries);
                 }
-                entries.add(entry);
+                localTypeEntries.add(localTypeEntry);
             }
         }
     }
@@ -151,8 +151,13 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         return Functional.filter(variableAnnotations, new Predicate<AnnotationTableTypeEntry>() {
             @Override
             public boolean test(AnnotationTableTypeEntry in) {
-                TypeAnnotationTargetInfo.TypeAnnotationLocalVarTarget tgt = (TypeAnnotationTargetInfo.TypeAnnotationLocalVarTarget) in.getTargetInfo();
-                return tgt.matches(offset, slot, tolerance);
+                Object rawTargetInfo = in.getTargetInfo();
+                if (!(rawTargetInfo instanceof TypeAnnotationTargetInfo.TypeAnnotationLocalVarTarget)) {
+                    return false;
+                }
+                TypeAnnotationTargetInfo.TypeAnnotationLocalVarTarget localVarTarget =
+                        (TypeAnnotationTargetInfo.TypeAnnotationLocalVarTarget) rawTargetInfo;
+                return localVarTarget.matches(offset, slot, tolerance);
             }
         });
     }
@@ -378,6 +383,17 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
                 return currentType;
             }
         }
+        JavaTypeInstance conflictingGenericBaseType = getConflictingGenericBaseType(currentType, creatorType);
+        if (conflictingGenericBaseType != null) {
+            localVariable.markConflictingGenericDeclaration();
+            localVariable.getInferredJavaType().forceType(conflictingGenericBaseType, true);
+            localVariable.forceCustomCreationJavaType(conflictingGenericBaseType);
+            if (localVariable.getAnnotatedCreationType() == null) {
+                localVariable.setCustomCreationType(conflictingGenericBaseType.getAnnotatedInstance());
+            }
+            registerCreatorHintLocal(localVariable);
+            return conflictingGenericBaseType;
+        }
         if (resolvedCreatorType.matchQuality == MatchQuality.NEARBY_NAMED
                 && shouldKeepNearbyNamedCurrentType(currentType, creatorType)) {
             recordCreatorDeclarationHint(localVariable, currentType, creatorType, refreshCreationType);
@@ -390,7 +406,12 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             return currentType;
         }
         if (shouldPreserveIncompatibleCurrentType(currentType, creatorType)) {
-            return currentType;
+            localVariable.markConflictingReferenceDeclaration();
+            localVariable.getInferredJavaType().forceType(TypeConstants.OBJECT, true);
+            localVariable.forceCustomCreationJavaType(TypeConstants.OBJECT);
+            localVariable.setCustomCreationType(TypeConstants.OBJECT.getAnnotatedInstance());
+            registerCreatorHintLocal(localVariable);
+            return TypeConstants.OBJECT;
         }
         if (shouldPreserveExistingDeclarationType(localVariable, creatorType, resolvedCreatorType.matchQuality)) {
             recordCreatorDeclarationHint(localVariable, currentType, creatorType, refreshCreationType);
@@ -407,6 +428,28 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         }
         registerCreatorHintLocal(localVariable);
         return creatorType;
+    }
+
+    private JavaTypeInstance getConflictingGenericBaseType(JavaTypeInstance currentType, JavaTypeInstance creatorType) {
+        if (currentType == null || creatorType == null || currentType.equals(creatorType)) {
+            return null;
+        }
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(currentType)
+                || !ExpressionTypeHintHelper.canDisplayTypeArguments(creatorType)
+                || ExpressionTypeHintHelper.isObjectOnlyGenericType(currentType)
+                || ExpressionTypeHintHelper.isObjectOnlyGenericType(creatorType)) {
+            return null;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance creatorBaseType = creatorType.getDeGenerifiedType();
+        if (currentBaseType == null || !currentBaseType.equals(creatorBaseType)) {
+            return null;
+        }
+        if (currentType.implicitlyCastsTo(creatorType, null)
+                || creatorType.implicitlyCastsTo(currentType, null)) {
+            return null;
+        }
+        return currentBaseType;
     }
 
     private JavaTypeInstance applyAliasedCreatorHint(LocalVariable localVariable, boolean refreshCreationType) {
@@ -466,7 +509,8 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
             if (lhs.getName() != null
                     && rhs.getName() != null
                     && lhs.getName().isGoodName()
-                    && rhs.getName().isGoodName()) {
+                    && rhs.getName().isGoodName()
+                    && (!hasStableCreatorHintIdentity(lhs) || !hasStableCreatorHintIdentity(rhs))) {
                 String lhsName = lhs.getName().getStringName();
                 String rhsName = rhs.getName().getStringName();
                 if (lhsName != null && lhsName.equals(rhsName)) {
@@ -539,6 +583,12 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         return lhs.getOriginalRawOffset() >= 0
                 && rhs.getOriginalRawOffset() >= 0
                 && lhs.getOriginalRawOffset() == rhs.getOriginalRawOffset();
+    }
+
+    private boolean hasStableCreatorHintIdentity(LocalVariable localVariable) {
+        return localVariable != null
+                && localVariable.getIdx() >= 0
+                && (localVariable.getIdent() != null || localVariable.getOriginalRawOffset() >= 0);
     }
 
     private void recordCreatorDeclarationHint(LocalVariable localVariable,

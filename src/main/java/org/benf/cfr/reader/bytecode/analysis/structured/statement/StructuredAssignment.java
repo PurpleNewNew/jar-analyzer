@@ -942,6 +942,18 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         if (source.hasConflictingGenericDeclaration()) {
             target.markConflictingGenericDeclaration();
         }
+        if (source.hasConflictingReferenceDeclaration()) {
+            target.markConflictingReferenceDeclaration();
+            target.getInferredJavaType().forceType(TypeConstants.OBJECT, true);
+            target.forceCustomCreationJavaType(TypeConstants.OBJECT);
+            if (target.getAnnotatedCreationType() == null) {
+                target.setCustomCreationType(TypeConstants.OBJECT.getAnnotatedInstance());
+            }
+        }
+        if (target.getEmbeddedReferenceAssignmentType() == null
+                && source.getEmbeddedReferenceAssignmentType() != null) {
+            target.recordEmbeddedReferenceAssignmentType(source.getEmbeddedReferenceAssignmentType());
+        }
         if (source.isFinal()) {
             target.markFinal();
         }

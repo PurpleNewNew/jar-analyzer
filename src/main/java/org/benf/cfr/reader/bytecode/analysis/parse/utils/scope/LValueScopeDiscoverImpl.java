@@ -18,6 +18,8 @@ import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.MiscConstants;
 import org.benf.cfr.reader.util.getopt.Options;
 
+import java.util.Objects;
+
 public class LValueScopeDiscoverImpl extends AbstractLValueScopeDiscoverer {
     private final boolean instanceOfDefines;
 
@@ -56,7 +58,7 @@ public class LValueScopeDiscoverImpl extends AbstractLValueScopeDiscoverer {
          * Else verify type.
          */
         JavaTypeInstance oldType = previousDef.getJavaTypeInstance();
-        if (!oldType.equals(newType)) {
+        if (!oldType.equals(newType) || isDistinctStableDefinition(previousDef, localVariable)) {
             earliestDefinitionsByLevel.get(previousDef.getDepth()).remove(previousDef.getName());
             if (previousDef.getDepth() == currentDepth) {
                 variableFactory.mutatingRenameUnClash(localVariable);
@@ -69,6 +71,37 @@ public class LValueScopeDiscoverImpl extends AbstractLValueScopeDiscoverer {
             earliestDefinitionsByLevel.get(currentDepth).put(name, true);
             discoveredCreations.add(scopeDefinition);
         }
+    }
+
+    private boolean isDistinctStableDefinition(ScopeDefinition previousDef, LocalVariable localVariable) {
+        if (previousDef == null || !(previousDef.getlValue() instanceof LocalVariable) || localVariable == null) {
+            return false;
+        }
+        LocalVariable previousLocal = (LocalVariable) previousDef.getlValue();
+        if (!hasStableLocalIdentity(previousLocal) || !hasStableLocalIdentity(localVariable)) {
+            return false;
+        }
+        if (previousLocal.matchesReadableAlias(localVariable) || localVariable.matchesReadableAlias(previousLocal)) {
+            return false;
+        }
+        if (previousLocal.getIdx() >= 0
+                && localVariable.getIdx() >= 0
+                && previousLocal.getIdx() == localVariable.getIdx()) {
+            if (Objects.equals(previousLocal.getIdent(), localVariable.getIdent())) {
+                return false;
+            }
+            if (previousLocal.getOriginalRawOffset() >= 0
+                    && previousLocal.getOriginalRawOffset() == localVariable.getOriginalRawOffset()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasStableLocalIdentity(LocalVariable localVariable) {
+        return localVariable != null
+                && localVariable.getIdx() >= 0
+                && (localVariable.getIdent() != null || localVariable.getOriginalRawOffset() >= 0);
     }
 
     public boolean didDetectInstanceOfMatching() {

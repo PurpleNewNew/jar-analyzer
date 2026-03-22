@@ -29,7 +29,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -466,29 +468,25 @@ public class CFRDecompileEngine {
         if (dir == null || !Files.exists(dir)) {
             return;
         }
-        final int[] failures = {0};
-        final IOException[] first = {null};
+        AtomicInteger failures = new AtomicInteger();
+        AtomicReference<IOException> first = new AtomicReference<>();
         try (Stream<Path> stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder())
                     .forEach(path -> {
                         try {
                             Files.deleteIfExists(path);
                         } catch (IOException ex) {
-                            failures[0]++;
-                            if (first[0] == null) {
-                                first[0] = ex;
-                            }
+                            failures.incrementAndGet();
+                            first.compareAndSet(null, ex);
                         }
                     });
         } catch (IOException ex) {
-            failures[0]++;
-            if (first[0] == null) {
-                first[0] = ex;
-            }
+            failures.incrementAndGet();
+            first.compareAndSet(null, ex);
         }
-        if (failures[0] > 0) {
+        if (failures.get() > 0) {
             logger.debug("delete directory failed: {}: failures={} first={}",
-                    dir, failures[0], first[0] == null ? "" : first[0].toString());
+                    dir, failures.get(), first.get() == null ? "" : first.get().toString());
         }
     }
 

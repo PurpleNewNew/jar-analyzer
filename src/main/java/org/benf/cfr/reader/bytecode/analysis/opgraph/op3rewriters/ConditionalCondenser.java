@@ -16,6 +16,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.BlockIdentifierFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueAssignmentExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollectorSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.InstanceOfAssignRewriter;
 import org.benf.cfr.reader.util.ClassFileVersion;
 import org.benf.cfr.reader.util.collections.Functional;
 import org.benf.cfr.reader.util.collections.SetFactory;
@@ -98,6 +99,9 @@ public class ConditionalCondenser {
                 appropriateForIfAssignmentCollapse2(ifStatement))) return;
         IfStatement innerIf = (IfStatement) ifStatement.getStatement();
         ConditionalExpression conditionalExpression = innerIf.getCondition();
+        if (notInstanceOf && InstanceOfAssignRewriter.hasInstanceOf(conditionalExpression)) {
+            return;
+        }
 
         /*
          * The 'verify' block stops us winding up unless we'd do it into another conditional
