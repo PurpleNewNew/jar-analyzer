@@ -8,6 +8,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
@@ -65,6 +66,11 @@ public interface LValue extends DumpableWithPrecedence, DeepCloneable<LValue>, T
                 LocalVariable localVariable = (LocalVariable) lValue;
                 if (localVariable.isVar() || localVariable.getInferredJavaType().isVarConfirmed()) {
                     d.print("var").separator(" ");
+                    lValue.dump(d, true);
+                    return d;
+                }
+                if (localVariable.hasConflictingReferenceDeclaration()) {
+                    d.dump(TypeConstants.OBJECT).separator(" ");
                     lValue.dump(d, true);
                     return d;
                 }

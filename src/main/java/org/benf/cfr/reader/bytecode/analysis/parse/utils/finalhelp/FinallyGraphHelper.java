@@ -9,6 +9,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.Statement;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.ArrayVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
@@ -231,6 +232,14 @@ public class FinallyGraphHelper {
                 } else {
                     int x = 1;
                 }
+            }
+            if (o1 instanceof ArrayVariable && o2 instanceof ArrayVariable) {
+                // Compiler-emitted finally clones often rebuild identical logging argument arrays with
+                // fresh temporary locals. Compare the wrapped index expression structurally so the local
+                // remapping above can flow through to array element writes instead of failing on raw equals.
+                ArrayVariable a1 = (ArrayVariable) o1;
+                ArrayVariable a2 = (ArrayVariable) o2;
+                return equivalent(a1.getArrayIndex(), a2.getArrayIndex());
             }
             if (o1 instanceof ExceptionTableEntry && o2 instanceof ExceptionTableEntry) {
                 return true;

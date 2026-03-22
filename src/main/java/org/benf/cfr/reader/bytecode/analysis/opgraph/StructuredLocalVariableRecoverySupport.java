@@ -17,9 +17,14 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDo;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionStatement;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredIf;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredWhile;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
+import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.util.collections.ListFactory;
 
 import java.util.List;
@@ -98,6 +103,45 @@ final class StructuredLocalVariableRecoverySupport {
         return false;
     }
 
+    static boolean isDefaultValueLike(LocalVariable localVariable, Expression expression) {
+        if (localVariable == null || expression == null) {
+            return false;
+        }
+        if (expression instanceof CastExpression) {
+            return isDefaultValueLike(localVariable, ((CastExpression) expression).getChild());
+        }
+        JavaTypeInstance javaTypeInstance = localVariable.getInferredJavaType().getJavaTypeInstance();
+        RawJavaType rawType = javaTypeInstance == null ? null : javaTypeInstance.getRawTypeOfSimpleType();
+        if (rawType == null || rawType == RawJavaType.REF) {
+            return isNullLike(expression);
+        }
+        if (!(expression instanceof Literal)) {
+            return false;
+        }
+        TypedLiteral literal = ((Literal) expression).getValue();
+        Object value = literal.getValue();
+        if (value == null) {
+            return false;
+        }
+        switch (rawType) {
+            case BOOLEAN:
+                return Boolean.FALSE.equals(value);
+            case BYTE:
+            case CHAR:
+            case SHORT:
+            case INT:
+                return value instanceof Number && ((Number) value).intValue() == 0;
+            case LONG:
+                return value instanceof Number && ((Number) value).longValue() == 0L;
+            case FLOAT:
+                return value instanceof Number && ((Number) value).floatValue() == 0.0f;
+            case DOUBLE:
+                return value instanceof Number && ((Number) value).doubleValue() == 0.0d;
+            default:
+                return false;
+        }
+    }
+
     static boolean expressionUsesLocal(Expression expression, LocalVariable localVariable) {
         if (expression == null || localVariable == null) {
             return false;
@@ -174,7 +218,10 @@ final class StructuredLocalVariableRecoverySupport {
 
     static boolean supportsEmbeddedAssignmentLift(StructuredStatement statement) {
         return statement instanceof StructuredAssignment
-                || statement instanceof StructuredExpressionStatement;
+                || statement instanceof StructuredExpressionStatement
+                || statement instanceof StructuredIf
+                || statement instanceof StructuredWhile
+                || statement instanceof StructuredDo;
     }
 
     static int nextMeaningfulIndex(List<Op04StructuredStatement> statements, int start) {

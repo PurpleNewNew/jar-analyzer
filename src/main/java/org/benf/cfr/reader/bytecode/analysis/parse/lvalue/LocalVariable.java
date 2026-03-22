@@ -33,6 +33,8 @@ public class LocalVariable extends AbstractLValue {
     private boolean capturedByLambda;
     private boolean suppressDefaultInitializer;
     private boolean conflictingGenericDeclaration;
+    private boolean conflictingReferenceDeclaration;
+    private JavaTypeInstance embeddedReferenceAssignmentType;
     private final int originalRawOffset;
     private JavaAnnotatedTypeInstance customCreationType;
     private JavaTypeInstance customCreationJavaType;
@@ -47,6 +49,8 @@ public class LocalVariable extends AbstractLValue {
         this.capturedByLambda = false;
         this.suppressDefaultInitializer = false;
         this.conflictingGenericDeclaration = false;
+        this.conflictingReferenceDeclaration = false;
+        this.embeddedReferenceAssignmentType = null;
         this.originalRawOffset = originalRawOffset;
     }
 
@@ -60,6 +64,8 @@ public class LocalVariable extends AbstractLValue {
         this.capturedByLambda = false;
         this.suppressDefaultInitializer = false;
         this.conflictingGenericDeclaration = false;
+        this.conflictingReferenceDeclaration = false;
+        this.embeddedReferenceAssignmentType = null;
         this.originalRawOffset = -1;
     }
 
@@ -115,6 +121,22 @@ public class LocalVariable extends AbstractLValue {
 
     public boolean hasConflictingGenericDeclaration() {
         return conflictingGenericDeclaration;
+    }
+
+    public void markConflictingReferenceDeclaration() {
+        this.conflictingReferenceDeclaration = true;
+    }
+
+    public boolean hasConflictingReferenceDeclaration() {
+        return conflictingReferenceDeclaration;
+    }
+
+    public JavaTypeInstance getEmbeddedReferenceAssignmentType() {
+        return embeddedReferenceAssignmentType;
+    }
+
+    public void recordEmbeddedReferenceAssignmentType(JavaTypeInstance embeddedReferenceAssignmentType) {
+        this.embeddedReferenceAssignmentType = embeddedReferenceAssignmentType;
     }
 
     public boolean matchesReadableAlias(LocalVariable other) {
@@ -180,6 +202,10 @@ public class LocalVariable extends AbstractLValue {
         if (shouldPreserveExistingCreationType(this.customCreationJavaType, customCreationJavaType)) {
             return;
         }
+        this.customCreationJavaType = customCreationJavaType;
+    }
+
+    public void forceCustomCreationJavaType(JavaTypeInstance customCreationJavaType) {
         this.customCreationJavaType = customCreationJavaType;
     }
 

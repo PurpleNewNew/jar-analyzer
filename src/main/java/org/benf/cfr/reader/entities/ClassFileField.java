@@ -5,6 +5,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHint
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.util.output.Dumper;
 
@@ -16,6 +17,7 @@ public class ClassFileField {
     private Expression initialValue;
     private boolean isHidden;
     private boolean isSyntheticOuterRef;
+    private JavaTypeInstance displayJavaTypeOverride;
     // Should use NamedVariable?
     private String overriddenName;
 
@@ -28,6 +30,7 @@ public class ClassFileField {
                 literalRewriter.rewriteExpression(new Literal(constantValue), null, null, null);
         isHidden = false;
         isSyntheticOuterRef = false;
+        displayJavaTypeOverride = null;
     }
 
     public Field getField() {
@@ -57,6 +60,14 @@ public class ClassFileField {
 
     public void markSyntheticOuterRef() {
         isSyntheticOuterRef = true;
+    }
+
+    public void overrideDisplayJavaType(JavaTypeInstance displayJavaTypeOverride) {
+        this.displayJavaTypeOverride = displayJavaTypeOverride;
+    }
+
+    public JavaTypeInstance getDisplayJavaType() {
+        return displayJavaTypeOverride == null ? field.getJavaTypeInstance() : displayJavaTypeOverride;
     }
 
     // This should be used only for local tidying - it will not rename referents.

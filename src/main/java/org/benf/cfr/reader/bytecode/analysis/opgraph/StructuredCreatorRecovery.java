@@ -24,9 +24,11 @@ import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpr
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.util.collections.ListFactory;
+import org.benf.cfr.reader.util.collections.SetFactory;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public final class StructuredCreatorRecovery {
     private StructuredCreatorRecovery() {
@@ -321,6 +323,9 @@ public final class StructuredCreatorRecovery {
             if (embedded == null || trailing == null) {
                 return false;
             }
+            if (hasConflictingReadableNames(embedded, trailing)) {
+                return false;
+            }
             JavaTypeInstance embeddedType = embedded.getInferredJavaType().getJavaTypeInstance();
             JavaTypeInstance trailingType = trailing.getInferredJavaType().getJavaTypeInstance();
             if (!Objects.equals(embeddedType, trailingType)) {
@@ -332,6 +337,20 @@ public final class StructuredCreatorRecovery {
                     || embedded.getOriginalRawOffset() < 0
                     || embedded.getName() == null
                     || !embedded.getName().isGoodName());
+        }
+
+        private boolean hasConflictingReadableNames(LocalVariable embedded, LocalVariable trailing) {
+            if (embedded.getName() == null
+                    || trailing.getName() == null
+                    || !embedded.getName().isGoodName()
+                    || !trailing.getName().isGoodName()) {
+                return false;
+            }
+            String embeddedName = embedded.getName().getStringName();
+            String trailingName = trailing.getName().getStringName();
+            return embeddedName != null
+                    && trailingName != null
+                    && !embeddedName.equals(trailingName);
         }
 
         private Expression stripCasts(Expression expression) {
@@ -365,8 +384,18 @@ public final class StructuredCreatorRecovery {
                 if (collector.assignments.isEmpty()) {
                     continue;
                 }
-                for (int assignmentIdx = collector.assignments.size() - 1; assignmentIdx >= 0; --assignmentIdx) {
+                for (EmbeddedAssignment assignment : collector.assignments) {
+                    assignment.localVariable.suppressDefaultInitializer();
+                }
+                Set<LocalVariable> extractedAssignments = SetFactory.newIdentitySet();
+                for (int assignmentIdx = 0; assignmentIdx < collector.assignments.size(); ++assignmentIdx) {
                     EmbeddedAssignment assignment = collector.assignments.get(assignmentIdx);
+                    if (dependsOnUnextractedEarlierAssignment(collector.assignments,
+                            assignmentIdx,
+                            assignment.assignmentExpression.getrValue(),
+                            extractedAssignments)) {
+                        continue;
+                    }
                     int currentIndex = statements.indexOf(targetContainer);
                     if (currentIndex <= 0) {
                         break;
@@ -390,29 +419,60 @@ public final class StructuredCreatorRecovery {
                             assignment.assignmentExpression,
                             candidate.localVariable
                     ));
+                    extractedAssignments.add(assignment.localVariable);
                 }
             }
             return in;
         }
 
+        private boolean dependsOnUnextractedEarlierAssignment(List<EmbeddedAssignment> assignments,
+                                                              int assignmentIndex,
+                                                              Expression expression,
+                                                              Set<LocalVariable> extractedAssignments) {
+            for (int idx = 0; idx < assignmentIndex; ++idx) {
+                EmbeddedAssignment earlierAssignment = assignments.get(idx);
+                if (extractedAssignments.contains(earlierAssignment.localVariable)) {
+                    continue;
+                }
+                if (StructuredLocalVariableRecoverySupport.expressionUsesLocal(expression, earlierAssignment.localVariable)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private PrefixAssignmentCandidate findPrefixCandidate(List<Op04StructuredStatement> statements,
                                                               int start,
                                                               EmbeddedAssignment assignment) {
+            PrefixAssignmentCandidate weakMatch = null;
             for (int idx = start; idx >= 0; --idx) {
                 StructuredStatement statement = statements.get(idx).getStatement();
                 if (statement instanceof StructuredComment) {
                     continue;
                 }
                 PrefixAssignmentCandidate candidate = getPrefixCandidate(statement, idx);
-                if (candidate != null && matchesPrefixCandidate(assignment.localVariable, candidate.localVariable)) {
-                    return candidate;
+                if (candidate != null) {
+                    PrefixCandidateMatch match = getPrefixCandidateMatch(assignment.localVariable, candidate.localVariable);
+                    if (match == PrefixCandidateMatch.EXACT) {
+                        candidate.localVariable.suppressDefaultInitializer();
+                        return candidate;
+                    }
+                    if (match == PrefixCandidateMatch.WEAK) {
+                        if (weakMatch != null) {
+                            return null;
+                        }
+                        weakMatch = candidate;
+                    }
                 }
                 if (StructuredLocalVariableRecoverySupport.statementAccessesLocal(statement, assignment.localVariable)
                         || StructuredLocalVariableRecoverySupport.statementTopLevelWritesLocal(statement, assignment.localVariable)) {
                     return null;
                 }
             }
-            return null;
+            if (weakMatch != null) {
+                weakMatch.localVariable.suppressDefaultInitializer();
+            }
+            return weakMatch;
         }
 
         private PrefixAssignmentCandidate getPrefixCandidate(StructuredStatement statement, int index) {
@@ -429,32 +489,57 @@ public final class StructuredCreatorRecovery {
             }
             LocalVariable localVariable = (LocalVariable) assignment.getLvalue();
             if (assignment.isCreator(localVariable)
-                    && StructuredLocalVariableRecoverySupport.isNullLike(assignment.getRvalue())) {
+                    && StructuredLocalVariableRecoverySupport.isDefaultValueLike(localVariable, assignment.getRvalue())) {
                 return new PrefixAssignmentCandidate(index, localVariable);
             }
             return null;
         }
 
-        private boolean matchesPrefixCandidate(LocalVariable embedded, LocalVariable candidate) {
+        private PrefixCandidateMatch getPrefixCandidateMatch(LocalVariable embedded, LocalVariable candidate) {
             if (StructuredLocalVariableRecoverySupport.matchesLateResolvedLocal(embedded, candidate)) {
-                return true;
+                return PrefixCandidateMatch.EXACT;
             }
             if (embedded == null || candidate == null) {
-                return false;
+                return PrefixCandidateMatch.NONE;
+            }
+            if (hasConflictingReadableNames(embedded, candidate)) {
+                return PrefixCandidateMatch.NONE;
             }
             JavaTypeInstance embeddedType = embedded.getInferredJavaType().getJavaTypeInstance();
             JavaTypeInstance candidateType = candidate.getInferredJavaType().getJavaTypeInstance();
             if (!Objects.equals(embeddedType, candidateType)
                     && embeddedType != TypeConstants.OBJECT
                     && candidateType != TypeConstants.OBJECT) {
-                return false;
+                return PrefixCandidateMatch.NONE;
             }
             return candidate.getName() != null
                     && candidate.getName().isGoodName()
                     && (embedded.getIdx() < 0
                     || embedded.getOriginalRawOffset() < 0
                     || embedded.getName() == null
-                    || !embedded.getName().isGoodName());
+                    || !embedded.getName().isGoodName())
+                    ? PrefixCandidateMatch.WEAK
+                    : PrefixCandidateMatch.NONE;
+        }
+
+        private boolean hasConflictingReadableNames(LocalVariable embedded, LocalVariable candidate) {
+            if (embedded.getName() == null
+                    || candidate.getName() == null
+                    || !embedded.getName().isGoodName()
+                    || !candidate.getName().isGoodName()) {
+                return false;
+            }
+            String embeddedName = embedded.getName().getStringName();
+            String candidateName = candidate.getName().getStringName();
+            return embeddedName != null
+                    && candidateName != null
+                    && !embeddedName.equals(candidateName);
+        }
+
+        private enum PrefixCandidateMatch {
+            NONE,
+            WEAK,
+            EXACT
         }
     }
 

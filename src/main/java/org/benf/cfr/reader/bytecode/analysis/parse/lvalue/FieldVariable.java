@@ -12,6 +12,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.entities.ClassFileField;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntry;
 import org.benf.cfr.reader.entities.exceptions.ExceptionCheck;
@@ -126,6 +127,19 @@ public class FieldVariable extends AbstractFieldVariable {
 
     @Override
     public Dumper dumpInner(Dumper d) {
+        if (objectIsThis()
+                && getFieldName().equals(MiscConstants.THIS)
+                && isOuterRef()
+                && getOwningClassType() instanceof JavaRefTypeInstance) {
+            JavaRefTypeInstance owningClassType = (JavaRefTypeInstance) getOwningClassType().getDeGenerifiedType();
+            JavaRefTypeInstance explicitOuterType = owningClassType;
+            if (owningClassType.getInnerClassHereInfo().isInnerClass()
+                    && owningClassType.getInnerClassHereInfo().getOuterClass() != null) {
+                explicitOuterType = owningClassType.getInnerClassHereInfo().getOuterClass();
+            }
+            d.print(explicitOuterType.getRawShortName()).print(MiscConstants.DOT_THIS);
+            return d;
+        }
         if (!(isOuterRef() && (objectIsThis() || objectIsEclipseOuterThis()))) {
             // I'd rather not have this check here, but I don't want to have a pass to get rid of
             // what is actually useful information.

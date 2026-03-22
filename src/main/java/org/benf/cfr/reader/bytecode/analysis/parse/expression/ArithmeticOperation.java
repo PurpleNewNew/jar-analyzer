@@ -97,6 +97,12 @@ public class ArithmeticOperation extends AbstractExpression implements BoxingPro
     }
 
     private void dumpOperandForArithmetic(Dumper d, Expression expression, Troolean lhs) {
+        if (expression instanceof TernaryExpression) {
+            d.separator("(");
+            d.dump(expression);
+            d.separator(")");
+            return;
+        }
         if (!op.isBoolSafe() && expression instanceof Literal) {
             Literal literal = (Literal) expression;
             Boolean boolValue = literal.getValue().getMaybeBoolValue();

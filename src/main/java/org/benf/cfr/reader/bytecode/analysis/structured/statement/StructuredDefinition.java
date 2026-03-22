@@ -47,9 +47,10 @@ public class StructuredDefinition extends AbstractStructuredStatement {
     private Dumper dumpDefinition(Dumper dumper, boolean resourceContext) {
         Class<?> clazz = scopedEntity.getClass();
         if (clazz == LocalVariable.class) {
+            LocalVariable localVariable = (LocalVariable) scopedEntity;
             LValue.Creation.dump(dumper, scopedEntity);
             if (!resourceContext) {
-                appendDefaultInitializer(dumper, (LocalVariable) scopedEntity);
+                appendDefaultInitializer(dumper, localVariable);
                 return dumper.endCodeln();
             }
             return dumper;
@@ -69,6 +70,9 @@ public class StructuredDefinition extends AbstractStructuredStatement {
         if (localVariable == null || localVariable.isVar()) {
             return;
         }
+        if (localVariable.shouldSuppressDefaultInitializer()) {
+            return;
+        }
         JavaTypeInstance javaTypeInstance = localVariable.getInferredJavaType().getJavaTypeInstance();
         if (javaTypeInstance == null) {
             return;
@@ -77,8 +81,7 @@ public class StructuredDefinition extends AbstractStructuredStatement {
         if (rawType == null || rawType == RawJavaType.VOID) {
             return;
         }
-        if (rawType == RawJavaType.REF
-                && (localVariable.isCapturedByLambda() || localVariable.shouldSuppressDefaultInitializer())) {
+        if (rawType == RawJavaType.REF && localVariable.isCapturedByLambda()) {
             return;
         }
         dumper.print(" = ");

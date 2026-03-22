@@ -3,6 +3,7 @@ package org.benf.cfr.reader.bytecode.analysis.parse.lvalue;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueAssignmentCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifierFactory;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -138,7 +139,8 @@ public abstract class AbstractFieldVariable extends AbstractLValue {
 
     public JavaTypeInstance getResolvedJavaTypeInstance() {
         if (classFileField != null) {
-            JavaTypeInstance fieldType = classFileField.getField().getJavaTypeInstance();
+            JavaTypeInstance fieldType = classFileField.getDisplayJavaType();
+            fieldType = preferDisplayableInferredFieldType(fieldType);
             getInferredJavaType().forceType(fieldType, true);
             return fieldType;
         }
@@ -151,7 +153,8 @@ public abstract class AbstractFieldVariable extends AbstractLValue {
                 return getInferredJavaType().getJavaTypeInstance();
             }
             ClassFileField resolvedField = classFile.getFieldByName(failureName, getInferredJavaType().getJavaTypeInstance());
-            JavaTypeInstance fieldType = resolvedField.getField().getJavaTypeInstance();
+            JavaTypeInstance fieldType = resolvedField.getDisplayJavaType();
+            fieldType = preferDisplayableInferredFieldType(fieldType);
             getInferredJavaType().forceType(fieldType, true);
             return fieldType;
         } catch (CannotLoadClassException ignore) {
@@ -159,6 +162,26 @@ public abstract class AbstractFieldVariable extends AbstractLValue {
         } catch (NoSuchFieldException ignore) {
             return getInferredJavaType().getJavaTypeInstance();
         }
+    }
+
+    private JavaTypeInstance preferDisplayableInferredFieldType(JavaTypeInstance fieldType) {
+        JavaTypeInstance inferredType = getInferredJavaType().getJavaTypeInstance();
+        if (fieldType == null
+                || inferredType == null
+                || fieldType.equals(inferredType)
+                || !ExpressionTypeHintHelper.canDisplayTypeArguments(inferredType)) {
+            return fieldType;
+        }
+        JavaTypeInstance fieldBaseType = fieldType.getDeGenerifiedType();
+        JavaTypeInstance inferredBaseType = inferredType.getDeGenerifiedType();
+        if (fieldBaseType == null
+                || inferredBaseType == null
+                || !fieldBaseType.equals(inferredBaseType)) {
+            return fieldType;
+        }
+        return ExpressionTypeHintHelper.shouldPreferResolvedType(fieldType, inferredType)
+                ? inferredType
+                : fieldType;
     }
 
     public String getDescriptor() {

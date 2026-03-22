@@ -19,9 +19,11 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterF
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
 import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaArrayTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryMethodRef;
 import org.benf.cfr.reader.entities.classfilehelpers.OverloadMethodSet;
@@ -201,14 +203,26 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         JavaTypeInstance resolvedReturnType = resolution.getResolvedType();
         if (resolvedReturnType != null
                 && !resolution.requiresExplicitCast()
-                && !needsExpectedReturnCast(expectedType)) {
+                && !needsExpectedReturnCast(expectedType)
+                && !shouldPreserveDeclaredPrimitiveReturnType(getMethodPrototype().getReturnType(), resolvedReturnType)) {
             getInferredJavaType().forceType(resolvedReturnType, true);
         }
         maybeDropRedundantExplicitGenerics();
     }
 
+    private boolean shouldPreserveDeclaredPrimitiveReturnType(JavaTypeInstance declaredReturnType,
+                                                              JavaTypeInstance resolvedReturnType) {
+        return declaredReturnType instanceof RawJavaType
+                && resolvedReturnType instanceof RawJavaType
+                && !declaredReturnType.equals(resolvedReturnType);
+    }
+
     JavaTypeInstance getDisplayReturnType() {
         return resolveDisplayReturnType(null).getResolvedType();
+    }
+
+    public boolean requiresExplicitReturnCast(JavaTypeInstance expectedType) {
+        return resolveDisplayReturnType(expectedType).requiresExplicitCast();
     }
 
     DisplayTypeResolution resolveDisplayReturnType(JavaTypeInstance expectedType) {
@@ -238,7 +252,12 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
             selectedReturnType = declaredReturnType;
             selectedSource = "declared-return";
         }
-        JavaTypeInstance fallbackReturnType = methodPrototype.getReturnType(clazz, args);
+        JavaTypeInstance fallbackReturnType = null;
+        try {
+            fallbackReturnType = methodPrototype.getReturnType(clazz, args);
+        } catch (IllegalArgumentException ignored) {
+            fallbackReturnType = null;
+        }
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, fallbackReturnType)) {
             selectedReturnType = fallbackReturnType;
             selectedSource = "fallback-return";
@@ -247,6 +266,10 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
         if (ExpressionTypeHintHelper.shouldPreferResolvedType(selectedReturnType, inferredReturnType)) {
             selectedReturnType = inferredReturnType;
             selectedSource = "inferred-return";
+        }
+        if (shouldPreserveDeclaredPrimitiveReturnType(declaredReturnType, selectedReturnType)) {
+            selectedReturnType = declaredReturnType;
+            selectedSource = "declared-primitive-return";
         }
         boolean requiresExplicitCast = normalizedExpectedCastRequired(
                 expectedType,
@@ -355,6 +378,7 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
                 if (genericTypeBinder != null) {
                     boundPrototypeArg = genericTypeBinder.getBindingFor(boundPrototypeArg);
                 }
+                boundPrototypeArg = normalizeVarArgExpectedType(methodPrototype, prototypeArgs, x, boundPrototypeArg);
             }
             JavaTypeInstance expectedArgType = null;
             if (ExpressionTypeHintHelper.isSpecific(boundPrototypeArg)) {
@@ -362,6 +386,7 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
             }
             if (overloadMethodSet != null) {
                 JavaTypeInstance overloadArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+                overloadArgType = normalizeVarArgExpectedType(methodPrototype, prototypeArgs, x, overloadArgType);
                 if (!ExpressionTypeHintHelper.isSpecific(expectedArgType)) {
                     expectedArgType = overloadArgType;
                 }
@@ -371,6 +396,20 @@ public class StaticFunctionInvokation extends AbstractFunctionInvokation impleme
             }
             ExpressionTypeHintHelper.improveExpressionType(arg, expectedArgType);
         }
+    }
+
+    private JavaTypeInstance normalizeVarArgExpectedType(MethodPrototype methodPrototype,
+                                                         List<JavaTypeInstance> prototypeArgs,
+                                                         int argIndex,
+                                                         JavaTypeInstance candidateType) {
+        if (candidateType == null || !methodPrototype.isVarArgs() || prototypeArgs.isEmpty()) {
+            return candidateType;
+        }
+        int varArgIndex = prototypeArgs.size() - 1;
+        if (argIndex < varArgIndex || !(candidateType instanceof JavaArrayTypeInstance)) {
+            return candidateType;
+        }
+        return candidateType.getArrayStrippedType();
     }
 
     private void maybeDropRedundantExplicitGenerics() {

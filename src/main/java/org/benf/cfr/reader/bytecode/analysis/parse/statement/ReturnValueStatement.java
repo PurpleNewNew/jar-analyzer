@@ -3,6 +3,8 @@ package org.benf.cfr.reader.bytecode.analysis.parse.statement;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.TernaryExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
@@ -74,11 +76,46 @@ public class ReturnValueStatement extends ReturnStatement {
          * until now.
          */
         Expression rvalueUse = rvalue;
+        if (rvalue instanceof TernaryExpression
+                && canUseTargetTypedTernaryWithoutExplicitCast((TernaryExpression) rvalue, fnReturnType)) {
+            return new StructuredReturn(getLoc(), rvalue, fnReturnType);
+        }
         if (requiresExplicitReturnCast(rvalue.getInferredJavaType().getJavaTypeInstance(), fnReturnType)) {
             InferredJavaType inferredJavaType = new InferredJavaType(fnReturnType, InferredJavaType.Source.FUNCTION, true);
             rvalueUse = new CastExpression(BytecodeLoc.NONE, inferredJavaType, rvalue, true);
         }
         return new StructuredReturn(getLoc(), rvalueUse, fnReturnType);
+    }
+
+    private static boolean canUseTargetTypedTernaryWithoutExplicitCast(TernaryExpression ternaryExpression,
+                                                                       JavaTypeInstance targetType) {
+        if (ternaryExpression == null || targetType == null) {
+            return false;
+        }
+        JavaTypeInstance targetBaseType = targetType.getDeGenerifiedType();
+        if (targetBaseType == null) {
+            return false;
+        }
+        ternaryExpression.applyTargetTypeConstraint(targetType);
+        return ternaryBranchCanUseTargetType(ternaryExpression.getLhs(), targetType, targetBaseType)
+                && ternaryBranchCanUseTargetType(ternaryExpression.getRhs(), targetType, targetBaseType);
+    }
+
+    private static boolean ternaryBranchCanUseTargetType(Expression expression,
+                                                         JavaTypeInstance targetType,
+                                                         JavaTypeInstance targetBaseType) {
+        if (expression == null || targetType == null || targetBaseType == null) {
+            return false;
+        }
+        JavaTypeInstance expressionType = expression.getInferredJavaType().getJavaTypeInstance();
+        if (expressionType != null && expressionType.implicitlyCastsTo(targetType, null)) {
+            return true;
+        }
+        JavaTypeInstance expressionBaseType = expressionType == null ? null : expressionType.getDeGenerifiedType();
+        if (targetBaseType.equals(expressionBaseType)) {
+            return true;
+        }
+        return ExpressionTypeHintHelper.applyExpectedCastIfNeeded(expression, targetType) == expression;
     }
 
     private static boolean requiresExplicitReturnCast(JavaTypeInstance valueType, JavaTypeInstance targetType) {

@@ -1,8 +1,16 @@
 package org.benf.cfr.reader.bytecode;
 
 import me.n1ar4.jar.analyzer.core.CallGraphPlan;
+import me.n1ar4.jar.analyzer.core.DatabaseManager;
 import me.n1ar4.jar.analyzer.core.DiscoveryRunner;
+import me.n1ar4.jar.analyzer.core.DispatchCallResolver;
+import me.n1ar4.jar.analyzer.core.JspCompileRunner;
+import me.n1ar4.jar.analyzer.core.WebEntryMethods;
 import me.n1ar4.jar.analyzer.core.bytecode.BuildBytecodeWorkspace;
+import me.n1ar4.jar.analyzer.core.facts.BuildFactSnapshot;
+import me.n1ar4.jar.analyzer.engine.CFRDecompileEngine;
+import me.n1ar4.jar.analyzer.engine.EngineContext;
+import me.n1ar4.jar.analyzer.graph.proc.ProcedureRegistry;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCall;
 import me.n1ar4.jar.analyzer.analyze.asm.IdentifyCallEngine;
 import me.n1ar4.jar.analyzer.engine.ClassLookupService;
@@ -79,6 +87,27 @@ class SelfDecompileRegressionTest {
                         }),
                 () -> assertSelfDecompileCompilable(
                         tempDir,
+                        "DispatchCallResolver",
+                        CfrDecompilerRegressionSupport.locateClassFile(DispatchCallResolver.class),
+                        new String[]{
+                                "int scaled = (int)Math.sqrt("
+                        },
+                        new String[]{
+                                "int scaled = Math.sqrt("
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "DatabaseManager",
+                        CfrDecompilerRegressionSupport.locateClassFile(DatabaseManager.class),
+                        new String[]{
+                                "T t = supplier.get();"
+                        },
+                        new String[]{
+                                "Object t = supplier.get();",
+                                "return (List<ClassFileEntity>)((List)DatabaseManager.withReadLock(() -> {"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
                         "IdentifyCall",
                         CfrDecompilerRegressionSupport.locateClassFile(IdentifyCall.class),
                         new String[]{
@@ -102,6 +131,70 @@ class SelfDecompileRegressionTest {
                         },
                         new String[]{
                                 "(List<Level>)Collections.emptyList()"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "JspCompileRunner",
+                        CfrDecompilerRegressionSupport.locateClassFile(JspCompileRunner.class),
+                        new String[]{
+                                "private static List<CompileRoot> discoverRoots("
+                        },
+                        new String[0]),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "WebEntryMethods",
+                        CfrDecompilerRegressionSupport.locateClassFile(WebEntryMethods.class),
+                        new String[]{
+                                "public final class WebEntryMethods",
+                                "SERVLET_ENTRY_METHODS = Set.of("
+                        },
+                        new String[0]),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "BuildFactSnapshot",
+                        CfrDecompilerRegressionSupport.locateClassFile(BuildFactSnapshot.class),
+                        new String[]{
+                                "private static <K, V> Map<K, List<V>> immutableMapOfLists("
+                        },
+                        new String[]{
+                                "(Map<K, List<V>>)Map.of()"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "CFRDecompileEngine",
+                        CfrDecompilerRegressionSupport.locateClassFile(CFRDecompileEngine.class),
+                        new String[]{
+                                "private static String decompileInternal("
+                        },
+                        new String[]{
+                                "1.cfr$lambda$getSink$0",
+                                "(OutputSinkFactory.Sink<Object>)"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "EngineContext",
+                        CfrDecompilerRegressionSupport.locateClassFile(EngineContext.class),
+                        new String[]{
+                                "private static void runProjectPrewarm(",
+                                "catch (Exception ex)",
+                                "finally "
+                        },
+                        new String[]{
+                                "WARNING - Removed try catching itself",
+                                "Loose catch block",
+                                "return;\r\n        catch",
+                                "return;\n        catch",
+                                "** GOTO"
+                        }),
+                () -> assertSelfDecompileCompilable(
+                        tempDir,
+                        "ProcedureRegistry",
+                        CfrDecompilerRegressionSupport.locateClassFile(ProcedureRegistry.class),
+                        new String[]{
+                                "private static List<Object> toRow("
+                        },
+                        new String[]{
+                                "(List<Object>)List.of("
                         })
         );
     }

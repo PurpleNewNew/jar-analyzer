@@ -2,16 +2,18 @@ package org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters;
 
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
-import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.LocalDeclarationRemover;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AbstractFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.AbstractNewArray;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.AssignmentExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.DynamicInvokation;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpressionCommon;
@@ -26,10 +28,15 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
+import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollectorSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.Block;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredComment;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredExpressionStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredReturn;
 import org.benf.cfr.reader.bytecode.analysis.types.DynamicInvokeType;
@@ -59,6 +66,7 @@ import org.benf.cfr.reader.util.lambda.LambdaUtils;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
 
@@ -315,12 +323,14 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             return dynamicExpression;
         }
         normalizeCurriedArgs(curriedArgs);
+        recoverSyntheticLambdaParameterTypes(lambdaMethod, curriedArgs, targetFnArgTypes, instance);
         Expression inlined = tryInlineSyntheticLambda(dynamicExpression, curriedArgs, targetFnArgTypes, lambdaTypeRefLocation, lambdaMethod, instance);
         if (inlined != null) {
             return inlined;
         }
 
         // Ok, just call the synthetic method directly.
+        renameFallbackLambdaMethod(lambdaMethod, lambdaFn);
         return buildLambdaFallback(dynamicExpression, lambdaTypeRefLocation, lambdaFn, targetFnArgTypes, curriedArgs, instance);
     }
 
@@ -358,6 +368,58 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             }
             curriedArgs.set(x, CastExpression.removeImplicit(curriedArg));
         }
+    }
+
+    private void recoverSyntheticLambdaParameterTypes(Method lambdaMethod,
+                                                      List<Expression> curriedArgs,
+                                                      List<JavaTypeInstance> targetFnArgTypes,
+                                                      boolean instance) {
+        if (lambdaMethod == null || !lambdaMethod.testAccessFlag(AccessFlagMethod.ACC_SYNTHETIC)) {
+            return;
+        }
+        MethodPrototype methodPrototype = lambdaMethod.getMethodPrototype();
+        List<LocalVariable> parameters = methodPrototype.getComputedParameters();
+        List<JavaTypeInstance> args = methodPrototype.getArgs();
+        int parameterIdx = 0;
+        for (int curriedIdx = instance ? 1 : 0; curriedIdx < curriedArgs.size() && parameterIdx < parameters.size() && parameterIdx < args.size(); ++curriedIdx, ++parameterIdx) {
+            JavaTypeInstance recoveredType = ExpressionTypeHintHelper.getDisplayType(curriedArgs.get(curriedIdx), args.get(parameterIdx));
+            applyRecoveredLambdaParameterType(parameters.get(parameterIdx), args, parameterIdx, recoveredType);
+        }
+        for (int targetIdx = 0; targetIdx < targetFnArgTypes.size() && parameterIdx < parameters.size() && parameterIdx < args.size(); ++targetIdx, ++parameterIdx) {
+            applyRecoveredLambdaParameterType(parameters.get(parameterIdx), args, parameterIdx, targetFnArgTypes.get(targetIdx));
+        }
+    }
+
+    private void applyRecoveredLambdaParameterType(LocalVariable parameter,
+                                                   List<JavaTypeInstance> args,
+                                                   int argIndex,
+                                                   JavaTypeInstance recoveredType) {
+        if (parameter == null || recoveredType == null || argIndex < 0 || argIndex >= args.size()) {
+            return;
+        }
+        JavaTypeInstance currentType = args.get(argIndex);
+        if (currentType != null && !currentType.getDeGenerifiedType().equals(recoveredType.getDeGenerifiedType())) {
+            return;
+        }
+        if (currentType != null && !ExpressionTypeHintHelper.shouldPreferResolvedType(currentType, recoveredType)) {
+            return;
+        }
+        args.set(argIndex, recoveredType);
+        parameter.getInferredJavaType().forceType(recoveredType, true);
+        parameter.setCustomCreationJavaType(recoveredType);
+    }
+
+    private void renameFallbackLambdaMethod(Method lambdaMethod, MethodPrototype lambdaFn) {
+        if (lambdaMethod == null || lambdaFn == null) {
+            return;
+        }
+        String methodName = lambdaMethod.getName();
+        if (!methodName.startsWith("lambda$")) {
+            return;
+        }
+        String safeName = "cfr$" + methodName;
+        lambdaMethod.getMethodPrototype().setFixedName(safeName);
+        lambdaFn.setFixedName(safeName);
     }
 
     private Expression tryInlineSyntheticLambda(DynamicInvokation dynamicExpression,
@@ -406,7 +468,9 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             if (structuredLambdaStatements == null) {
                 throw new CannotInlineLambdaException();
             }
-
+            if (!shouldInlineStructuredLambda(structuredLambdaStatements, anonymousLambdaArgs)) {
+                return null;
+            }
             ExpressionRewriter variableRenamer = new LambdaInternalRewriter(rewrites);
             for (StructuredStatement lambdaStatement : structuredLambdaStatements) {
                 lambdaStatement.rewriteExpressions(variableRenamer);
@@ -425,15 +489,44 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             }
 
             method.copyLocalClassesFrom(lambdaMethod);
-            Op04StructuredStatement placeHolder = new Op04StructuredStatement(lambdaStatement);
-            StructuredScope scope = new StructuredScope();
-            placeHolder.transform(new LocalDeclarationRemover(), scope);
-
             return new LambdaExpression(lambdaStatement.getCombinedLoc(), dynamicExpression.getInferredJavaType(), anonymousLambdaArgs, null,
                     new StructuredStatementExpression(new InferredJavaType(lambdaMethod.getMethodPrototype().getReturnType(), InferredJavaType.Source.EXPRESSION), lambdaStatement));
         } catch (CannotInlineLambdaException ignore) {
             return null;
         }
+    }
+
+    private boolean shouldInlineStructuredLambda(List<StructuredStatement> statements, List<LValue> lambdaArgs) {
+        Set<LValue> lambdaParameters = org.benf.cfr.reader.util.collections.SetFactory.newSet();
+        lambdaParameters.addAll(lambdaArgs);
+        for (StructuredStatement statement : statements) {
+            if (statement instanceof StructuredComment
+                    || statement instanceof Block
+                    || statement instanceof StructuredReturn) {
+                continue;
+            }
+            if (statement instanceof StructuredDefinition) {
+                if (!lambdaParameters.contains(((StructuredDefinition) statement).getLvalue())) {
+                    return false;
+                }
+                continue;
+            }
+            if (statement instanceof StructuredAssignment) {
+                LValue lValue = ((StructuredAssignment) statement).getLvalue();
+                if (lValue instanceof LocalVariable && !lambdaParameters.contains(lValue)) {
+                    return false;
+                }
+                continue;
+            }
+            if (statement instanceof StructuredExpressionStatement
+                    && ((StructuredExpressionStatement) statement).getExpression() instanceof AssignmentExpression) {
+                LValue updated = ((AssignmentExpression) ((StructuredExpressionStatement) statement).getExpression()).getUpdatedLValue();
+                if (updated instanceof LocalVariable && !lambdaParameters.contains(updated)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static boolean isNewArrayLambda(Expression e, List<Expression> curriedArgs, List<LValue> anonymousLambdaArgs) {
@@ -489,4 +582,5 @@ public class LambdaRewriter implements Op04Rewriter, ExpressionRewriter {
             return lValue;
         }
     }
+
 }

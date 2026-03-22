@@ -2,15 +2,19 @@ package org.benf.cfr.reader.bytecode.analysis.parse.expression;
 
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.misc.Precedence;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.CloneHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.*;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.entities.constantpool.ConstantPool;
 import org.benf.cfr.reader.entities.constantpool.ConstantPoolEntryMethodRef;
 import org.benf.cfr.reader.util.StringUtils;
 import org.benf.cfr.reader.util.Troolean;
+import org.benf.cfr.reader.util.MiscConstants;
 import org.benf.cfr.reader.util.output.Dumper;
 
 import java.util.List;
@@ -49,7 +53,12 @@ public class MemberFunctionInvokation extends AbstractMemberFunctionInvokation {
 
     @Override
     public Dumper dumpInner(Dumper d) {
-        getObject().dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
+        if (shouldRenderExplicitOuterThis(d)) {
+            d.print(((JavaRefTypeInstance) getClassTypeInstance().getDeGenerifiedType()).getRawShortName())
+                    .print(MiscConstants.DOT_THIS);
+        } else {
+            getObject().dumpWithOuterPrecedence(d, getPrecedence(), Troolean.NEITHER);
+        }
 
         MethodPrototype methodPrototype = getMethodPrototype();
         improveAgainstExpectedType(null);
@@ -65,6 +74,40 @@ public class MemberFunctionInvokation extends AbstractMemberFunctionInvokation {
         }
         d.separator(")");
         return d;
+    }
+
+    private boolean shouldRenderExplicitOuterThis(Dumper d) {
+        if (isInitMethod) {
+            return false;
+        }
+        if (!(getObject() instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) getObject()).getLValue();
+        if (!(lValue instanceof LocalVariable) || !MiscConstants.THIS.equals(((LocalVariable) lValue).getName().getStringName())) {
+            return false;
+        }
+        JavaTypeInstance targetType = getClassTypeInstance() == null ? null : getClassTypeInstance().getDeGenerifiedType();
+        JavaRefTypeInstance analysisType = d.getTypeUsageInformation() == null ? null : d.getTypeUsageInformation().getAnalysisType();
+        if (!(targetType instanceof JavaRefTypeInstance)) {
+            return false;
+        }
+        JavaRefTypeInstance targetRefType = (JavaRefTypeInstance) targetType;
+        if (targetRefType.getInnerClassHereInfo().isAnonymousClass()) {
+            return false;
+        }
+        if (analysisType != null) {
+            JavaTypeInstance analysisBaseType = analysisType.getDeGenerifiedType();
+            if (!analysisBaseType.equals(targetRefType)
+                    && analysisType.getInnerClassHereInfo().isTransitiveInnerClassOf(targetRefType)) {
+                return true;
+            }
+            if (!analysisBaseType.equals(targetRefType)
+                    && targetRefType.getInnerClassHereInfo().isTransitiveInnerClassOf(analysisBaseType)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean isInitMethod() {

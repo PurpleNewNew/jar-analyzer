@@ -79,6 +79,15 @@ public final class VariableRecoveryPasses {
             true,
             "restore-trailing-creator-assignments"
     );
+    public static final StructuredPassEntry REFRESH_LAMBDA_CAPTURED_VARIABLES = entry(
+            "refresh-lambda-captured-variables",
+            "variable-recovery",
+            "fully-structured",
+            "Re-marks lambda captured locals after creator recovery settles local identities.",
+            true,
+            false,
+            "restore-prefix-embedded-assignments"
+    );
     public static final StructuredPassEntry REDUCE_CLASH_DECLARATIONS = entry(
             "reduce-clash-declarations",
             "variable-recovery",
@@ -86,7 +95,7 @@ public final class VariableRecoveryPasses {
             "Reduces declaration clashes once variable scopes and creator placements have stabilized.",
             true,
             true,
-            "restore-prefix-embedded-assignments"
+            "refresh-lambda-captured-variables"
     );
     public static final StructuredPassEntry DISCOVER_LOCAL_CLASS_SCOPES = entry(
             "discover-local-class-scopes",
@@ -125,6 +134,8 @@ public final class VariableRecoveryPasses {
                     (block, context) -> StructuredCreatorRecovery.restoreTrailingCreatorAssignments(block)),
             plan(RESTORE_PREFIX_EMBEDDED_ASSIGNMENTS,
                     (block, context) -> StructuredCreatorRecovery.restorePrefixEmbeddedAssignments(block)),
+            plan(REFRESH_LAMBDA_CAPTURED_VARIABLES,
+                    (block, context) -> StructuredSemanticTransforms.markLambdaCapturedVariables(block)),
             plan(REDUCE_CLASH_DECLARATIONS,
                     (block, context) -> StructuredSemanticTransforms.reduceClashDeclarations(block, context.bytecodeMeta)),
             plan(DISCOVER_LOCAL_CLASS_SCOPES,

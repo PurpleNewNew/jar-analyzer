@@ -4,6 +4,8 @@ import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.Op04StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.StatementContainer;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -11,6 +13,10 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.BlockIdentifier;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.LValueScopeDiscoverer;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.ScopeDiscoverInfoCache;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericRefTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
+import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.util.collections.ListFactory;
 import org.benf.cfr.reader.util.output.Dumper;
@@ -44,11 +50,36 @@ public class StructuredIter extends AbstractStructuredBlockStatement {
     @Override
     public Dumper dump(Dumper dumper) {
         if (block.hasForeignReferences()) dumper.label(block.getDisplayName(), true);
+        Expression iteratedValues = getDisplayIterableExpression();
         dumper.keyword("for ").separator("(");
         if (iterator.isFinal()) dumper.keyword("final ");
-        LValue.Creation.dump(dumper, iterator).separator(" : ").dump(list).separator(") ");
+        LValue.Creation.dump(dumper, iterator).separator(" : ").dump(iteratedValues).separator(") ");
         getBody().dump(dumper);
         return dumper;
+    }
+
+    private Expression getDisplayIterableExpression() {
+        if (!(iterator instanceof LocalVariable)) {
+            return list;
+        }
+        JavaTypeInstance iteratorType = iterator.getInferredJavaType().getJavaTypeInstance();
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(iteratorType)) {
+            return list;
+        }
+        JavaTypeInstance sourceType = list.getInferredJavaType().getJavaTypeInstance();
+        if (sourceType != null && ExpressionTypeHintHelper.canDisplayTypeArguments(sourceType)) {
+            return list;
+        }
+        JavaGenericRefTypeInstance iterableType = new JavaGenericRefTypeInstance(
+                TypeConstants.ITERABLE,
+                ListFactory.newImmutableList(iteratorType)
+        );
+        return new CastExpression(
+                BytecodeLoc.NONE,
+                new InferredJavaType(iterableType, InferredJavaType.Source.EXPRESSION, true),
+                list,
+                true
+        );
     }
 
     @Override

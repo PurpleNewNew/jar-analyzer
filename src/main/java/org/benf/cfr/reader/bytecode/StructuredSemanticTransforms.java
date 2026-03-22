@@ -12,6 +12,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.LooseC
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.Op04Checker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.checker.VoidVariableChecker;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.ExpressionRewriterTransformer;
+import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.EmbeddedAssignmentTypeStabilizer;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.HexLiteralTidier;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.InvalidBooleanCastCleaner;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.InvalidExpressionStatementCleaner;
@@ -37,6 +38,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ConstantFoldingRewr
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.LiteralRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.AbstractExpressionRewriter;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.scope.AbstractLValueScopeDiscoverer;
@@ -46,6 +48,7 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredScope;
 import org.benf.cfr.reader.bytecode.analysis.structured.expression.StructuredStatementExpression;
 import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredDefinition;
+import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredFinally;
 import org.benf.cfr.reader.bytecode.analysis.variables.VariableFactory;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.Method;
@@ -65,6 +68,7 @@ import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 
 import java.util.ArrayList;
 import java.util.Set;
+import java.util.Objects;
 import java.util.SortedMap;
 import java.util.List;
 
@@ -307,12 +311,27 @@ final class StructuredSemanticTransforms {
         applyChecker(new LooseCatchChecker(), block, context.comments);
         applyChecker(new VoidVariableChecker(), block, context.comments);
         applyChecker(new IllegalReturnChecker(), block, context.comments);
+        clearRecoveredFinallyLoopingExceptionComment(block, context.comments);
         applyLocalVariableMetadata(
                 context.originalCodeAttribute,
                 block,
                 context.lutByOffset,
                 context.comments
         );
+    }
+
+    private static void clearRecoveredFinallyLoopingExceptionComment(Op04StructuredStatement block,
+                                                                     DecompilerComments comments) {
+        if (comments == null
+                || !comments.contains(DecompilerComment.LOOPING_EXCEPTIONS)
+                || comments.contains(DecompilerComment.LOOSE_CATCH_BLOCK)) {
+            return;
+        }
+        StructuredFinallyPresenceChecker checker = new StructuredFinallyPresenceChecker();
+        transformStructured(block, checker);
+        if (checker.hasStructuredFinally()) {
+            comments.removeComment(DecompilerComment.LOOPING_EXCEPTIONS);
+        }
     }
 
     private static void applyChecker(Op04Checker checker, Op04StructuredStatement root, DecompilerComments comments) {
@@ -353,6 +372,7 @@ final class StructuredSemanticTransforms {
         if (context.options.getOption(OptionsImpl.CONST_OBF)) {
             rewriters.add(ConstantFoldingRewriter.INSTANCE);
         }
+        rewriters.add(new EmbeddedAssignmentTypeStabilizer());
         rewriters.add(new NakedNullCaster());
         rewriters.add(new LambdaCleaner());
         rewriters.add(new TernaryCastCleaner());
@@ -360,6 +380,27 @@ final class StructuredSemanticTransforms {
         rewriters.add(new HexLiteralTidier());
         rewriters.add(LiteralRewriter.INSTANCE);
         return rewriters.toArray(new ExpressionRewriter[0]);
+    }
+
+    private static final class StructuredFinallyPresenceChecker implements StructuredStatementTransformer {
+        private boolean structuredFinally;
+
+        @Override
+        public StructuredStatement transform(StructuredStatement in, StructuredScope scope) {
+            if (structuredFinally) {
+                return in;
+            }
+            if (in instanceof StructuredFinally) {
+                structuredFinally = true;
+                return in;
+            }
+            in.transformStructuredChildren(this, scope);
+            return in;
+        }
+
+        private boolean hasStructuredFinally() {
+            return structuredFinally;
+        }
     }
 
     private static final class ChainedExpressionRewriter implements ExpressionRewriter {
@@ -448,8 +489,7 @@ final class StructuredSemanticTransforms {
                 }
                 for (LValue used : collector.getUsedLValues()) {
                     if (!(used instanceof LocalVariable)
-                            || lambdaExpression.getArgs().contains(used)
-                            || !((LocalVariable) used).getName().isGoodName()) {
+                            || lambdaExpression.getArgs().contains(used)) {
                         continue;
                     }
                     captured.add((LocalVariable) used);
@@ -509,11 +549,62 @@ final class StructuredSemanticTransforms {
 
         private boolean isCapturedLocal(LocalVariable localVariable) {
             for (LocalVariable candidate : captured) {
-                if (localVariable.matchesReadableAlias(candidate)) {
+                if (matchesCapturedLocal(localVariable, candidate)) {
                     return true;
                 }
             }
             return false;
+        }
+
+        private boolean matchesCapturedLocal(LocalVariable localVariable, LocalVariable candidate) {
+            if (localVariable == null || candidate == null) {
+                return false;
+            }
+            if (localVariable.matchesReadableAlias(candidate)) {
+                return true;
+            }
+            if (hasConflictingReadableNames(localVariable, candidate)) {
+                return false;
+            }
+            JavaTypeInstance localType = localVariable.getInferredJavaType().getJavaTypeInstance();
+            JavaTypeInstance candidateType = candidate.getInferredJavaType().getJavaTypeInstance();
+            if (!Objects.equals(localType, candidateType)) {
+                return false;
+            }
+            if (localVariable.getIdx() >= 0
+                    && candidate.getIdx() >= 0
+                    && localVariable.getIdx() == candidate.getIdx()) {
+                if (Objects.equals(localVariable.getIdent(), candidate.getIdent())) {
+                    return true;
+                }
+                if (localVariable.getOriginalRawOffset() >= 0
+                        && localVariable.getOriginalRawOffset() == candidate.getOriginalRawOffset()) {
+                    return true;
+                }
+            }
+            if (localVariable.getIdent() != null && localVariable.getIdent().equals(candidate.getIdent())) {
+                return true;
+            }
+            if (!localVariable.getName().isGoodName() || !candidate.getName().isGoodName()) {
+                return false;
+            }
+            String localName = localVariable.getName().getStringName();
+            String candidateName = candidate.getName().getStringName();
+            return localName != null && localName.equals(candidateName);
+        }
+
+        private boolean hasConflictingReadableNames(LocalVariable localVariable, LocalVariable candidate) {
+            if (localVariable.getName() == null
+                    || candidate.getName() == null
+                    || !localVariable.getName().isGoodName()
+                    || !candidate.getName().isGoodName()) {
+                return false;
+            }
+            String localName = localVariable.getName().getStringName();
+            String candidateName = candidate.getName().getStringName();
+            return localName != null
+                    && candidateName != null
+                    && !localName.equals(candidateName);
         }
     }
 

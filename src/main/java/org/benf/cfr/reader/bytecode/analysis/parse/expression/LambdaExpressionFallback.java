@@ -37,7 +37,7 @@ public class LambdaExpressionFallback extends AbstractExpression implements Lamb
     private final boolean methodRef;
 
     private String lambdaFnName() {
-        String lambdaFnName = lambdaFn.getName();
+        String lambdaFnName = lambdaFn.getFixedName();
         return lambdaFnName.equals(MiscConstants.INIT_METHOD) ? MiscConstants.NEW : lambdaFnName;
     }
 
@@ -128,6 +128,8 @@ public class LambdaExpressionFallback extends AbstractExpression implements Lamb
         String name = lambdaFnName();
         //noinspection StringEquality
         boolean special = name == MiscConstants.NEW;
+        boolean anonymousCallClass = callClassType != null
+                && callClassType.getInnerClassHereInfo().isAnonymousClass();
         if (methodRef) {
             if (instance) {
                 curriedArgs.get(0).dumpWithOuterPrecedence(d, getPrecedence(), Troolean.TRUE).print("::").methodName(name, lambdaFn, special, false);
@@ -153,6 +155,8 @@ public class LambdaExpressionFallback extends AbstractExpression implements Lamb
             d.operator(" -> ");
             if (instance) {
                 curriedArgs.get(0).dumpWithOuterPrecedence(d, getPrecedence(), Troolean.TRUE).separator(".").methodName(name, lambdaFn, special, false);
+            } else if (anonymousCallClass) {
+                d.methodName(name, lambdaFn, special, false);
             } else {
                 d.dump(callClassType).print('.').methodName(name, lambdaFn, special, false);
             }

@@ -14,6 +14,7 @@ import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.Construct
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.util.MiscStatementTools;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
 import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationAnonymousInner;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
@@ -450,18 +451,65 @@ public final class StructuredClassTransforms {
         if (matchedField == null) {
             return;
         }
+        syncHiddenCaptureType(protoVar, matchedField, lValueArg);
         innerClassConstructorRewriter.getAssignmentStatement().getContainer().nopOut();
         ClassFileField classFileField = matchedField.getClassFileField();
+        JavaTypeInstance captureType = resolveHiddenCaptureType(lValueArg);
+        if (captureType != null) {
+            classFileField.overrideDisplayJavaType(captureType);
+        }
         classFileField.overrideName(overrideName);
         classFileField.markSyntheticOuterRef();
         classFileField.markHidden();
         prototype.hide(index);
         lValueArg.markFinal();
+        if (shouldInlineCapturedLocal(lValueArg)) {
+            Map<LValue, LValue> replacements = MapFactory.newMap();
+            replacements.put(matchedField, lValueArg);
+            applyLValueReplacer(replacements, root);
+        }
     }
 
     private static void applyLValueReplacer(Map<LValue, LValue> replacements, Op04StructuredStatement root) {
         if (!replacements.isEmpty()) {
             MiscStatementTools.applyExpressionRewriter(root, new LValueReplacingRewriter(replacements));
         }
+    }
+
+    private static void syncHiddenCaptureType(LocalVariable protoVar,
+                                              FieldVariable matchedField,
+                                              LValue lValueArg) {
+        JavaTypeInstance captureType = resolveHiddenCaptureType(lValueArg);
+        if (captureType == null || !ExpressionTypeHintHelper.canDisplayTypeArguments(captureType)) {
+            return;
+        }
+        protoVar.getInferredJavaType().forceType(captureType, true);
+        protoVar.setCustomCreationJavaType(captureType);
+        protoVar.setCustomCreationType(captureType.getAnnotatedInstance());
+        matchedField.getInferredJavaType().forceType(captureType, true);
+    }
+
+    private static JavaTypeInstance resolveHiddenCaptureType(LValue lValueArg) {
+        if (lValueArg == null) {
+            return null;
+        }
+        if (lValueArg instanceof LocalVariable) {
+            LocalVariable localVariable = (LocalVariable) lValueArg;
+            JavaTypeInstance creationType = localVariable.getCustomCreationJavaType();
+            JavaTypeInstance inferredType = localVariable.getInferredJavaType().getJavaTypeInstance();
+            if (creationType != null) {
+                return ExpressionTypeHintHelper.preferResolvedType(creationType, inferredType);
+            }
+            return inferredType;
+        }
+        return lValueArg.getInferredJavaType().getJavaTypeInstance();
+    }
+
+    private static boolean shouldInlineCapturedLocal(LValue lValueArg) {
+        if (!(lValueArg instanceof LocalVariable)) {
+            return false;
+        }
+        String variableName = ((LocalVariable) lValueArg).getName().getStringName();
+        return variableName != null && !MiscConstants.THIS.equals(variableName);
     }
 }
