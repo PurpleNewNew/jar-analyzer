@@ -18,12 +18,15 @@ import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.LValueUsageCollector;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
 import org.benf.cfr.reader.bytecode.analysis.types.GenericTypeBinder;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaArrayTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaRefTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.MethodPrototype;
 import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.entities.ClassFile;
 import org.benf.cfr.reader.entities.classfilehelpers.OverloadMethodSet;
@@ -144,7 +147,9 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         improveArgumentTypes(methodPrototype, genericTypeBinder);
         DisplayTypeResolution resolution = resolveDisplayReturnType(expectedType);
         JavaTypeInstance resolvedReturnType = resolution.getResolvedType();
-        if (resolvedReturnType != null && !resolution.requiresExplicitCast()) {
+        if (resolvedReturnType != null
+                && !resolution.requiresExplicitCast()
+                && !shouldPreserveDeclaredPrimitiveReturnType(methodPrototype.getReturnType(), resolvedReturnType)) {
             getInferredJavaType().forceType(resolvedReturnType, true);
         }
         JavaTypeInstance expectedObjectType = methodPrototype.getGenericClassType();
@@ -158,8 +163,19 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         ExpressionTypeHintHelper.improveExpressionType(object, expectedObjectType);
     }
 
+    private boolean shouldPreserveDeclaredPrimitiveReturnType(JavaTypeInstance declaredReturnType,
+                                                              JavaTypeInstance resolvedReturnType) {
+        return declaredReturnType instanceof RawJavaType
+                && resolvedReturnType instanceof RawJavaType
+                && !declaredReturnType.equals(resolvedReturnType);
+    }
+
     JavaTypeInstance getDisplayReturnType(JavaTypeInstance expectedType) {
         return resolveDisplayReturnType(expectedType).getResolvedType();
+    }
+
+    public boolean requiresExplicitReturnCast(JavaTypeInstance expectedType) {
+        return resolveDisplayReturnType(expectedType).requiresExplicitCast();
     }
 
     DisplayTypeResolution resolveDisplayReturnType(JavaTypeInstance expectedType) {
@@ -207,6 +223,10 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             resolvedReturnType = inferredReturnType;
             selectedSource = "inferred-return";
         }
+        if (shouldPreserveDeclaredPrimitiveReturnType(declaredReturnType, resolvedReturnType)) {
+            resolvedReturnType = declaredReturnType;
+            selectedSource = "declared-primitive-return";
+        }
         JavaTypeInstance rawReceiverAdjustedReturnType = adjustObjectOnlyReturnTypeForRawReceiver(objectType, resolvedReturnType);
         if (rawReceiverAdjustedReturnType != resolvedReturnType) {
             resolvedReturnType = rawReceiverAdjustedReturnType;
@@ -216,6 +236,12 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
                 && expectedType != null
                 && !resolvedReturnType.equals(objectResolvedReturnType)
                 && !resolvedReturnType.equals(objectBoundReturnType);
+        if (!requiresExplicitCast
+                && expectedType != null
+                && methodPrototype.getReturnType() instanceof JavaGenericPlaceholderTypeInstance
+                && hasConflictingGenericReceiver()) {
+            requiresExplicitCast = true;
+        }
         return new DisplayTypeResolution(
                 resolvedReturnType,
                 requiresExplicitCast,
@@ -234,6 +260,15 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         );
     }
 
+    private boolean hasConflictingGenericReceiver() {
+        if (!(object instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) object).getLValue();
+        return lValue instanceof LocalVariable
+                && ((LocalVariable) lValue).hasConflictingGenericDeclaration();
+    }
+
     protected void improveArgumentTypes(MethodPrototype methodPrototype, GenericTypeBinder genericTypeBinder) {
         OverloadMethodSet overloadMethodSet = getOverloadMethodSet();
         List<JavaTypeInstance> prototypeArgs = methodPrototype.getArgs();
@@ -248,6 +283,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
                 if (genericTypeBinder != null) {
                     boundPrototypeArg = genericTypeBinder.getBindingFor(boundPrototypeArg);
                 }
+                boundPrototypeArg = normalizeVarArgExpectedType(methodPrototype, prototypeArgs, x, boundPrototypeArg);
             }
             JavaTypeInstance expectedArgType = null;
             if (ExpressionTypeHintHelper.isSpecific(boundPrototypeArg)) {
@@ -255,6 +291,7 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
             }
             if (overloadMethodSet != null) {
                 JavaTypeInstance overloadArgType = overloadMethodSet.getArgType(x, arg.getInferredJavaType().getJavaTypeInstance());
+                overloadArgType = normalizeVarArgExpectedType(methodPrototype, prototypeArgs, x, overloadArgType);
                 if (!ExpressionTypeHintHelper.isSpecific(expectedArgType)) {
                     expectedArgType = overloadArgType;
                 }
@@ -268,6 +305,20 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         }
     }
 
+    private JavaTypeInstance normalizeVarArgExpectedType(MethodPrototype methodPrototype,
+                                                         List<JavaTypeInstance> prototypeArgs,
+                                                         int argIndex,
+                                                         JavaTypeInstance candidateType) {
+        if (candidateType == null || !methodPrototype.isVarArgs() || prototypeArgs.isEmpty()) {
+            return candidateType;
+        }
+        int varArgIndex = prototypeArgs.size() - 1;
+        if (argIndex < varArgIndex || !(candidateType instanceof JavaArrayTypeInstance)) {
+            return candidateType;
+        }
+        return candidateType.getArrayStrippedType();
+    }
+
     private GenericTypeBinder getExpectedTypeBinder(MethodPrototype methodPrototype, JavaTypeInstance expectedType) {
         GenericTypeBinder objectTypeBinder = null;
         JavaTypeInstance objectType = resolveDisplayType(object);
@@ -278,14 +329,22 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         JavaTypeInstance normalizedExpectedType = ExpressionTypeHintHelper.normalizeExpectedType(expectedType);
         if (normalizedExpectedType != null) {
             JavaTypeInstance returnType = methodPrototype.getReturnType();
+            GenericTypeBinder expectedTypeBinder = null;
             if (returnType instanceof JavaGenericBaseInstance) {
-                GenericTypeBinder expectedTypeBinder =
-                        GenericTypeBinder.extractBaseBindings((JavaGenericBaseInstance) returnType, normalizedExpectedType);
+                expectedTypeBinder = GenericTypeBinder.extractBaseBindings(
+                        (JavaGenericBaseInstance) returnType,
+                        normalizedExpectedType
+                );
+            } else if (returnType instanceof JavaGenericPlaceholderTypeInstance) {
+                JavaTypeInstance expectedBaseType = normalizedExpectedType.getDeGenerifiedType();
+                if (expectedBaseType != null && expectedBaseType != TypeConstants.OBJECT) {
+                    expectedTypeBinder = GenericTypeBinder.createEmpty();
+                    expectedTypeBinder.suggestBindingFor(returnType.getRawName(), normalizedExpectedType);
+                }
+            }
+            if (expectedTypeBinder != null) {
                 if (objectTypeBinder == null) {
                     return expectedTypeBinder;
-                }
-                if (expectedTypeBinder == null) {
-                    return objectTypeBinder;
                 }
                 GenericTypeBinder merged = objectTypeBinder.mergeWith(expectedTypeBinder, true);
                 return merged == null ? expectedTypeBinder : merged;
@@ -326,6 +385,9 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         if (expression instanceof LValueExpression) {
             LValue lValue = ((LValueExpression) expression).getLValue();
             if (lValue instanceof LocalVariable) {
+                if (((LocalVariable) lValue).hasConflictingGenericDeclaration()) {
+                    return lValue.getInferredJavaType().getJavaTypeInstance();
+                }
                 JavaTypeInstance creatorType = ((LocalVariable) lValue).getCustomCreationJavaType();
                 JavaTypeInstance inferredType = lValue.getInferredJavaType().getJavaTypeInstance();
                 if (creatorType != null) {
@@ -341,6 +403,9 @@ public abstract class AbstractMemberFunctionInvokation extends AbstractFunctionI
         if (expression instanceof AssignmentExpression) {
             LValue updatedLValue = ((AssignmentExpression) expression).getUpdatedLValue();
             if (updatedLValue instanceof LocalVariable) {
+                if (((LocalVariable) updatedLValue).hasConflictingGenericDeclaration()) {
+                    return updatedLValue.getInferredJavaType().getJavaTypeInstance();
+                }
                 JavaTypeInstance creatorType = ((LocalVariable) updatedLValue).getCustomCreationJavaType();
                 JavaTypeInstance inferredType = updatedLValue.getInferredJavaType().getJavaTypeInstance();
                 if (creatorType != null) {

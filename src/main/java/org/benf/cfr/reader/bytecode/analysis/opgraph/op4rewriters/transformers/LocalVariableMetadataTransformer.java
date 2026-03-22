@@ -7,7 +7,9 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConditionalExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpressionCommon;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.MemberFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.StackSSALabel;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
@@ -18,7 +20,9 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredAssignment;
 import org.benf.cfr.reader.bytecode.analysis.structured.statement.StructuredCatch;
 import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.TypeAnnotationHelper;
 import org.benf.cfr.reader.bytecode.analysis.types.annotated.JavaAnnotatedTypeInstance;
@@ -42,6 +46,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeSet;
 
@@ -57,6 +62,7 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
     private final ConstantPool cp;
     private final Map<Integer, TreeSet<LocalVariableTypeEntry>> localVariableTypeEntries = new HashMap<Integer, TreeSet<LocalVariableTypeEntry>>();
     private final Map<Integer, TreeSet<LocalVariableEntry>> localVariableEntries = new HashMap<Integer, TreeSet<LocalVariableEntry>>();
+    private final List<LocalVariable> creatorHintLocals = ListFactory.newList();
 
     public LocalVariableMetadataTransformer(AttributeLocalVariableTable localVariableTable,
                                             AttributeLocalVariableTypeTable localVariableTypeTable,
@@ -337,20 +343,58 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
 
     private JavaTypeInstance applyResolvedVariableType(LocalVariable localVariable, boolean refreshCreationType) {
         ResolvedCreatorType resolvedCreatorType = resolveLocalVariableCreatorType(localVariable);
-        if (resolvedCreatorType == null || resolvedCreatorType.type == null) return null;
+        if (resolvedCreatorType == null || resolvedCreatorType.type == null) {
+            return applyAliasedCreatorHint(localVariable, refreshCreationType);
+        }
         JavaTypeInstance creatorType = resolvedCreatorType.type;
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance aliasedCreatorType = findAliasedCreatorHint(localVariable);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(creatorType, aliasedCreatorType)) {
+            creatorType = aliasedCreatorType;
+        }
+        if (localVariable.hasConflictingReferenceDeclaration()) {
+            // Some reused slots are deliberately pinned to Object because later embedded assignments
+            // prove that one recovered local is carrying incompatible reference types. LVT metadata is
+            // too local to recover the split, so letting it narrow the declaration again reintroduces
+            // uncompilable self-decompile output.
+            localVariable.getInferredJavaType().forceType(TypeConstants.OBJECT, true);
+            localVariable.forceCustomCreationJavaType(TypeConstants.OBJECT);
+            localVariable.setCustomCreationType(TypeConstants.OBJECT.getAnnotatedInstance());
+            registerCreatorHintLocal(localVariable);
+            return TypeConstants.OBJECT;
+        }
+        if (localVariable.hasConflictingGenericDeclaration()
+                && currentType != null
+                && creatorType != null) {
+            JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+            JavaTypeInstance creatorBaseType = creatorType.getDeGenerifiedType();
+            if (currentBaseType != null && currentBaseType.equals(creatorBaseType)) {
+                localVariable.getInferredJavaType().forceType(currentType, true);
+                localVariable.forceCustomCreationJavaType(currentType);
+                if (localVariable.getAnnotatedCreationType() == null) {
+                    localVariable.setCustomCreationType(currentType.getAnnotatedInstance());
+                }
+                registerCreatorHintLocal(localVariable);
+                return currentType;
+            }
+        }
         if (resolvedCreatorType.matchQuality == MatchQuality.NEARBY_NAMED
                 && shouldKeepNearbyNamedCurrentType(currentType, creatorType)) {
+            recordCreatorDeclarationHint(localVariable, currentType, creatorType, refreshCreationType);
+            registerCreatorHintLocal(localVariable);
             return currentType;
         }
         if (shouldPreserveSpecificCurrentType(currentType, creatorType)) {
+            recordCreatorDeclarationHint(localVariable, currentType, creatorType, refreshCreationType);
+            registerCreatorHintLocal(localVariable);
             return currentType;
         }
         if (shouldPreserveIncompatibleCurrentType(currentType, creatorType)) {
             return currentType;
         }
         if (shouldPreserveExistingDeclarationType(localVariable, creatorType, resolvedCreatorType.matchQuality)) {
+            recordCreatorDeclarationHint(localVariable, currentType, creatorType, refreshCreationType);
+            registerCreatorHintLocal(localVariable);
             return currentType;
         }
 
@@ -361,7 +405,179 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (refreshCreationType || shouldRefreshAnnotatedCreationType(previousCreationType, creatorType)) {
             localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
         }
+        registerCreatorHintLocal(localVariable);
         return creatorType;
+    }
+
+    private JavaTypeInstance applyAliasedCreatorHint(LocalVariable localVariable, boolean refreshCreationType) {
+        if (localVariable == null) {
+            return null;
+        }
+        JavaTypeInstance creatorType = findAliasedCreatorHint(localVariable);
+        if (creatorType != null) {
+            JavaTypeInstance previousCreationType = localVariable.getCustomCreationJavaType();
+            localVariable.setCustomCreationJavaType(creatorType);
+            if (refreshCreationType || shouldRefreshAnnotatedCreationType(previousCreationType, creatorType)) {
+                localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
+            }
+        }
+        return creatorType;
+    }
+
+    private void registerCreatorHintLocal(LocalVariable localVariable) {
+        if (localVariable == null
+                || localVariable.getCustomCreationJavaType() == null
+                || !ExpressionTypeHintHelper.canDisplayTypeArguments(localVariable.getCustomCreationJavaType())) {
+            return;
+        }
+        for (LocalVariable creatorHintLocal : creatorHintLocals) {
+            if (matchesCreatorHintLocal(localVariable, creatorHintLocal)) {
+                return;
+            }
+        }
+        creatorHintLocals.add(localVariable);
+    }
+
+    private boolean matchesCreatorHintLocal(LocalVariable lhs, LocalVariable rhs) {
+        if (lhs == null || rhs == null) {
+            return false;
+        }
+        if (hasConflictingReadableNames(lhs, rhs)) {
+            return false;
+        }
+        if (lhs.matchesReadableAlias(rhs) || rhs.matchesReadableAlias(lhs)) {
+            return true;
+        }
+        JavaTypeInstance lhsType = lhs.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance rhsType = rhs.getInferredJavaType().getJavaTypeInstance();
+        if (!Objects.equals(lhsType, rhsType)) {
+            return false;
+        }
+        if (lhs.getIdx() >= 0
+                && rhs.getIdx() >= 0
+                && lhs.getIdx() == rhs.getIdx()) {
+            if (Objects.equals(lhs.getIdent(), rhs.getIdent())) {
+                return true;
+            }
+            if (lhs.getOriginalRawOffset() >= 0
+                    && lhs.getOriginalRawOffset() == rhs.getOriginalRawOffset()) {
+                return true;
+            }
+            if (lhs.getName() != null
+                    && rhs.getName() != null
+                    && lhs.getName().isGoodName()
+                    && rhs.getName().isGoodName()) {
+                String lhsName = lhs.getName().getStringName();
+                String rhsName = rhs.getName().getStringName();
+                if (lhsName != null && lhsName.equals(rhsName)) {
+                    return true;
+                }
+            }
+        }
+        return lhs.getOriginalRawOffset() >= 0
+                && lhs.getOriginalRawOffset() == rhs.getOriginalRawOffset();
+    }
+
+    private boolean hasConflictingReadableNames(LocalVariable lhs, LocalVariable rhs) {
+        if (lhs.getName() == null
+                || rhs.getName() == null
+                || !lhs.getName().isGoodName()
+                || !rhs.getName().isGoodName()) {
+            return false;
+        }
+        String lhsName = lhs.getName().getStringName();
+        String rhsName = rhs.getName().getStringName();
+        return lhsName != null
+                && rhsName != null
+                && !lhsName.equals(rhsName);
+    }
+
+    private JavaTypeInstance findAliasedCreatorHint(LocalVariable localVariable) {
+        if (localVariable == null) {
+            return null;
+        }
+        JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (ExpressionTypeHintHelper.canDisplayTypeArguments(currentType)
+                && !ExpressionTypeHintHelper.isObjectOnlyGenericType(currentType)) {
+            return null;
+        }
+        JavaTypeInstance currentBaseType = currentType == null ? null : currentType.getDeGenerifiedType();
+        if (currentBaseType == null) {
+            return null;
+        }
+        JavaTypeInstance bestHint = null;
+        for (LocalVariable creatorHintLocal : creatorHintLocals) {
+            boolean matches = matchesCreatorHintLocal(localVariable, creatorHintLocal);
+            if (!matches) {
+                continue;
+            }
+            JavaTypeInstance creatorType = creatorHintLocal.getCustomCreationJavaType();
+            JavaTypeInstance creatorBaseType = creatorType == null ? null : creatorType.getDeGenerifiedType();
+            if (creatorBaseType == null
+                    || !currentBaseType.equals(creatorBaseType)
+                    || !ExpressionTypeHintHelper.canDisplayTypeArguments(creatorType)
+                    || ExpressionTypeHintHelper.isObjectOnlyGenericType(creatorType)) {
+                continue;
+            }
+            if (ExpressionTypeHintHelper.shouldPreferResolvedType(bestHint, creatorType)) {
+                bestHint = creatorType;
+            }
+        }
+        return bestHint;
+    }
+
+    private boolean sharesCreatorHintIdentity(LocalVariable lhs, LocalVariable rhs) {
+        if (lhs == null || rhs == null) {
+            return false;
+        }
+        if (lhs.getIdx() < 0 || rhs.getIdx() < 0 || lhs.getIdx() != rhs.getIdx()) {
+            return false;
+        }
+        if (lhs.getIdent() != null && rhs.getIdent() != null) {
+            return lhs.getIdent().equals(rhs.getIdent());
+        }
+        return lhs.getOriginalRawOffset() >= 0
+                && rhs.getOriginalRawOffset() >= 0
+                && lhs.getOriginalRawOffset() == rhs.getOriginalRawOffset();
+    }
+
+    private void recordCreatorDeclarationHint(LocalVariable localVariable,
+                                              JavaTypeInstance currentType,
+                                              JavaTypeInstance creatorType,
+                                              boolean refreshCreationType) {
+        if (localVariable == null
+                || creatorType == null
+                || !ExpressionTypeHintHelper.canDisplayTypeArguments(creatorType)) {
+            return;
+        }
+        if (currentType != null && !sharesDeclarationCompatibility(currentType, creatorType)) {
+            return;
+        }
+        JavaTypeInstance previousCreationType = localVariable.getCustomCreationJavaType();
+        if (previousCreationType != null
+                && !ExpressionTypeHintHelper.shouldPreferResolvedType(previousCreationType, creatorType)) {
+            return;
+        }
+        localVariable.setCustomCreationJavaType(creatorType);
+        if (refreshCreationType || shouldRefreshAnnotatedCreationType(previousCreationType, creatorType)) {
+            localVariable.setCustomCreationType(creatorType.getAnnotatedInstance());
+        }
+    }
+
+    private boolean sharesDeclarationCompatibility(JavaTypeInstance currentType, JavaTypeInstance creatorType) {
+        if (currentType == null || creatorType == null) {
+            return false;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance creatorBaseType = creatorType.getDeGenerifiedType();
+        if (currentBaseType == null || creatorBaseType == null) {
+            return false;
+        }
+        if (currentBaseType.equals(creatorBaseType)) {
+            return true;
+        }
+        return sharesAssignableHierarchy(currentBaseType, creatorType)
+                || sharesAssignableHierarchy(creatorBaseType, currentType);
     }
 
     private boolean shouldRefreshAnnotatedCreationType(JavaTypeInstance previousCreationType, JavaTypeInstance creatorType) {
@@ -474,12 +690,71 @@ public class LocalVariableMetadataTransformer implements StructuredStatementTran
         if (rvalue instanceof ConstructorInvokationSimple) {
             ((ConstructorInvokationSimple) rvalue).improveConstructionType(creatorType);
         }
+        ExpressionTypeHintHelper.improveExpressionType(rvalue, creatorType);
         if (rvalue.getInferredJavaType().getJavaTypeInstance().implicitlyCastsTo(creatorType, null)) return;
+        if (canResolveMemberGenericReturn(rvalue, creatorType)) return;
         if (rvalue instanceof CastExpression) {
             JavaTypeInstance castType = rvalue.getInferredJavaType().getJavaTypeInstance();
             if (creatorType.equals(castType)) return;
         }
         structuredAssignment.setRvalue(new CastExpression(stm.getLoc(), new InferredJavaType(creatorType, InferredJavaType.Source.EXPRESSION), rvalue, true));
+    }
+
+    private boolean canResolveMemberGenericReturn(Expression expression, JavaTypeInstance targetType) {
+        if (!(expression instanceof MemberFunctionInvokation)
+                || targetType == null
+                || targetType instanceof RawJavaType) {
+            return false;
+        }
+        MemberFunctionInvokation invokation = (MemberFunctionInvokation) expression;
+        if (!(invokation.getMethodPrototype().getReturnType() instanceof JavaGenericPlaceholderTypeInstance)) {
+            return false;
+        }
+        Expression receiver = invokation.getObject();
+        if (!(receiver instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) receiver).getLValue();
+        if (!(lValue instanceof LocalVariable)) {
+            return false;
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        if (localVariable.hasConflictingGenericDeclaration()) {
+            return false;
+        }
+        JavaTypeInstance receiverType = localVariable.getCustomCreationJavaType();
+        JavaTypeInstance aliasedReceiverType = findAliasedCreatorHint(localVariable);
+        if (ExpressionTypeHintHelper.shouldPreferResolvedType(receiverType, aliasedReceiverType)) {
+            receiverType = aliasedReceiverType;
+        }
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(receiverType)) {
+            ResolvedCreatorType resolvedCreatorType = resolveLocalVariableCreatorType(localVariable);
+            if (resolvedCreatorType != null) {
+                JavaTypeInstance resolvedType = resolvedCreatorType.type;
+                if (ExpressionTypeHintHelper.shouldPreferResolvedType(receiverType, resolvedType)) {
+                    receiverType = resolvedType;
+                }
+            }
+        }
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(receiverType)) {
+            receiverType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        }
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(receiverType)) {
+            return false;
+        }
+        JavaTypeInstance resolvedReturnType = invokation.getMethodPrototype().getReturnType(receiverType, invokation.getArgs());
+        if (resolvedReturnType == null) {
+            return false;
+        }
+        JavaTypeInstance targetBaseType = targetType.getDeGenerifiedType();
+        JavaTypeInstance resolvedBaseType = resolvedReturnType.getDeGenerifiedType();
+        if (targetBaseType == null
+                || resolvedBaseType == null
+                || !targetBaseType.equals(resolvedBaseType)) {
+            return false;
+        }
+        return resolvedReturnType.equals(targetType)
+                || resolvedReturnType.implicitlyCastsTo(targetType, null);
     }
 
     @Override

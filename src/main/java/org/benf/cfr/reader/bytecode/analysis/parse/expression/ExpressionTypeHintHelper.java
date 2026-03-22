@@ -5,6 +5,8 @@ import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.loc.BytecodeLoc;
 import org.benf.cfr.reader.bytecode.analysis.parse.Expression;
+import org.benf.cfr.reader.bytecode.analysis.parse.LValue;
+import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
 import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericBaseInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
@@ -197,10 +199,18 @@ public final class ExpressionTypeHintHelper {
         }
         if (currentType instanceof JavaGenericPlaceholderTypeInstance
                 && !(candidateType instanceof JavaGenericPlaceholderTypeInstance)) {
+            JavaTypeInstance candidateBaseType = candidateType.getDeGenerifiedType();
+            if (candidateType == TypeConstants.OBJECT || candidateBaseType == TypeConstants.OBJECT) {
+                return false;
+            }
             return true;
         }
         if (!(currentType instanceof JavaGenericPlaceholderTypeInstance)
                 && candidateType instanceof JavaGenericPlaceholderTypeInstance) {
+            JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+            if (currentType == TypeConstants.OBJECT || currentBaseType == TypeConstants.OBJECT) {
+                return true;
+            }
             return false;
         }
         if (currentType == TypeConstants.OBJECT) {
@@ -296,7 +306,8 @@ public final class ExpressionTypeHintHelper {
         if (expression instanceof MemberFunctionInvokation) {
             MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
             DisplayTypeResolution resolution = memberFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
-            if (resolution.requiresExplicitCast()
+            if (requiresPrimitiveNarrowingCast(normalizedExpectedType, resolution.getResolvedType())
+                    || resolution.requiresExplicitCast()
                     && !shouldSuppressExpectedMemberCast(memberFunctionInvokation, normalizedExpectedType, resolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
@@ -309,7 +320,8 @@ public final class ExpressionTypeHintHelper {
         if (expression instanceof StaticFunctionInvokation) {
             StaticFunctionInvokation staticFunctionInvokation = (StaticFunctionInvokation) expression;
             DisplayTypeResolution resolution = staticFunctionInvokation.resolveDisplayReturnType(normalizedExpectedType);
-            if ((resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType))
+            if ((requiresPrimitiveNarrowingCast(normalizedExpectedType, resolution.getResolvedType())
+                    || resolution.requiresExplicitCast() || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType))
                     && !shouldSuppressExpectedStaticCast(staticFunctionInvokation, normalizedExpectedType, resolution)) {
                 return new CastExpression(
                         BytecodeLoc.NONE,
@@ -322,11 +334,28 @@ public final class ExpressionTypeHintHelper {
         return expression;
     }
 
+    private static boolean requiresPrimitiveNarrowingCast(JavaTypeInstance expectedType,
+                                                          JavaTypeInstance resolvedType) {
+        if (!(expectedType instanceof RawJavaType) || !(resolvedType instanceof RawJavaType)) {
+            return false;
+        }
+        if (expectedType.equals(resolvedType)) {
+            return false;
+        }
+        return !resolvedType.implicitlyCastsTo(expectedType, null);
+    }
+
     static boolean shouldSuppressExpectedMemberCast(MemberFunctionInvokation invokation,
                                                     JavaTypeInstance expectedType,
                                                     DisplayTypeResolution resolution) {
         JavaTypeInstance resolvedType = resolution.getResolvedType();
         if (expectedType == null || resolvedType == null) {
+            return false;
+        }
+        if (changesDeclaredPrimitiveReturnType(invokation.getMethodPrototype().getReturnType(), expectedType)) {
+            return false;
+        }
+        if (hasConflictingGenericReceiver(invokation.getObject())) {
             return false;
         }
         JavaTypeInstance receiverType = getDisplayType(invokation.getObject(), null);
@@ -348,11 +377,28 @@ public final class ExpressionTypeHintHelper {
         if (expectedType == null || resolvedType == null) {
             return false;
         }
-        if (!canDisplayTypeArguments(expectedType) || isObjectOnlyGenericType(expectedType)) {
+        if (changesDeclaredPrimitiveReturnType(invokation.getMethodPrototype().getReturnType(), expectedType)) {
             return false;
         }
         JavaTypeInstance expectedBaseType = expectedType.getDeGenerifiedType();
         JavaTypeInstance resolvedBaseType = resolvedType.getDeGenerifiedType();
+        if (invokation.getArgs().isEmpty()
+                && expectedBaseType != null
+                && expectedBaseType.equals(resolvedBaseType)) {
+            return true;
+        }
+        if (expectedBaseType != null
+                && expectedBaseType.equals(resolvedBaseType)
+                && isObjectOnlyGenericType(expectedType)) {
+            // Target-typed factories like List.of(...) and Set.of(...) can legitimately flow into
+            // List<Object>/Set<Object> return and assignment sites without an explicit cast. Keeping the
+            // cast here recreates source that javac rejects because the standalone invocation infers an
+            // intersection element type before the cast is applied.
+            return true;
+        }
+        if (!canDisplayTypeArguments(expectedType) || isObjectOnlyGenericType(expectedType)) {
+            return false;
+        }
         if (expectedBaseType == null || !expectedBaseType.equals(resolvedBaseType)) {
             return false;
         }
@@ -378,6 +424,22 @@ public final class ExpressionTypeHintHelper {
                     || staticFunctionInvokation.needsExpectedReturnCast(normalizedExpectedType);
         }
         return false;
+    }
+
+    private static boolean changesDeclaredPrimitiveReturnType(JavaTypeInstance declaredReturnType,
+                                                              JavaTypeInstance expectedType) {
+        return declaredReturnType instanceof RawJavaType
+                && expectedType instanceof RawJavaType
+                && !declaredReturnType.equals(expectedType);
+    }
+
+    private static boolean hasConflictingGenericReceiver(Expression receiver) {
+        if (!(receiver instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) receiver).getLValue();
+        return lValue instanceof LocalVariable
+                && ((LocalVariable) lValue).hasConflictingGenericDeclaration();
     }
 
     private static boolean isRawToObjectOnlyUpgrade(JavaTypeInstance currentType, JavaTypeInstance candidateType) {
@@ -437,6 +499,10 @@ public final class ExpressionTypeHintHelper {
             ((LambdaExpression) expression).applyTargetTypeConstraint(normalizedExpectedType);
             return;
         }
+        if (expression instanceof LValueExpression) {
+            improveLValueDisplayType(((LValueExpression) expression).getLValue(), normalizedExpectedType);
+            return;
+        }
         if (expression instanceof ConstructorInvokationSimple) {
             ((ConstructorInvokationSimple) expression).improveConstructionType(normalizedExpectedType);
             return;
@@ -466,6 +532,34 @@ public final class ExpressionTypeHintHelper {
         }
         if (expression instanceof TernaryExpression) {
             ((TernaryExpression) expression).applyTargetTypeConstraint(normalizedExpectedType);
+        }
+    }
+
+    private static void improveLValueDisplayType(LValue lValue, JavaTypeInstance expectedType) {
+        if (!(lValue instanceof LocalVariable)
+                || expectedType == null
+                || !canDisplayTypeArguments(expectedType)
+                || isObjectOnlyGenericType(expectedType)) {
+            return;
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        if (localVariable.hasConflictingGenericDeclaration()
+                || localVariable.hasConflictingReferenceDeclaration()) {
+            return;
+        }
+        JavaTypeInstance inferredType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance currentDisplayType = preferResolvedType(localVariable.getCustomCreationJavaType(), inferredType);
+        JavaTypeInstance expectedBaseType = expectedType.getDeGenerifiedType();
+        JavaTypeInstance currentBaseType = currentDisplayType == null ? null : currentDisplayType.getDeGenerifiedType();
+        if (expectedBaseType == null
+                || currentBaseType == null
+                || !expectedBaseType.equals(currentBaseType)
+                || !shouldPreferResolvedType(currentDisplayType, expectedType)) {
+            return;
+        }
+        localVariable.setCustomCreationJavaType(expectedType);
+        if (localVariable.getAnnotatedCreationType() == null) {
+            localVariable.setCustomCreationType(expectedType.getAnnotatedInstance());
         }
     }
 }

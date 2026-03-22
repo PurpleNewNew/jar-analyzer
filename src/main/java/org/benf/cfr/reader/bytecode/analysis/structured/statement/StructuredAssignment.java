@@ -12,12 +12,16 @@ import org.benf.cfr.reader.bytecode.analysis.parse.expression.CastExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ConstructorInvokationSimple;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.ExpressionTypeHintHelper;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.LambdaExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.Literal;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.LValueExpression;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.MemberFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.StaticFunctionInvokation;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.TernaryExpression;
+import org.benf.cfr.reader.bytecode.analysis.parse.expression.misc.Precedence;
 import org.benf.cfr.reader.bytecode.TypeRecoveryTracing;
 import org.benf.cfr.reader.bytecode.analysis.parse.expression.rewriteinterface.BoxingProcessor;
 import org.benf.cfr.reader.bytecode.analysis.parse.lvalue.LocalVariable;
+import org.benf.cfr.reader.bytecode.analysis.parse.literal.TypedLiteral;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriter;
 import org.benf.cfr.reader.bytecode.analysis.parse.rewriters.ExpressionRewriterFlags;
 import org.benf.cfr.reader.bytecode.analysis.parse.utils.SSAIdentifiers;
@@ -28,12 +32,15 @@ import org.benf.cfr.reader.bytecode.analysis.structured.StructuredStatement;
 import org.benf.cfr.reader.bytecode.analysis.opgraph.op4rewriters.transformers.StructuredStatementTransformer;
 import org.benf.cfr.reader.bytecode.analysis.types.BindingSuperContainer;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericRefTypeInstance;
+import org.benf.cfr.reader.bytecode.analysis.types.JavaGenericPlaceholderTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.JavaTypeInstance;
 import org.benf.cfr.reader.bytecode.analysis.types.RawJavaType;
+import org.benf.cfr.reader.bytecode.analysis.types.TypeConstants;
 import org.benf.cfr.reader.bytecode.analysis.types.discovery.InferredJavaType;
 import org.benf.cfr.reader.state.TypeUsageCollector;
 import org.benf.cfr.reader.bytecode.TypeRecoveryPasses;
 import org.benf.cfr.reader.util.collections.ListFactory;
+import org.benf.cfr.reader.util.Troolean;
 import org.benf.cfr.reader.util.output.Dumper;
 
 import java.util.List;
@@ -92,6 +99,8 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
     private Dumper dumpAssignment(Dumper dumper, boolean resourceContext) {
         Expression displayRValue = rvalue;
         JavaTypeInstance creatorOverrideType = null;
+        JavaTypeInstance assignmentDisplayType = lvalue.getInferredJavaType().getJavaTypeInstance();
+        displayRValue = restoreRequiredPrimitiveCreatorCast(displayRValue);
         if (shouldInlineSyntheticCreator()) {
             AssignmentExpression assignmentExpression = (AssignmentExpression) rvalue;
             ExpressionTypeHintHelper.improveExpressionType(
@@ -112,16 +121,202 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
                 creatorOverrideType = forcedCreatorDisplay.declarationType;
                 displayRValue = forcedCreatorDisplay.expression;
             }
+            if (creatorOverrideType != null) {
+                assignmentDisplayType = creatorOverrideType;
+            }
             if (lvalue.isFinal()) dumper.print("final ");
             LValue.Creation.dump(dumper, lvalue, creatorOverrideType);
+            if (creatorLocalVariable != null
+                    && creatorLocalVariable.shouldSuppressDefaultInitializer()
+                    && isDefaultValueLike(creatorLocalVariable, displayRValue)) {
+                if (!resourceContext) {
+                    dumper.endCodeln();
+                }
+                return dumper;
+            }
         } else {
             dumper.dump(lvalue);
         }
-        dumper.operator(" = ").dump(displayRValue);
+        dumper.operator(" = ");
+        if (displayRValue instanceof MemberFunctionInvokation
+                && requiresExplicitFunctionReturnCast(displayRValue, assignmentDisplayType)) {
+            dumper.separator("(").dump(assignmentDisplayType).separator(")");
+            displayRValue.dumpWithOuterPrecedence(dumper, Precedence.UNARY_OTHER, Troolean.NEITHER);
+        } else {
+            dumper.dump(displayRValue);
+        }
         if (!resourceContext) {
             dumper.endCodeln();
         }
         return dumper;
+    }
+
+    private Expression restoreRequiredPrimitiveCreatorCast(Expression expression) {
+        if (!isEffectiveCreator() || expression instanceof CastExpression) {
+            return expression;
+        }
+        JavaTypeInstance assignmentType = lvalue.getInferredJavaType().getJavaTypeInstance();
+        JavaTypeInstance declaredFunctionReturnType = getDeclaredPrimitiveFunctionReturnType(expression);
+        if (requiresExplicitFunctionReturnCast(expression, assignmentType)) {
+            return new CastExpression(
+                    BytecodeLoc.NONE,
+                    new InferredJavaType(assignmentType, InferredJavaType.Source.EXPRESSION, true),
+                    expression,
+                    true
+            );
+        }
+        if (requiresPrimitiveNarrowingCast(assignmentType, declaredFunctionReturnType)) {
+            return new CastExpression(
+                    BytecodeLoc.NONE,
+                    new InferredJavaType(assignmentType, InferredJavaType.Source.EXPRESSION, true),
+                    expression,
+                    true
+            );
+        }
+        if (requiresReferenceNarrowingCast(assignmentType, declaredFunctionReturnType)) {
+            return new CastExpression(
+                    BytecodeLoc.NONE,
+                    new InferredJavaType(assignmentType, InferredJavaType.Source.EXPRESSION, true),
+                    expression,
+                    true
+            );
+        }
+        JavaTypeInstance displayType = ExpressionTypeHintHelper.getDisplayType(expression, assignmentType);
+        if (!(assignmentType instanceof RawJavaType) || !(displayType instanceof RawJavaType)) {
+            return expression;
+        }
+        if (assignmentType.equals(displayType) || displayType.implicitlyCastsTo(assignmentType, null)) {
+            return expression;
+        }
+        return new CastExpression(
+                BytecodeLoc.NONE,
+                new InferredJavaType(assignmentType, InferredJavaType.Source.EXPRESSION, true),
+                expression,
+                true
+        );
+    }
+
+    private JavaTypeInstance getDeclaredPrimitiveFunctionReturnType(Expression expression) {
+        if (expression instanceof StaticFunctionInvokation) {
+            return ((StaticFunctionInvokation) expression).getMethodPrototype().getReturnType();
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            return ((MemberFunctionInvokation) expression).getMethodPrototype().getReturnType();
+        }
+        return null;
+    }
+
+    private boolean requiresPrimitiveNarrowingCast(JavaTypeInstance assignmentType,
+                                                   JavaTypeInstance declaredFunctionReturnType) {
+        if (!(assignmentType instanceof RawJavaType) || !(declaredFunctionReturnType instanceof RawJavaType)) {
+            return false;
+        }
+        if (assignmentType.equals(declaredFunctionReturnType)) {
+            return false;
+        }
+        return !declaredFunctionReturnType.implicitlyCastsTo(assignmentType, null);
+    }
+
+    private boolean requiresReferenceNarrowingCast(JavaTypeInstance assignmentType,
+                                                   JavaTypeInstance declaredFunctionReturnType) {
+        if (assignmentType == null || declaredFunctionReturnType == null) {
+            return false;
+        }
+        if (assignmentType instanceof RawJavaType || declaredFunctionReturnType instanceof RawJavaType) {
+            return false;
+        }
+        if (assignmentType.equals(declaredFunctionReturnType)) {
+            return false;
+        }
+        JavaTypeInstance assignmentBaseType = assignmentType.getDeGenerifiedType();
+        JavaTypeInstance declaredBaseType = declaredFunctionReturnType.getDeGenerifiedType();
+        if (assignmentBaseType != null
+                && declaredBaseType != null
+                && assignmentBaseType.equals(declaredBaseType)) {
+            return false;
+        }
+        return !declaredFunctionReturnType.implicitlyCastsTo(assignmentType, null);
+    }
+
+    private boolean requiresExplicitFunctionReturnCast(Expression expression, JavaTypeInstance assignmentType) {
+        if (assignmentType == null) {
+            return false;
+        }
+        if (requiresGenericPlaceholderReturnCast(expression, assignmentType)) {
+            return true;
+        }
+        if (expression instanceof MemberFunctionInvokation) {
+            return ((MemberFunctionInvokation) expression).requiresExplicitReturnCast(assignmentType);
+        }
+        if (expression instanceof StaticFunctionInvokation) {
+            return ((StaticFunctionInvokation) expression).requiresExplicitReturnCast(assignmentType);
+        }
+        return false;
+    }
+
+    private boolean requiresGenericPlaceholderReturnCast(Expression expression, JavaTypeInstance assignmentType) {
+        if (!(expression instanceof MemberFunctionInvokation) || assignmentType instanceof RawJavaType) {
+            return false;
+        }
+        MemberFunctionInvokation memberFunctionInvokation = (MemberFunctionInvokation) expression;
+        if (!(memberFunctionInvokation.getMethodPrototype().getReturnType() instanceof JavaGenericPlaceholderTypeInstance)) {
+            return false;
+        }
+        if (!(memberFunctionInvokation.getObject() instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) memberFunctionInvokation.getObject()).getLValue();
+        if (!(lValue instanceof LocalVariable)) {
+            return false;
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        if (localVariable.hasConflictingGenericDeclaration()) {
+            return true;
+        }
+        if (canResolveGenericReceiverReturn(memberFunctionInvokation, assignmentType)) {
+            return false;
+        }
+        return sharesGenericBase(localVariable.getInferredJavaType().getJavaTypeInstance(), localVariable.getCustomCreationJavaType())
+                && !Objects.equals(localVariable.getInferredJavaType().getJavaTypeInstance(), localVariable.getCustomCreationJavaType());
+    }
+
+    private boolean isDefaultValueLike(LocalVariable localVariable, Expression expression) {
+        if (localVariable == null || expression == null) {
+            return false;
+        }
+        if (expression instanceof CastExpression) {
+            return isDefaultValueLike(localVariable, ((CastExpression) expression).getChild());
+        }
+        JavaTypeInstance javaTypeInstance = localVariable.getInferredJavaType().getJavaTypeInstance();
+        RawJavaType rawType = javaTypeInstance == null ? null : javaTypeInstance.getRawTypeOfSimpleType();
+        if (rawType == null || rawType == RawJavaType.REF) {
+            return Literal.NULL.equals(expression);
+        }
+        if (!(expression instanceof Literal)) {
+            return false;
+        }
+        TypedLiteral literal = ((Literal) expression).getValue();
+        Object value = literal.getValue();
+        if (value == null) {
+            return false;
+        }
+        switch (rawType) {
+            case BOOLEAN:
+                return Boolean.FALSE.equals(value);
+            case BYTE:
+            case CHAR:
+            case SHORT:
+            case INT:
+                return value instanceof Number && ((Number) value).intValue() == 0;
+            case LONG:
+                return value instanceof Number && ((Number) value).longValue() == 0L;
+            case FLOAT:
+                return value instanceof Number && ((Number) value).floatValue() == 0.0f;
+            case DOUBLE:
+                return value instanceof Number && ((Number) value).doubleValue() == 0.0d;
+            default:
+                return false;
+        }
     }
 
     private ForcedCreatorDisplay extractForcedCreatorDisplay(LocalVariable localVariable, Expression expression) {
@@ -186,13 +381,85 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             return true;
         }
         if (child instanceof MemberFunctionInvokation || child instanceof StaticFunctionInvokation) {
+            if (requiresExplicitFunctionReturnCast(child, declarationType)) {
+                return false;
+            }
+            JavaTypeInstance declaredFunctionReturnType = getDeclaredPrimitiveFunctionReturnType(child);
+            if (requiresPrimitiveNarrowingCast(declarationType, declaredFunctionReturnType)
+                    || requiresReferenceNarrowingCast(declarationType, declaredFunctionReturnType)) {
+                return false;
+            }
             JavaTypeInstance childDisplayType = ExpressionTypeHintHelper.getDisplayType(child, declarationType);
+            if (childDisplayType instanceof RawJavaType
+                    && declarationType instanceof RawJavaType
+                    && !childDisplayType.equals(declarationType)) {
+                return false;
+            }
+            if (child instanceof MemberFunctionInvokation
+                    && canResolveGenericReceiverReturn((MemberFunctionInvokation) child, declarationType)) {
+                return true;
+            }
             return childDisplayType != null
                     && (childDisplayType.equals(declarationType)
                     || childDisplayType.implicitlyCastsTo(declarationType, null)
                     || declarationType.implicitlyCastsTo(childDisplayType, null));
         }
         return false;
+    }
+
+    private boolean canResolveGenericReceiverReturn(MemberFunctionInvokation invokation,
+                                                    JavaTypeInstance declarationType) {
+        if (invokation == null
+                || declarationType == null
+                || declarationType instanceof RawJavaType
+                || !(invokation.getMethodPrototype().getReturnType() instanceof JavaGenericPlaceholderTypeInstance)) {
+            return false;
+        }
+        Expression receiver = invokation.getObject();
+        if (!(receiver instanceof LValueExpression)) {
+            return false;
+        }
+        LValue lValue = ((LValueExpression) receiver).getLValue();
+        if (!(lValue instanceof LocalVariable) || ((LocalVariable) lValue).hasConflictingGenericDeclaration()) {
+            return false;
+        }
+        JavaTypeInstance receiverType = getGenericReceiverDisplayType(receiver);
+        if (!ExpressionTypeHintHelper.canDisplayTypeArguments(receiverType)
+                || ExpressionTypeHintHelper.isObjectOnlyGenericType(receiverType)) {
+            return false;
+        }
+        JavaTypeInstance resolvedReturnType = ExpressionTypeHintHelper.getDisplayType(invokation, declarationType);
+        if (resolvedReturnType == null) {
+            return false;
+        }
+        JavaTypeInstance declarationBaseType = declarationType.getDeGenerifiedType();
+        JavaTypeInstance resolvedBaseType = resolvedReturnType.getDeGenerifiedType();
+        if (declarationBaseType == null
+                || resolvedBaseType == null
+                || !declarationBaseType.equals(resolvedBaseType)) {
+            return false;
+        }
+        return resolvedReturnType.equals(declarationType)
+                || resolvedReturnType.implicitlyCastsTo(declarationType, null)
+                || ExpressionTypeHintHelper.shouldPreferResolvedType(declarationType, resolvedReturnType)
+                && ExpressionTypeHintHelper.canDisplayTypeArguments(resolvedReturnType);
+    }
+
+    private JavaTypeInstance getGenericReceiverDisplayType(Expression receiver) {
+        if (!(receiver instanceof LValueExpression)) {
+            return ExpressionTypeHintHelper.getDisplayType(receiver, null);
+        }
+        LValue lValue = ((LValueExpression) receiver).getLValue();
+        if (!(lValue instanceof LocalVariable)) {
+            return ExpressionTypeHintHelper.getDisplayType(receiver, null);
+        }
+        LocalVariable localVariable = (LocalVariable) lValue;
+        JavaTypeInstance creatorType = localVariable.getCustomCreationJavaType();
+        JavaTypeInstance inferredType = localVariable.getInferredJavaType().getJavaTypeInstance();
+        if (creatorType != null) {
+            return ExpressionTypeHintHelper.preferResolvedType(creatorType, inferredType);
+        }
+        return inferredType;
     }
 
     public void applyTargetExpressionConstraints() {
@@ -246,6 +513,14 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
         if (!(lvalue instanceof LocalVariable)) {
             return;
         }
+        if (localVariable.hasConflictingReferenceDeclaration()) {
+            localVariable.getInferredJavaType().forceType(TypeConstants.OBJECT, true);
+            localVariable.forceCustomCreationJavaType(TypeConstants.OBJECT);
+            if (localVariable.getAnnotatedCreationType() == null) {
+                localVariable.setCustomCreationType(TypeConstants.OBJECT.getAnnotatedInstance());
+            }
+            return;
+        }
         JavaTypeInstance currentType = localVariable.getInferredJavaType().getJavaTypeInstance();
         if (!ExpressionTypeHintHelper.canDefineLocalType(displayType)) {
             return;
@@ -274,6 +549,23 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
                 localVariable.setCustomCreationJavaType(declarationType);
                 if (localVariable.getAnnotatedCreationType() == null) {
                     localVariable.setCustomCreationType(declarationType.getAnnotatedInstance());
+                }
+            }
+            return;
+        }
+        JavaTypeInstance conflictingReferenceFallbackType = getConflictingReferenceFallbackType(currentType, displayType);
+        if (conflictingReferenceFallbackType == null) {
+            conflictingReferenceFallbackType = getConflictingReferenceFallbackType(
+                    currentType,
+                    getExplicitReferenceCastType(rvalue)
+            );
+        }
+        if (conflictingReferenceFallbackType != null) {
+            localVariable.getInferredJavaType().forceType(conflictingReferenceFallbackType, true);
+            if (creator) {
+                localVariable.setCustomCreationJavaType(conflictingReferenceFallbackType);
+                if (localVariable.getAnnotatedCreationType() == null) {
+                    localVariable.setCustomCreationType(conflictingReferenceFallbackType.getAnnotatedInstance());
                 }
             }
             return;
@@ -315,6 +607,42 @@ public class StructuredAssignment extends AbstractStructuredStatement implements
             return null;
         }
         return currentBaseType;
+    }
+
+    private JavaTypeInstance getConflictingReferenceFallbackType(JavaTypeInstance currentType, JavaTypeInstance displayType) {
+        if (currentType == null || displayType == null || currentType.equals(displayType)) {
+            return null;
+        }
+        if (currentType == TypeConstants.OBJECT || displayType == TypeConstants.OBJECT) {
+            return null;
+        }
+        if (currentType instanceof RawJavaType || displayType instanceof RawJavaType) {
+            return null;
+        }
+        JavaTypeInstance currentBaseType = currentType.getDeGenerifiedType();
+        JavaTypeInstance displayBaseType = displayType.getDeGenerifiedType();
+        if (currentBaseType == null
+                || displayBaseType == null
+                || currentBaseType.equals(displayBaseType)
+                || currentType.implicitlyCastsTo(displayType, null)
+                || displayType.implicitlyCastsTo(currentType, null)) {
+            return null;
+        }
+        // If one recovered local is forced to hold unrelated reference types in disjoint scopes,
+        // a narrower declaration will not round-trip. Falling back to Object is conservative but
+        // preserves compilability until the declaration splitter can recover separate locals.
+        return TypeConstants.OBJECT;
+    }
+
+    private JavaTypeInstance getExplicitReferenceCastType(Expression expression) {
+        if (!(expression instanceof CastExpression)) {
+            return null;
+        }
+        JavaTypeInstance castType = ((CastExpression) expression).getInferredJavaType().getJavaTypeInstance();
+        if (castType == null || castType instanceof RawJavaType || castType == TypeConstants.OBJECT) {
+            return null;
+        }
+        return castType;
     }
 
     private boolean isSymmetricGenericConflict(JavaTypeInstance currentType,
