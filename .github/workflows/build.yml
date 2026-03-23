@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'jetbrains'
           cache: maven
 
       - name: set up python
@@ -43,7 +43,13 @@ jobs:
         run: mvn -B clean package -DskipTests --file pom.xml
 
       - name: build release layout
-        run: python build.py --os ${{ matrix.os_name }}
+        if: runner.os != 'Windows'
+        run: python build.py --os ${{ matrix.os_name }} --jbr "$JAVA_HOME"
+
+      - name: build release layout (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python build.py --os ${{ matrix.os_name }} --jbr "$env:JAVA_HOME"
 
       - name: bundle jre-21 (windows)
         if: runner.os == 'Windows'
@@ -70,6 +76,5 @@ jobs:
         with:
           name: jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}
           path: |
-            release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-system
             release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-full
             release/jar-analyzer-${{ env.VERSION }}-${{ matrix.os_name }}-21
