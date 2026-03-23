@@ -18,6 +18,38 @@ jobs:
         java-version: '21'
         distribution: 'jetbrains'
         cache: maven
+
+    - name: ensure JBR 21 + JCEF runtime
+      shell: bash
+      run: |
+        if [ -f "$JAVA_HOME/jmods/jcef.jmod" ]; then
+          echo "JBR with JCEF detected: $JAVA_HOME"
+          exit 0
+        fi
+
+        JBR_VERSION="21.0.10"
+        JBR_BUILD="1163.108"
+        JBR_FILE="jbr_jcef-${JBR_VERSION}-linux-x64-b${JBR_BUILD}.tar.gz"
+        JBR_URL="https://cache-redirector.jetbrains.com/intellij-jbr/${JBR_FILE}"
+        JBR_DIR="/tmp/jbr-jcef"
+
+        echo "Fallback downloading JBR JCEF: ${JBR_FILE}"
+        curl -fsSL "${JBR_URL}" -o /tmp/jbr-jcef.tar.gz
+        mkdir -p "${JBR_DIR}"
+        tar -xzf /tmp/jbr-jcef.tar.gz -C "${JBR_DIR}"
+        JBR_HOME="$(find "${JBR_DIR}" -maxdepth 1 -type d -name "jbr_jcef-${JBR_VERSION}-linux-x64-b${JBR_BUILD}*" | head -n1)"
+        if [ -z "${JBR_HOME}" ]; then
+          echo "Downloaded JBR JCEF package has unexpected layout"
+          exit 1
+        fi
+
+        if [ ! -f "${JBR_HOME}/jmods/jcef.jmod" ]; then
+          echo "Downloaded JBR JCEF still misses jcef.jmod"
+          exit 1
+        fi
+
+        echo "JAVA_HOME=${JBR_HOME}" >> $GITHUB_ENV
+        echo "${JBR_HOME}/bin" >> $GITHUB_PATH
     - name: check core maven
       run: mvn -B clean package -DskipTests --file pom.xml
     - name: check agent maven

@@ -31,6 +31,76 @@ jobs:
           distribution: 'jetbrains'
           cache: maven
 
+      - name: ensure JBR 21 + JCEF runtime (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ -f "$JAVA_HOME/jmods/jcef.jmod" ]; then
+            echo "JBR with JCEF detected: $JAVA_HOME"
+            exit 0
+          fi
+
+          JBR_VERSION="21.0.10"
+          JBR_BUILD="1163.108"
+          JBR_OS="linux"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            JBR_OS="osx"
+          fi
+          JBR_FILE="jbr_jcef-${JBR_VERSION}-${JBR_OS}-x64-b${JBR_BUILD}.tar.gz"
+          JBR_URL="https://cache-redirector.jetbrains.com/intellij-jbr/${JBR_FILE}"
+          JBR_DIR="/tmp/jbr-jcef"
+
+          echo "Fallback downloading JBR JCEF: ${JBR_FILE}"
+          curl -fsSL "${JBR_URL}" -o /tmp/jbr-jcef.tar.gz
+          mkdir -p "${JBR_DIR}"
+          tar -xzf /tmp/jbr-jcef.tar.gz -C "${JBR_DIR}"
+          JBR_HOME="$(find "${JBR_DIR}" -maxdepth 1 -type d -name "jbr_jcef-${JBR_VERSION}-${JBR_OS}-x64-b${JBR_BUILD}*" | head -n1)"
+          if [ -z "${JBR_HOME}" ]; then
+            echo "Downloaded JBR JCEF package has unexpected layout"
+            exit 1
+          fi
+
+          if [ ! -f "${JBR_HOME}/jmods/jcef.jmod" ]; then
+            echo "Downloaded JBR JCEF still misses jcef.jmod"
+            exit 1
+          fi
+
+          echo "JAVA_HOME=${JBR_HOME}" >> $GITHUB_ENV
+          echo "${JBR_HOME}/bin" >> $GITHUB_PATH
+
+      - name: ensure JBR 21 + JCEF runtime (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:JAVA_HOME\jmods\jcef.jmod") {
+            Write-Host "JBR with JCEF detected: $env:JAVA_HOME"
+            exit 0
+          }
+
+          $jbrVersion = "21.0.10"
+          $jbrBuild = "1163.108"
+          $jbrFile = "jbr_jcef-${jbrVersion}-windows-x64-b${jbrBuild}.tar.gz"
+          $jbrUrl = "https://cache-redirector.jetbrains.com/intellij-jbr/${jbrFile}"
+          $jbrArchive = Join-Path $env:RUNNER_TEMP "jbr-jcef.tar.gz"
+          $jbrDir = Join-Path $env:RUNNER_TEMP "jbr-jcef"
+          Invoke-WebRequest -Uri $jbrUrl -OutFile $jbrArchive
+          if (Test-Path $jbrDir) {
+            Remove-Item -Recurse -Force $jbrDir
+          }
+          New-Item -ItemType Directory -Force -Path $jbrDir | Out-Null
+          tar -xzf $jbrArchive -C $jbrDir
+          $homeCandidates = Get-ChildItem -Path $jbrDir -Directory | Where-Object { $_.Name -like "jbr_jcef-${jbrVersion}-windows-x64-b${jbrBuild}*" }
+          $jbrHomeInfo = $homeCandidates | Select-Object -First 1
+          if (-not $jbrHomeInfo) {
+            throw "Downloaded JBR JCEF package has unexpected layout"
+          }
+          $jbrHome = $jbrHomeInfo.FullName
+          if (-not (Test-Path "$jbrHome\jmods\jcef.jmod")) {
+            throw "Downloaded JBR JCEF still misses jcef.jmod"
+          }
+          "JAVA_HOME=$jbrHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "${jbrHome}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: set up python
         uses: actions/setup-python@v5
         with:
